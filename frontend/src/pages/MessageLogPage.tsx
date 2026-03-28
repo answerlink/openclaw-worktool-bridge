@@ -40,6 +40,7 @@ const DEFAULT_VISIBLE_COLUMNS = [
   'roomType',
   'textType',
   'atMe',
+  'rawSpoken',
   'question',
   'answer',
   'providerName',
@@ -187,6 +188,14 @@ export default function MessageLogPage() {
         dataIndex: 'atMe',
         width: 100,
         render: (v: boolean | undefined) => (v === undefined ? '-' : v ? '是' : '否')
+      },
+      {
+        key: 'rawSpoken',
+        title: '原始问题',
+        dataIndex: 'rawSpoken',
+        width: 280,
+        ellipsis: true,
+        render: (v: string | undefined) => (v && String(v).trim() ? v : '-')
       },
       { key: 'question', title: '问题', dataIndex: 'question', width: 280, ellipsis: true },
       { key: 'answer', title: '回答', dataIndex: 'answer', width: 280, ellipsis: true },

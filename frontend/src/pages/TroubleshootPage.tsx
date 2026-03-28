@@ -216,7 +216,9 @@ export default function TroubleshootPage() {
               { title: '时间', dataIndex: '时间', width: 180 },
               { title: '提问者', dataIndex: '提问者', width: 120 },
               { title: '会话', dataIndex: '会话', width: 180, ellipsis: true },
+              { title: '是否@', dataIndex: '是否@', width: 90, render: (v: any) => (v === true ? '是' : v === false ? '否' : '-') },
               { title: '问题', dataIndex: '问题', width: 300, ellipsis: true },
+              { title: '原始问题', dataIndex: '原始问题', width: 300, ellipsis: true },
               { title: '回答', dataIndex: '回答', width: 300, ellipsis: true },
               { title: '消息ID', dataIndex: '消息ID', width: 220, ellipsis: true }
             ]}
