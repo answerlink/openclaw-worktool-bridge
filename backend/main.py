@@ -549,6 +549,50 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS robot_group_cache (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  robot_pk BIGINT NOT NULL,
+                  source_id BIGINT NULL,
+                  group_name VARCHAR(255) NOT NULL,
+                  master_name VARCHAR(255) NULL,
+                  msg_insert_time VARCHAR(64) NULL,
+                  msg_num INT NULL,
+                  members_num INT NULL,
+                  group_announcement TEXT NULL,
+                  level INT NULL,
+                  source_create_time VARCHAR(64) NULL,
+                  source_update_time VARCHAR(64) NULL,
+                  raw_json JSON NULL,
+                  synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uk_robot_group_cache (robot_pk, group_name),
+                  UNIQUE KEY uk_robot_group_cache_source (robot_pk, source_id),
+                  INDEX idx_robot_group_cache_robot_sync (robot_pk, synced_at),
+                  CONSTRAINT fk_robot_group_cache_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS robot_group_sync_state (
+                  robot_pk BIGINT PRIMARY KEY,
+                  cursor_time VARCHAR(64) NULL,
+                  cursor_id BIGINT NULL,
+                  last_sync_at DATETIME NULL,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  CONSTRAINT fk_robot_group_sync_state_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute("SHOW COLUMNS FROM robot_group_cache LIKE 'source_id'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE robot_group_cache ADD COLUMN source_id BIGINT NULL AFTER robot_pk")
+            cur.execute("SHOW INDEX FROM robot_group_cache WHERE Key_name='uk_robot_group_cache_source'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE robot_group_cache ADD UNIQUE KEY uk_robot_group_cache_source (robot_pk, source_id)")
             cur.execute("SHOW COLUMNS FROM forward_rules LIKE 'target_type'")
             if cur.fetchone():
                 cur.execute("ALTER TABLE forward_rules DROP COLUMN target_type")
@@ -1612,6 +1656,214 @@ async def post_worktool_api(path: str, params: Optional[Dict[str, Any]] = None, 
                 )
                 raise HTTPException(status_code=502, detail="worktool response is not valid json")
             return data if isinstance(data, dict) else {"data": data}
+
+
+async def fetch_worktool_group_list_all(robot_id: str, page_size: int = 100, max_pages: int = 200) -> List[Dict[str, Any]]:
+    rid = (robot_id or "").strip()
+    if not rid:
+        return []
+    items: List[Dict[str, Any]] = []
+    page = 1
+    total_page = 1
+    safe_size = max(1, min(int(page_size), 200))
+    while page <= total_page and page <= max_pages:
+        res = await fetch_worktool_api(
+            "/robot/wework/group/list",
+            {"robotId": rid, "page": page, "size": safe_size, "sort": "id,desc"},
+        )
+        data = res.get("data") if isinstance(res, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+        rows = data.get("list") or []
+        if not isinstance(rows, list):
+            rows = []
+        for row in rows:
+            if isinstance(row, dict):
+                items.append(row)
+        try:
+            total_page = int(data.get("totalPage") or 1)
+        except Exception:
+            total_page = 1
+        page += 1
+    return items
+
+
+def _group_row_cursor(row: Dict[str, Any]) -> tuple:
+    raw_t = str(row.get("updateTime") or row.get("createTime") or "").strip()
+    t_obj = _parse_datetime_or_none(raw_t, raise_on_invalid=False)
+    if t_obj is None:
+        t_obj = datetime.min
+        raw_t = ""
+    try:
+        sid = int(row.get("id")) if row.get("id") is not None else None
+    except Exception:
+        sid = None
+    return (t_obj, sid, raw_t)
+
+
+async def fetch_worktool_group_list_incremental(
+    robot_id: str,
+    updated_after: Optional[str],
+    last_id: Optional[int],
+    page_size: int = 200,
+    max_pages: int = 200,
+) -> List[Dict[str, Any]]:
+    rid = (robot_id or "").strip()
+    if not rid:
+        return []
+    safe_size = max(1, min(int(page_size), 200))
+    page = 1
+    total_page = 1
+    items: List[Dict[str, Any]] = []
+    while page <= total_page and page <= max_pages:
+        params: Dict[str, Any] = {"robotId": rid, "page": page, "size": safe_size}
+        ua = (updated_after or "").strip()
+        if ua:
+            params["updatedAfter"] = ua
+        if last_id is not None:
+            params["lastId"] = int(last_id)
+        res = await fetch_worktool_api("/robot/wework/group/list", params)
+        data = res.get("data") if isinstance(res, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+        rows = data.get("list") or []
+        if not isinstance(rows, list):
+            rows = []
+        for row in rows:
+            if isinstance(row, dict):
+                items.append(row)
+        try:
+            total_page = int(data.get("totalPage") or 1)
+        except Exception:
+            total_page = 1
+        page += 1
+    return items
+
+
+def get_robot_group_sync_state(robot_pk: int) -> Dict[str, Any]:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT cursor_time,cursor_id,last_sync_at FROM robot_group_sync_state WHERE robot_pk=%s LIMIT 1",
+                (int(robot_pk),),
+            )
+            row = cur.fetchone() or {}
+            return {
+                "cursor_time": (row.get("cursor_time") or "").strip() if isinstance(row, dict) else "",
+                "cursor_id": int(row.get("cursor_id")) if row and row.get("cursor_id") is not None else None,
+                "last_sync_at": row.get("last_sync_at") if isinstance(row, dict) else None,
+            }
+    finally:
+        conn.close()
+
+
+def save_robot_group_sync_state(robot_pk: int, cursor_time: Optional[str], cursor_id: Optional[int]) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO robot_group_sync_state(robot_pk,cursor_time,cursor_id,last_sync_at)
+                VALUES(%s,%s,%s,CURRENT_TIMESTAMP)
+                ON DUPLICATE KEY UPDATE
+                  cursor_time=VALUES(cursor_time),
+                  cursor_id=VALUES(cursor_id),
+                  last_sync_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    int(robot_pk),
+                    (cursor_time or "").strip()[:64] or None,
+                    int(cursor_id) if cursor_id is not None else None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def sync_robot_groups_by_cursor(robot_pk: int, robot_id: str) -> Dict[str, Any]:
+    state = get_robot_group_sync_state(int(robot_pk))
+    cursor_time = (state.get("cursor_time") or "").strip()
+    cursor_id = state.get("cursor_id")
+    is_incremental = bool(cursor_time) and cursor_id is not None and int(cursor_id) > 0
+    if is_incremental:
+        rows = await fetch_worktool_group_list_incremental(robot_id, cursor_time, int(cursor_id), page_size=200, max_pages=200)
+        mode = "incremental"
+    else:
+        rows = await fetch_worktool_group_list_all(robot_id, page_size=200, max_pages=200)
+        mode = "full"
+    affected = upsert_robot_group_cache(int(robot_pk), rows)
+    next_cursor_time = cursor_time
+    next_cursor_id = cursor_id
+    if rows:
+        cands = [x for x in (_group_row_cursor(r) for r in rows) if x[1] is not None and int(x[1]) > 0]
+        if cands:
+            best = max(cands, key=lambda x: (x[0], int(x[1])))
+            next_cursor_time = best[2] or cursor_time
+            next_cursor_id = int(best[1]) if best[1] is not None else None
+            if next_cursor_time and next_cursor_id is not None and next_cursor_id > 0:
+                save_robot_group_sync_state(int(robot_pk), next_cursor_time, next_cursor_id)
+        else:
+            # 上游暂未返回可用id时，不启用增量游标，避免 lastId=0 造成伪增量。
+            next_cursor_id = None
+    return {
+        "mode": mode,
+        "fetched": len(rows),
+        "affected": affected,
+        "cursor_time": next_cursor_time or "",
+    }
+
+
+def upsert_robot_group_cache(robot_pk: int, rows: List[Dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+    conn = db_conn()
+    affected = 0
+    try:
+        with conn.cursor() as cur:
+            for row in rows:
+                group_name = str(row.get("groupName") or "").strip()
+                if not group_name:
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO robot_group_cache(
+                      robot_pk,source_id,group_name,master_name,msg_insert_time,msg_num,members_num,group_announcement,level,source_create_time,source_update_time,raw_json,synced_at
+                    ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE
+                      source_id=VALUES(source_id),
+                      master_name=VALUES(master_name),
+                      msg_insert_time=VALUES(msg_insert_time),
+                      msg_num=VALUES(msg_num),
+                      members_num=VALUES(members_num),
+                      group_announcement=VALUES(group_announcement),
+                      level=VALUES(level),
+                      source_create_time=VALUES(source_create_time),
+                      source_update_time=VALUES(source_update_time),
+                      raw_json=VALUES(raw_json),
+                      synced_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        int(robot_pk),
+                        int(row.get("id")) if row.get("id") is not None else None,
+                        group_name[:255],
+                        str(row.get("masterName") or "").strip()[:255] or None,
+                        str(row.get("msgInsertTime") or "").strip()[:64] or None,
+                        int(row.get("msgNum")) if row.get("msgNum") is not None else None,
+                        int(row.get("membersNum")) if row.get("membersNum") is not None else None,
+                        str(row.get("groupAnnouncement") or "")[:4000] or None,
+                        int(row.get("level")) if row.get("level") is not None else None,
+                        str(row.get("createTime") or "").strip()[:64] or None,
+                        str(row.get("updateTime") or "").strip()[:64] or None,
+                        json.dumps(row, ensure_ascii=False),
+                    ),
+                )
+                affected += int(cur.rowcount or 0)
+        conn.commit()
+    finally:
+        conn.close()
+    return affected
 
 
 def _ensure_worktool_ok(data: Optional[Dict[str, Any]], action: str) -> None:
@@ -4431,6 +4683,97 @@ async def get_worktool_qa_logs(
 ) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
     return await fetch_worktool_api("/robot/qaLog/list", {"robotId": robot_id, "page": page, "size": size, "sort": sort})
+
+
+@app.post("/api/v1/groups/sync")
+async def sync_groups_cache(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    sync_res = await sync_robot_groups_by_cursor(int(robot["id"]), robot_id)
+    return {"ok": True, "robot_id": robot_id, **sync_res}
+
+
+@app.get("/api/v1/groups")
+async def list_groups_cache(
+    robot_id: str,
+    keyword: str = "",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    kw = (keyword or "").strip()
+    def _query_local_cache() -> Dict[str, Any]:
+        conn_local = db_conn()
+        try:
+            with conn_local.cursor() as cur:
+                where = ["robot_pk=%s"]
+                params: List[Any] = [int(robot["id"])]
+                if kw:
+                    like = f"%{kw}%"
+                    where.append("(group_name LIKE %s OR master_name LIKE %s)")
+                    params.extend([like, like])
+                where_sql = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(1) AS c FROM robot_group_cache WHERE {where_sql}", tuple(params))
+                total_local = int((cur.fetchone() or {}).get("c") or 0)
+                offset = (page - 1) * page_size
+                cur.execute(
+                    f"""
+                    SELECT group_name,master_name,msg_insert_time,msg_num,members_num,group_announcement,level,source_create_time,source_update_time,synced_at
+                    FROM robot_group_cache
+                    WHERE {where_sql}
+                    ORDER BY synced_at DESC, id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    tuple(params + [page_size, offset]),
+                )
+                rows_local = cur.fetchall() or []
+                cur.execute("SELECT MAX(synced_at) AS latest_sync_at FROM robot_group_cache WHERE robot_pk=%s", (int(robot["id"]),))
+                latest_local = (cur.fetchone() or {}).get("latest_sync_at")
+                return {"total": total_local, "rows": rows_local, "latest_sync_at": latest_local}
+        finally:
+            conn_local.close()
+
+    query_result = _query_local_cache()
+    total = int(query_result["total"])
+    rows = query_result["rows"]
+    latest_sync_at = query_result["latest_sync_at"]
+
+    # 懒加载：首次无缓存时自动同步一次，避免用户必须手动点“立即同步”。
+    if total == 0 and latest_sync_at is None:
+        try:
+            await sync_robot_groups_by_cursor(int(robot["id"]), robot_id)
+        except Exception:
+            # 同步失败时保持原查询结果，避免读接口直接报错。
+            pass
+        query_result = _query_local_cache()
+        total = int(query_result["total"])
+        rows = query_result["rows"]
+        latest_sync_at = query_result["latest_sync_at"]
+
+    items: List[Dict[str, Any]] = []
+    for row in rows:
+        synced_at = row.get("synced_at")
+        items.append(
+            {
+                "group_name": row.get("group_name") or "",
+                "master_name": row.get("master_name") or "",
+                "msg_insert_time": row.get("msg_insert_time") or "",
+                "msg_num": row.get("msg_num"),
+                "members_num": row.get("members_num"),
+                "group_announcement": row.get("group_announcement") or "",
+                "level": row.get("level"),
+                "source_create_time": row.get("source_create_time") or "",
+                "source_update_time": row.get("source_update_time") or "",
+                "synced_at": str(synced_at) if synced_at is not None else "",
+            }
+        )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "latest_sync_at": str(latest_sync_at) if latest_sync_at is not None else "",
+    }
 
 
 @app.get("/api/v1/message-monitor/logs")
