@@ -139,6 +139,21 @@ export const api = {
   syncGroups: (robotId: string) => http.post('/groups/sync', null, { params: { robot_id: robotId } }).then((r) => r.data),
   listGroups: (params: { robot_id: string; keyword?: string; page?: number; page_size?: number }) =>
     http.get('/groups', { params }).then((r) => r.data),
+  listGroupTags: (robotId: string) => http.get('/group-tags', { params: { robot_id: robotId } }).then((r) => r.data),
+  createGroupTag: (robotId: string, payload: { name: string }) =>
+    http.post('/group-tags', payload, { params: { robot_id: robotId } }).then((r) => r.data),
+  updateGroupTag: (robotId: string, id: number, payload: { name: string }) =>
+    http.put(`/group-tags/${id}`, payload, { params: { robot_id: robotId } }).then((r) => r.data),
+  deleteGroupTag: (robotId: string, id: number) =>
+    http.delete(`/group-tags/${id}`, { params: { robot_id: robotId } }).then((r) => r.data),
+  listGroupTagItems: (robotId: string, tagId: number, params?: { page?: number; page_size?: number }) =>
+    http.get(`/group-tags/${tagId}/items`, { params: { ...(params || {}), robot_id: robotId } }).then((r) => r.data),
+  createGroupTagItems: (robotId: string, tagId: number, payload: { match_type: 'exact' | 'regex'; values: string[] }) =>
+    http.post(`/group-tags/${tagId}/items`, payload, { params: { robot_id: robotId } }).then((r) => r.data),
+  deleteGroupTagItem: (robotId: string, tagId: number, itemId: number) =>
+    http.delete(`/group-tags/${tagId}/items/${itemId}`, { params: { robot_id: robotId } }).then((r) => r.data),
+  suggestGroupNames: (params: { robot_id: string; keyword?: string; limit?: number }) =>
+    http.get('/group-tags/group-suggestions', { params }).then((r) => r.data),
   getRobotInfoDetail: (robotId: string) => http.get('/robot-info/detail', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoCallbacks: (robotId: string) => http.get('/robot-info/callbacks', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoOnline: (robotId: string) => http.get('/robot-info/online', { params: { robot_id: robotId } }).then((r) => r.data),

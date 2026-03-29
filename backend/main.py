@@ -587,12 +587,56 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS group_tags (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  created_by BIGINT NOT NULL,
+                  robot_pk BIGINT NOT NULL,
+                  name VARCHAR(64) NOT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uk_group_tags_owner_robot_name (created_by, robot_pk, name),
+                  INDEX idx_group_tags_owner_robot (created_by, robot_pk),
+                  CONSTRAINT fk_group_tags_owner FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+                  CONSTRAINT fk_group_tags_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS group_tag_items (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  tag_id BIGINT NOT NULL,
+                  target_type ENUM('group') NOT NULL DEFAULT 'group',
+                  match_type ENUM('exact','regex') NOT NULL DEFAULT 'exact',
+                  value VARCHAR(255) NOT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uk_group_tag_items_tag_match_value (tag_id, target_type, match_type, value),
+                  INDEX idx_group_tag_items_tag (tag_id),
+                  CONSTRAINT fk_group_tag_items_tag FOREIGN KEY (tag_id) REFERENCES group_tags(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
             cur.execute("SHOW COLUMNS FROM robot_group_cache LIKE 'source_id'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE robot_group_cache ADD COLUMN source_id BIGINT NULL AFTER robot_pk")
             cur.execute("SHOW INDEX FROM robot_group_cache WHERE Key_name='uk_robot_group_cache_source'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE robot_group_cache ADD UNIQUE KEY uk_robot_group_cache_source (robot_pk, source_id)")
+            cur.execute("SHOW COLUMNS FROM group_tags LIKE 'robot_pk'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE group_tags ADD COLUMN robot_pk BIGINT NULL AFTER created_by")
+            cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='uk_group_tags_owner_name'")
+            if cur.fetchone():
+                cur.execute("ALTER TABLE group_tags DROP INDEX uk_group_tags_owner_name")
+            cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='uk_group_tags_owner_robot_name'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE group_tags ADD UNIQUE KEY uk_group_tags_owner_robot_name (created_by, robot_pk, name)")
+            cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='idx_group_tags_owner_robot'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE group_tags ADD INDEX idx_group_tags_owner_robot (created_by, robot_pk)")
             cur.execute("SHOW COLUMNS FROM forward_rules LIKE 'target_type'")
             if cur.fetchone():
                 cur.execute("ALTER TABLE forward_rules DROP COLUMN target_type")
@@ -1083,6 +1127,19 @@ class RobotCallbackDeletePayload(BaseModel):
 
 class CallbackTestPayload(BaseModel):
     callback_url: str
+
+
+class GroupTagCreateRequest(BaseModel):
+    name: str
+
+
+class GroupTagUpdateRequest(BaseModel):
+    name: str
+
+
+class GroupTagItemCreateRequest(BaseModel):
+    match_type: Literal["exact", "regex"] = "exact"
+    values: List[str] = Field(default_factory=list)
 
 
 class InboxMessageCreate(BaseModel):
@@ -1864,6 +1921,52 @@ def upsert_robot_group_cache(robot_pk: int, rows: List[Dict[str, Any]]) -> int:
     finally:
         conn.close()
     return affected
+
+
+def _normalize_group_tag_name(name: str) -> str:
+    n = str(name or "").strip()
+    if not n:
+        raise HTTPException(status_code=400, detail="标签名不能为空")
+    if len(n) > 64:
+        raise HTTPException(status_code=400, detail="标签名长度不能超过64")
+    return n
+
+
+def _normalize_group_tag_values(values: List[str]) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for raw in values or []:
+        v = str(raw or "").strip()
+        if not v:
+            continue
+        if len(v) > 255:
+            raise HTTPException(status_code=400, detail="群名或规则长度不能超过255")
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    if not out:
+        raise HTTPException(status_code=400, detail="请至少输入一个群名或规则")
+    return out
+
+
+def _get_group_tag_or_404(tag_id: int, user_id: int, robot_pk: Optional[int] = None) -> Dict[str, Any]:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            if robot_pk is None:
+                cur.execute("SELECT * FROM group_tags WHERE id=%s AND created_by=%s LIMIT 1", (int(tag_id), int(user_id)))
+            else:
+                cur.execute(
+                    "SELECT * FROM group_tags WHERE id=%s AND created_by=%s AND robot_pk=%s LIMIT 1",
+                    (int(tag_id), int(user_id), int(robot_pk)),
+                )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="标签不存在")
+            return row
+    finally:
+        conn.close()
 
 
 def _ensure_worktool_ok(data: Optional[Dict[str, Any]], action: str) -> None:
@@ -4683,6 +4786,285 @@ async def get_worktool_qa_logs(
 ) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
     return await fetch_worktool_api("/robot/qaLog/list", {"robotId": robot_id, "page": page, "size": size, "sort": sort})
+
+
+@app.get("/api/v1/group-tags")
+async def list_group_tags(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
+                FROM group_tags t
+                LEFT JOIN group_tag_items i ON i.tag_id=t.id
+                WHERE t.created_by=%s AND t.robot_pk=%s
+                GROUP BY t.id,t.name,t.created_at,t.updated_at
+                ORDER BY t.updated_at DESC,t.id DESC
+                """,
+                (int(user["id"]), int(robot["id"])),
+            )
+            rows = cur.fetchall() or []
+    finally:
+        conn.close()
+    return {
+        "items": [
+            {
+                "id": int(r["id"]),
+                "name": str(r.get("name") or ""),
+                "item_count": int(r.get("item_count") or 0),
+                "created_at": str(r.get("created_at") or ""),
+                "updated_at": str(r.get("updated_at") or ""),
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/v1/group-tags")
+async def create_group_tag(
+    body: GroupTagCreateRequest,
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    name = _normalize_group_tag_name(body.name)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "INSERT INTO group_tags(created_by,robot_pk,name) VALUES(%s,%s,%s)",
+                    (int(user["id"]), int(robot["id"]), name),
+                )
+            except pymysql.err.IntegrityError:
+                raise HTTPException(status_code=400, detail="标签名已存在")
+            tag_id = int(cur.lastrowid)
+            cur.execute("SELECT id,name,created_at,updated_at FROM group_tags WHERE id=%s LIMIT 1", (tag_id,))
+            row = cur.fetchone() or {}
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "id": int(row.get("id") or tag_id),
+        "name": str(row.get("name") or name),
+        "item_count": 0,
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
+
+
+@app.put("/api/v1/group-tags/{tag_id}")
+async def update_group_tag(
+    tag_id: int,
+    body: GroupTagUpdateRequest,
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    name = _normalize_group_tag_name(body.name)
+    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "UPDATE group_tags SET name=%s WHERE id=%s AND created_by=%s AND robot_pk=%s",
+                    (name, int(tag_id), int(user["id"]), int(robot["id"])),
+                )
+            except pymysql.err.IntegrityError:
+                raise HTTPException(status_code=400, detail="标签名已存在")
+            if int(cur.rowcount or 0) <= 0:
+                raise HTTPException(status_code=404, detail="标签不存在")
+            cur.execute(
+                """
+                SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
+                FROM group_tags t
+                LEFT JOIN group_tag_items i ON i.tag_id=t.id
+                WHERE t.id=%s AND t.created_by=%s AND t.robot_pk=%s
+                GROUP BY t.id,t.name,t.created_at,t.updated_at
+                LIMIT 1
+                """,
+                (int(tag_id), int(user["id"]), int(robot["id"])),
+            )
+            row = cur.fetchone() or {}
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "id": int(row.get("id") or tag_id),
+        "name": str(row.get("name") or name),
+        "item_count": int(row.get("item_count") or 0),
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
+
+
+@app.delete("/api/v1/group-tags/{tag_id}")
+async def delete_group_tag(tag_id: int, robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM group_tags WHERE id=%s AND created_by=%s AND robot_pk=%s",
+                (int(tag_id), int(user["id"]), int(robot["id"])),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/v1/group-tags/{tag_id}/items")
+async def list_group_tag_items(
+    tag_id: int,
+    robot_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(1) AS c FROM group_tag_items WHERE tag_id=%s", (int(tag_id),))
+            total = int((cur.fetchone() or {}).get("c") or 0)
+            offset = (page - 1) * page_size
+            cur.execute(
+                """
+                SELECT id,target_type,match_type,value,created_at,updated_at
+                FROM group_tag_items
+                WHERE tag_id=%s
+                ORDER BY updated_at DESC,id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (int(tag_id), int(page_size), int(offset)),
+            )
+            rows = cur.fetchall() or []
+    finally:
+        conn.close()
+    return {
+        "items": [
+            {
+                "id": int(r["id"]),
+                "target_type": str(r.get("target_type") or "group"),
+                "match_type": str(r.get("match_type") or "exact"),
+                "value": str(r.get("value") or ""),
+                "created_at": str(r.get("created_at") or ""),
+                "updated_at": str(r.get("updated_at") or ""),
+            }
+            for r in rows
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@app.post("/api/v1/group-tags/{tag_id}/items")
+async def create_group_tag_items(
+    tag_id: int,
+    body: GroupTagItemCreateRequest,
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    values = _normalize_group_tag_values(body.values or [])
+    match_type = (body.match_type or "exact").strip().lower()
+    if match_type not in {"exact", "regex"}:
+        raise HTTPException(status_code=400, detail="match_type 仅支持 exact/regex")
+    conn = db_conn()
+    created = 0
+    try:
+        with conn.cursor() as cur:
+            for v in values:
+                cur.execute(
+                    """
+                    INSERT INTO group_tag_items(tag_id,target_type,match_type,value)
+                    VALUES(%s,'group',%s,%s)
+                    ON DUPLICATE KEY UPDATE value=VALUES(value)
+                    """,
+                    (int(tag_id), match_type, v),
+                )
+                if int(cur.rowcount or 0) > 0:
+                    created += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "created": created}
+
+
+@app.delete("/api/v1/group-tags/{tag_id}/items/{item_id}")
+async def delete_group_tag_item(
+    tag_id: int,
+    item_id: int,
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM group_tag_items WHERE id=%s AND tag_id=%s", (int(item_id), int(tag_id)))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/v1/group-tags/group-suggestions")
+async def group_tag_group_suggestions(
+    robot_id: str,
+    keyword: str = "",
+    limit: int = Query(default=20, ge=1, le=100),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    kw = (keyword or "").strip()
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            if kw:
+                like = f"%{kw}%"
+                cur.execute(
+                    """
+                    SELECT group_name
+                    FROM robot_group_cache
+                    WHERE robot_pk=%s AND group_name LIKE %s
+                    ORDER BY synced_at DESC,id DESC
+                    LIMIT %s
+                    """,
+                    (int(robot["id"]), like, int(limit)),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT group_name
+                    FROM robot_group_cache
+                    WHERE robot_pk=%s
+                    ORDER BY synced_at DESC,id DESC
+                    LIMIT %s
+                    """,
+                    (int(robot["id"]), int(limit)),
+                )
+            rows = cur.fetchall() or []
+    finally:
+        conn.close()
+    options: List[str] = []
+    seen: Set[str] = set()
+    for row in rows:
+        val = str(row.get("group_name") or "").strip()
+        if not val or val in seen:
+            continue
+        seen.add(val)
+        options.append(val)
+    return {"items": options}
 
 
 @app.post("/api/v1/groups/sync")
