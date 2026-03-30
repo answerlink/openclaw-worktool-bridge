@@ -619,6 +619,55 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  created_by BIGINT NOT NULL,
+                  robot_pk BIGINT NOT NULL,
+                  name VARCHAR(128) NOT NULL,
+                  action VARCHAR(64) NOT NULL,
+                  payload_json JSON NOT NULL,
+                  schedule_type ENUM('once','daily','weekly','cron') NOT NULL DEFAULT 'once',
+                  timezone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai',
+                  run_at DATETIME NULL,
+                  daily_time CHAR(8) NULL,
+                  weekly_days VARCHAR(32) NULL,
+                  cron_expr VARCHAR(64) NULL,
+                  misfire_policy ENUM('skip','fire_once') NOT NULL DEFAULT 'skip',
+                  status ENUM('draft','enabled','paused','disabled') NOT NULL DEFAULT 'draft',
+                  next_run_at DATETIME NULL,
+                  last_run_at DATETIME NULL,
+                  version INT NOT NULL DEFAULT 0,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX idx_st_robot_status_next (robot_pk, status, next_run_at),
+                  INDEX idx_st_creator (created_by),
+                  CONSTRAINT fk_st_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+                  CONSTRAINT fk_st_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  task_id BIGINT NOT NULL,
+                  planned_at DATETIME NOT NULL,
+                  started_at DATETIME NULL,
+                  finished_at DATETIME NULL,
+                  status ENUM('queued','running','success','failed','skipped','canceled') NOT NULL DEFAULT 'queued',
+                  attempt INT NOT NULL DEFAULT 1,
+                  idempotency_key VARCHAR(128) NOT NULL,
+                  result_json JSON NULL,
+                  error_text VARCHAR(1000) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  UNIQUE KEY uk_str_idempotency (idempotency_key),
+                  INDEX idx_str_task_time (task_id, created_at),
+                  CONSTRAINT fk_str_task FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
             cur.execute("SHOW COLUMNS FROM robot_group_cache LIKE 'source_id'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE robot_group_cache ADD COLUMN source_id BIGINT NULL AFTER robot_pk")
@@ -1174,6 +1223,51 @@ class TaskDispatchRequest(BaseModel):
     mark_extra: Optional[str] = None
     friend_tag_list: List[str] = Field(default_factory=list)
     leaving_msg: Optional[str] = None
+
+
+class ScheduledTaskCreateRequest(BaseModel):
+    robot_id: str
+    name: str
+    action: Literal[
+        "send_text",
+        "send_file",
+        "create_external_group",
+        "update_group",
+        "dissolve_group",
+        "add_friend_by_phone",
+    ]
+    payload_json: Dict[str, Any] = Field(default_factory=dict)
+    schedule_type: Literal["once", "daily", "weekly", "cron"] = "once"
+    timezone: str = "Asia/Shanghai"
+    run_at: Optional[str] = None
+    daily_time: Optional[str] = None
+    weekly_days: List[int] = Field(default_factory=list)
+    cron_expr: Optional[str] = None
+    misfire_policy: Literal["skip", "fire_once"] = "skip"
+    status: Literal["draft", "enabled", "paused"] = "draft"
+
+
+class ScheduledTaskUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    action: Optional[
+        Literal[
+            "send_text",
+            "send_file",
+            "create_external_group",
+            "update_group",
+            "dissolve_group",
+            "add_friend_by_phone",
+        ]
+    ] = None
+    payload_json: Optional[Dict[str, Any]] = None
+    schedule_type: Optional[Literal["once", "daily", "weekly", "cron"]] = None
+    timezone: Optional[str] = None
+    run_at: Optional[str] = None
+    daily_time: Optional[str] = None
+    weekly_days: Optional[List[int]] = None
+    cron_expr: Optional[str] = None
+    misfire_policy: Optional[Literal["skip", "fire_once"]] = None
+    status: Optional[Literal["draft", "enabled", "paused", "disabled"]] = None
 
 
 class InboxMessageCreate(BaseModel):
@@ -2080,6 +2174,294 @@ async def _send_raw_message_batch(robot_id: str, list_items: List[Dict[str, Any]
         _ensure_worktool_ok(res, "发送指令")
         results.append(res)
     return {"batch_count": len(chunks), "item_count": len(items), "results": results}
+
+
+def _parse_hms_or_400(raw: Optional[str]) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        raise HTTPException(status_code=400, detail="daily_time 不能为空")
+    if re.fullmatch(r"\d{2}:\d{2}", s):
+        s = f"{s}:00"
+    if not re.fullmatch(r"\d{2}:\d{2}:\d{2}", s):
+        raise HTTPException(status_code=400, detail="daily_time 格式应为 HH:MM 或 HH:MM:SS")
+    hh, mm, ss = [int(x) for x in s.split(":")]
+    if hh > 23 or mm > 59 or ss > 59:
+        raise HTTPException(status_code=400, detail="daily_time 非法")
+    return s
+
+
+def _normalize_weekly_days_or_400(days: List[int]) -> List[int]:
+    out = sorted({int(x) for x in (days or []) if int(x) >= 1 and int(x) <= 7})
+    if not out:
+        raise HTTPException(status_code=400, detail="weekly_days 至少包含一个 1-7 的值")
+    return out
+
+
+def _parse_cron_field(field: str, min_v: int, max_v: int) -> Set[int]:
+    s = (field or "").strip()
+    vals: Set[int] = set()
+    if s == "*":
+        return set(range(min_v, max_v + 1))
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        step = 1
+        base = part
+        if "/" in part:
+            base, step_s = part.split("/", 1)
+            try:
+                step = int(step_s)
+            except Exception:
+                return set()
+            if step <= 0:
+                return set()
+        if base == "*":
+            start, end = min_v, max_v
+        elif "-" in base:
+            a, b = base.split("-", 1)
+            try:
+                start, end = int(a), int(b)
+            except Exception:
+                return set()
+        else:
+            try:
+                v = int(base)
+            except Exception:
+                return set()
+            start, end = v, v
+        if start < min_v or end > max_v or start > end:
+            return set()
+        for v in range(start, end + 1, step):
+            vals.add(v)
+    return vals
+
+
+def _next_cron_datetime(expr: str, base_dt: datetime) -> Optional[datetime]:
+    parts = [x for x in str(expr or "").strip().split() if x]
+    if len(parts) != 5:
+        raise HTTPException(status_code=400, detail="cron_expr 仅支持5段表达式")
+    mins = _parse_cron_field(parts[0], 0, 59)
+    hours = _parse_cron_field(parts[1], 0, 23)
+    doms = _parse_cron_field(parts[2], 1, 31)
+    months = _parse_cron_field(parts[3], 1, 12)
+    dows = _parse_cron_field(parts[4], 0, 6)
+    if not mins or not hours or not doms or not months or not dows:
+        raise HTTPException(status_code=400, detail="cron_expr 非法")
+    probe = base_dt.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    for _ in range(366 * 24 * 60):
+        if (
+            probe.minute in mins
+            and probe.hour in hours
+            and probe.day in doms
+            and probe.month in months
+            and probe.weekday() in dows
+        ):
+            return probe
+        probe += timedelta(minutes=1)
+    return None
+
+
+def _compute_next_run_at_by_rule(
+    schedule_type: str,
+    *,
+    run_at: Optional[str],
+    daily_time: Optional[str],
+    weekly_days: Optional[str],
+    cron_expr: Optional[str],
+    base_dt: Optional[datetime] = None,
+) -> Optional[datetime]:
+    now_dt = base_dt or datetime.now()
+    st = (schedule_type or "").strip().lower()
+    if st == "once":
+        dt = _parse_datetime_or_none(run_at, raise_on_invalid=True)
+        if dt is None:
+            raise HTTPException(status_code=400, detail="run_at 不能为空")
+        return dt if dt > now_dt else None
+    if st == "daily":
+        t = _parse_hms_or_400(daily_time)
+        hh, mm, ss = [int(x) for x in t.split(":")]
+        cand = now_dt.replace(hour=hh, minute=mm, second=ss, microsecond=0)
+        if cand <= now_dt:
+            cand += timedelta(days=1)
+        return cand
+    if st == "weekly":
+        t = _parse_hms_or_400(daily_time)
+        hh, mm, ss = [int(x) for x in t.split(":")]
+        days = _normalize_weekly_days_or_400([int(x) for x in re.split(r"[,\s]+", str(weekly_days or "").strip()) if x.strip()])
+        now_wd = now_dt.weekday() + 1
+        best: Optional[datetime] = None
+        for d in days:
+            delta = (d - now_wd) % 7
+            cand = (now_dt + timedelta(days=delta)).replace(hour=hh, minute=mm, second=ss, microsecond=0)
+            if cand <= now_dt:
+                cand += timedelta(days=7)
+            if best is None or cand < best:
+                best = cand
+        return best
+    if st == "cron":
+        return _next_cron_datetime(str(cron_expr or "").strip(), now_dt)
+    raise HTTPException(status_code=400, detail="schedule_type 非法")
+
+
+def _serialize_scheduled_task(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload_val = row.get("payload_json")
+    payload_obj: Dict[str, Any] = {}
+    if isinstance(payload_val, dict):
+        payload_obj = payload_val
+    elif isinstance(payload_val, str) and payload_val.strip():
+        try:
+            parsed = json.loads(payload_val)
+            if isinstance(parsed, dict):
+                payload_obj = parsed
+        except Exception:
+            payload_obj = {}
+    return {
+        "id": int(row.get("id") or 0),
+        "robot_id": str(row.get("robot_id") or ""),
+        "name": str(row.get("name") or ""),
+        "action": str(row.get("action") or ""),
+        "payload_json": payload_obj,
+        "schedule_type": str(row.get("schedule_type") or "once"),
+        "timezone": str(row.get("timezone") or "Asia/Shanghai"),
+        "run_at": str(row.get("run_at") or ""),
+        "daily_time": str(row.get("daily_time") or ""),
+        "weekly_days": str(row.get("weekly_days") or ""),
+        "cron_expr": str(row.get("cron_expr") or ""),
+        "misfire_policy": str(row.get("misfire_policy") or "skip"),
+        "status": str(row.get("status") or "draft"),
+        "next_run_at": str(row.get("next_run_at") or ""),
+        "last_run_at": str(row.get("last_run_at") or ""),
+        "created_at": str(row.get("created_at") or ""),
+        "updated_at": str(row.get("updated_at") or ""),
+    }
+
+
+def _parse_json_object(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
+async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user_id), robot_id)
+    action = (action or "").strip().lower()
+    payload = payload if isinstance(payload, dict) else {}
+    tag_ids_raw = payload.get("tag_ids") or []
+    tag_ids = [int(x) for x in tag_ids_raw if str(x).strip().isdigit()]
+    target_names = _resolve_targets_by_group_tags(
+        int(user_id),
+        int(robot["id"]),
+        tag_ids,
+        payload.get("target_names") or [],
+    )
+    list_items: List[Dict[str, Any]] = []
+    if action == "send_text":
+        content = str(payload.get("content") or "").strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="content 不能为空")
+        targets = _normalize_str_list(target_names)
+        if not targets:
+            raise HTTPException(status_code=400, detail="请至少提供一个发送对象或标签")
+        at_list = _normalize_str_list(payload.get("at_list") or [])
+        for t in targets:
+            item: Dict[str, Any] = {"type": 203, "titleList": [t], "receivedContent": content}
+            if at_list:
+                item["atList"] = at_list
+            list_items.append(item)
+    elif action == "send_file":
+        object_name = str(payload.get("object_name") or "").strip()
+        file_url = str(payload.get("file_url") or "").strip()
+        file_type = str(payload.get("file_type") or "").strip() or "*"
+        if not object_name or not file_url:
+            raise HTTPException(status_code=400, detail="object_name 与 file_url 不能为空")
+        targets = _normalize_str_list(target_names)
+        if not targets:
+            raise HTTPException(status_code=400, detail="请至少提供一个发送对象或标签")
+        extra_text = str(payload.get("extra_text") or "").strip()
+        for t in targets:
+            item = {
+                "type": 218,
+                "titleList": [t],
+                "objectName": object_name,
+                "fileUrl": file_url,
+                "fileType": file_type,
+            }
+            if extra_text:
+                item["extraText"] = extra_text
+            list_items.append(item)
+    elif action == "create_external_group":
+        group_name = str(payload.get("group_name") or "").strip()
+        select_list = _normalize_str_list(payload.get("select_list") or [])
+        if not group_name or not select_list:
+            raise HTTPException(status_code=400, detail="group_name 与 select_list 不能为空")
+        item = {"type": 206, "groupName": group_name, "selectList": select_list}
+        if payload.get("group_announcement"):
+            item["groupAnnouncement"] = str(payload.get("group_announcement")).strip()
+        if payload.get("group_remark"):
+            item["groupRemark"] = str(payload.get("group_remark")).strip()
+        if payload.get("group_template"):
+            item["groupTemplate"] = str(payload.get("group_template")).strip()
+        list_items.append(item)
+    elif action == "update_group":
+        group_name = str(payload.get("group_name") or "").strip()
+        if not group_name:
+            raise HTTPException(status_code=400, detail="group_name 不能为空")
+        item = {"type": 207, "groupName": group_name}
+        if payload.get("new_group_name"):
+            item["newGroupName"] = str(payload.get("new_group_name")).strip()
+        if payload.get("new_group_announcement"):
+            item["newGroupAnnouncement"] = str(payload.get("new_group_announcement")).strip()
+        if payload.get("group_remark"):
+            item["groupRemark"] = str(payload.get("group_remark")).strip()
+        if payload.get("group_template"):
+            item["groupTemplate"] = str(payload.get("group_template")).strip()
+        select_list = _normalize_str_list(payload.get("select_list") or [])
+        remove_list = _normalize_str_list(payload.get("remove_list") or [])
+        if select_list:
+            item["selectList"] = select_list
+            item["showMessageHistory"] = bool(payload.get("show_message_history"))
+        if remove_list:
+            item["removeList"] = remove_list
+        list_items.append(item)
+    elif action == "dissolve_group":
+        group_name = str(payload.get("group_name") or "").strip()
+        if not group_name:
+            raise HTTPException(status_code=400, detail="group_name 不能为空")
+        list_items.append({"type": 219, "groupName": group_name})
+    elif action == "add_friend_by_phone":
+        phone = str(payload.get("phone") or "").strip()
+        if not phone:
+            raise HTTPException(status_code=400, detail="phone 不能为空")
+        friend: Dict[str, Any] = {"phone": phone}
+        if payload.get("mark_name"):
+            friend["markName"] = str(payload.get("mark_name")).strip()
+        if payload.get("mark_extra"):
+            friend["markExtra"] = str(payload.get("mark_extra")).strip()
+        tags = _normalize_str_list(payload.get("friend_tag_list") or [])
+        if tags:
+            friend["tagList"] = tags
+        if payload.get("leaving_msg"):
+            friend["leavingMsg"] = str(payload.get("leaving_msg")).strip()
+        list_items.append({"type": 213, "friend": friend})
+    else:
+        raise HTTPException(status_code=400, detail="暂不支持的 action")
+
+    send_res = await _send_raw_message_batch(robot_id, list_items)
+    return {
+        "ok": True,
+        "robot_id": robot_id,
+        "action": action,
+        "resolved_target_count": len(_normalize_str_list(target_names)),
+        **send_res,
+    }
 
 
 def _ensure_worktool_ok(data: Optional[Dict[str, Any]], action: str) -> None:
@@ -5185,110 +5567,490 @@ async def dispatch_task_command(body: TaskDispatchRequest, user: Dict[str, Any] 
     robot_id = (body.robot_id or "").strip()
     if not robot_id:
         raise HTTPException(status_code=400, detail="robot_id 不能为空")
-    robot = _require_robot_access(int(user["id"]), robot_id)
-    action = (body.action or "").strip().lower()
-    target_names = _resolve_targets_by_group_tags(int(user["id"]), int(robot["id"]), body.tag_ids, body.target_names)
+    payload = body.model_dump()
+    payload.pop("robot_id", None)
+    payload.pop("action", None)
+    return await _dispatch_task_action_internal(int(user["id"]), robot_id, body.action, payload)
 
-    list_items: List[Dict[str, Any]] = []
-    if action == "send_text":
-        content = str(body.content or "").strip()
-        if not content:
-            raise HTTPException(status_code=400, detail="content 不能为空")
-        targets = _normalize_str_list(target_names)
-        if not targets:
-            raise HTTPException(status_code=400, detail="请至少提供一个发送对象或标签")
-        at_list = _normalize_str_list(body.at_list or [])
-        for t in targets:
-            item: Dict[str, Any] = {"type": 203, "titleList": [t], "receivedContent": content}
-            if at_list:
-                item["atList"] = at_list
-            list_items.append(item)
-    elif action == "send_file":
-        object_name = str(body.object_name or "").strip()
-        file_url = str(body.file_url or "").strip()
-        file_type = str(body.file_type or "").strip() or "*"
-        if not object_name or not file_url:
-            raise HTTPException(status_code=400, detail="object_name 与 file_url 不能为空")
-        targets = _normalize_str_list(target_names)
-        if not targets:
-            raise HTTPException(status_code=400, detail="请至少提供一个发送对象或标签")
-        extra_text = str(body.extra_text or "").strip()
-        for t in targets:
-            item = {
-                "type": 218,
-                "titleList": [t],
-                "objectName": object_name,
-                "fileUrl": file_url,
-                "fileType": file_type,
-            }
-            if extra_text:
-                item["extraText"] = extra_text
-            list_items.append(item)
-    elif action == "create_external_group":
-        group_name = str(body.group_name or "").strip()
-        select_list = _normalize_str_list(body.select_list or [])
-        if not group_name or not select_list:
-            raise HTTPException(status_code=400, detail="group_name 与 select_list 不能为空")
-        item = {"type": 206, "groupName": group_name, "selectList": select_list}
-        if body.group_announcement:
-            item["groupAnnouncement"] = str(body.group_announcement).strip()
-        if body.group_remark:
-            item["groupRemark"] = str(body.group_remark).strip()
-        if body.group_template:
-            item["groupTemplate"] = str(body.group_template).strip()
-        list_items.append(item)
-    elif action == "update_group":
-        group_name = str(body.group_name or "").strip()
-        if not group_name:
-            raise HTTPException(status_code=400, detail="group_name 不能为空")
-        item: Dict[str, Any] = {"type": 207, "groupName": group_name}
-        if body.new_group_name:
-            item["newGroupName"] = str(body.new_group_name).strip()
-        if body.new_group_announcement:
-            item["newGroupAnnouncement"] = str(body.new_group_announcement).strip()
-        if body.group_remark:
-            item["groupRemark"] = str(body.group_remark).strip()
-        if body.group_template:
-            item["groupTemplate"] = str(body.group_template).strip()
-        select_list = _normalize_str_list(body.select_list or [])
-        remove_list = _normalize_str_list(body.remove_list or [])
-        if select_list:
-            item["selectList"] = select_list
-            item["showMessageHistory"] = bool(body.show_message_history)
-        if remove_list:
-            item["removeList"] = remove_list
-        list_items.append(item)
-    elif action == "dissolve_group":
-        group_name = str(body.group_name or "").strip()
-        if not group_name:
-            raise HTTPException(status_code=400, detail="group_name 不能为空")
-        list_items.append({"type": 219, "groupName": group_name})
-    elif action == "add_friend_by_phone":
-        phone = str(body.phone or "").strip()
-        if not phone:
-            raise HTTPException(status_code=400, detail="phone 不能为空")
-        friend: Dict[str, Any] = {"phone": phone}
-        if body.mark_name:
-            friend["markName"] = str(body.mark_name).strip()
-        if body.mark_extra:
-            friend["markExtra"] = str(body.mark_extra).strip()
-        tags = _normalize_str_list(body.friend_tag_list or [])
-        if tags:
-            friend["tagList"] = tags
-        if body.leaving_msg:
-            friend["leavingMsg"] = str(body.leaving_msg).strip()
-        list_items.append({"type": 213, "friend": friend})
-    else:
-        raise HTTPException(status_code=400, detail="暂不支持的 action")
 
-    send_res = await _send_raw_message_batch(robot_id, list_items)
-    return {
-        "ok": True,
-        "robot_id": robot_id,
-        "action": action,
-        "resolved_target_count": len(_normalize_str_list(target_names)),
-        **send_res,
+def _get_scheduled_task_or_404(task_id: int, user_id: int, robot_pk: Optional[int] = None) -> Dict[str, Any]:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            if robot_pk is None:
+                cur.execute(
+                    "SELECT st.*,r.robot_id FROM scheduled_tasks st JOIN robots r ON r.id=st.robot_pk WHERE st.id=%s AND st.created_by=%s LIMIT 1",
+                    (int(task_id), int(user_id)),
+                )
+            else:
+                cur.execute(
+                    "SELECT st.*,r.robot_id FROM scheduled_tasks st JOIN robots r ON r.id=st.robot_pk WHERE st.id=%s AND st.created_by=%s AND st.robot_pk=%s LIMIT 1",
+                    (int(task_id), int(user_id), int(robot_pk)),
+                )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="定时任务不存在")
+            return row
+    finally:
+        conn.close()
+
+
+def _normalize_scheduled_task_fields(
+    schedule_type: str,
+    *,
+    run_at: Optional[str],
+    daily_time: Optional[str],
+    weekly_days: Optional[List[int]],
+    cron_expr: Optional[str],
+) -> Dict[str, Any]:
+    st = (schedule_type or "").strip().lower()
+    if st not in {"once", "daily", "weekly", "cron"}:
+        raise HTTPException(status_code=400, detail="schedule_type 非法")
+    out: Dict[str, Any] = {
+        "schedule_type": st,
+        "run_at": None,
+        "daily_time": None,
+        "weekly_days": None,
+        "cron_expr": None,
     }
+    if st == "once":
+        dt = _parse_datetime_or_none(run_at, raise_on_invalid=True)
+        if dt is None:
+            raise HTTPException(status_code=400, detail="run_at 不能为空")
+        out["run_at"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+    elif st == "daily":
+        out["daily_time"] = _parse_hms_or_400(daily_time)
+    elif st == "weekly":
+        out["daily_time"] = _parse_hms_or_400(daily_time)
+        days = _normalize_weekly_days_or_400(weekly_days or [])
+        out["weekly_days"] = ",".join([str(x) for x in days])
+    elif st == "cron":
+        expr = str(cron_expr or "").strip()
+        if not expr:
+            raise HTTPException(status_code=400, detail="cron_expr 不能为空")
+        _next_cron_datetime(expr, datetime.now())
+        out["cron_expr"] = expr
+    out["next_run_at"] = _compute_next_run_at_by_rule(
+        st,
+        run_at=out["run_at"],
+        daily_time=out["daily_time"],
+        weekly_days=out["weekly_days"],
+        cron_expr=out["cron_expr"],
+    )
+    return out
+
+
+@app.get("/api/v1/scheduled-tasks")
+async def list_scheduled_tasks(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT st.*,r.robot_id
+                FROM scheduled_tasks st
+                JOIN robots r ON r.id=st.robot_pk
+                WHERE st.created_by=%s AND st.robot_pk=%s
+                ORDER BY st.updated_at DESC, st.id DESC
+                """,
+                (int(user["id"]), int(robot["id"])),
+            )
+            rows = cur.fetchall() or []
+    finally:
+        conn.close()
+    return {"items": [_serialize_scheduled_task(x) for x in rows]}
+
+
+@app.post("/api/v1/scheduled-tasks")
+async def create_scheduled_task(body: ScheduledTaskCreateRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user["id"]), body.robot_id)
+    name = str(body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name 不能为空")
+    if len(name) > 128:
+        raise HTTPException(status_code=400, detail="name 长度不能超过128")
+    schedule = _normalize_scheduled_task_fields(
+        body.schedule_type,
+        run_at=body.run_at,
+        daily_time=body.daily_time,
+        weekly_days=body.weekly_days,
+        cron_expr=body.cron_expr,
+    )
+    payload_json = body.payload_json if isinstance(body.payload_json, dict) else {}
+    tz = str(body.timezone or "Asia/Shanghai").strip() or "Asia/Shanghai"
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scheduled_tasks(
+                  created_by,robot_pk,name,action,payload_json,schedule_type,timezone,run_at,daily_time,weekly_days,cron_expr,misfire_policy,status,next_run_at
+                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    int(user["id"]),
+                    int(robot["id"]),
+                    name,
+                    body.action,
+                    json.dumps(payload_json, ensure_ascii=False),
+                    schedule["schedule_type"],
+                    tz,
+                    schedule["run_at"],
+                    schedule["daily_time"],
+                    schedule["weekly_days"],
+                    schedule["cron_expr"],
+                    body.misfire_policy,
+                    body.status,
+                    schedule["next_run_at"].strftime("%Y-%m-%d %H:%M:%S") if schedule.get("next_run_at") else None,
+                ),
+            )
+            task_id = int(cur.lastrowid)
+            cur.execute(
+                "SELECT st.*,r.robot_id FROM scheduled_tasks st JOIN robots r ON r.id=st.robot_pk WHERE st.id=%s LIMIT 1",
+                (task_id,),
+            )
+            row = cur.fetchone() or {}
+        conn.commit()
+    finally:
+        conn.close()
+    return _serialize_scheduled_task(row)
+
+
+@app.put("/api/v1/scheduled-tasks/{task_id}")
+async def update_scheduled_task(task_id: int, body: ScheduledTaskUpdateRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    current = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    next_schedule_type = body.schedule_type or str(current.get("schedule_type") or "once")
+    next_run_at_raw = body.run_at if body.run_at is not None else str(current.get("run_at") or "")
+    next_daily_time = body.daily_time if body.daily_time is not None else str(current.get("daily_time") or "")
+    cur_weekly = [int(x) for x in re.split(r"[,\s]+", str(current.get("weekly_days") or "").strip()) if x.strip()]
+    next_weekly_days = body.weekly_days if body.weekly_days is not None else cur_weekly
+    next_cron_expr = body.cron_expr if body.cron_expr is not None else str(current.get("cron_expr") or "")
+    schedule = _normalize_scheduled_task_fields(
+        next_schedule_type,
+        run_at=next_run_at_raw,
+        daily_time=next_daily_time,
+        weekly_days=next_weekly_days,
+        cron_expr=next_cron_expr,
+    )
+    next_name = (body.name if body.name is not None else str(current.get("name") or "")).strip()
+    if not next_name:
+        raise HTTPException(status_code=400, detail="name 不能为空")
+    next_action = body.action if body.action is not None else str(current.get("action") or "")
+    next_payload = body.payload_json if body.payload_json is not None else _parse_json_object(current.get("payload_json"))
+    next_tz = (body.timezone if body.timezone is not None else str(current.get("timezone") or "Asia/Shanghai")).strip() or "Asia/Shanghai"
+    next_policy = body.misfire_policy if body.misfire_policy is not None else str(current.get("misfire_policy") or "skip")
+    next_status = body.status if body.status is not None else str(current.get("status") or "draft")
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE scheduled_tasks
+                SET name=%s,action=%s,payload_json=%s,schedule_type=%s,timezone=%s,run_at=%s,daily_time=%s,weekly_days=%s,cron_expr=%s,misfire_policy=%s,status=%s,next_run_at=%s,version=version+1
+                WHERE id=%s AND created_by=%s
+                """,
+                (
+                    next_name,
+                    next_action,
+                    json.dumps(next_payload if isinstance(next_payload, dict) else {}, ensure_ascii=False),
+                    schedule["schedule_type"],
+                    next_tz,
+                    schedule["run_at"],
+                    schedule["daily_time"],
+                    schedule["weekly_days"],
+                    schedule["cron_expr"],
+                    next_policy,
+                    next_status,
+                    schedule["next_run_at"].strftime("%Y-%m-%d %H:%M:%S") if schedule.get("next_run_at") else None,
+                    int(task_id),
+                    int(user["id"]),
+                ),
+            )
+            cur.execute(
+                "SELECT st.*,r.robot_id FROM scheduled_tasks st JOIN robots r ON r.id=st.robot_pk WHERE st.id=%s LIMIT 1",
+                (int(task_id),),
+            )
+            row = cur.fetchone() or {}
+        conn.commit()
+    finally:
+        conn.close()
+    return _serialize_scheduled_task(row)
+
+
+@app.delete("/api/v1/scheduled-tasks/{task_id}")
+async def delete_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM scheduled_tasks WHERE id=%s AND created_by=%s", (int(task_id), int(user["id"])))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/v1/scheduled-tasks/{task_id}/enable")
+async def enable_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    schedule = _normalize_scheduled_task_fields(
+        str(row.get("schedule_type") or "once"),
+        run_at=str(row.get("run_at") or ""),
+        daily_time=str(row.get("daily_time") or ""),
+        weekly_days=[int(x) for x in re.split(r"[,\s]+", str(row.get("weekly_days") or "").strip()) if x.strip()],
+        cron_expr=str(row.get("cron_expr") or ""),
+    )
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scheduled_tasks SET status='enabled',next_run_at=%s,version=version+1 WHERE id=%s AND created_by=%s",
+                (
+                    schedule["next_run_at"].strftime("%Y-%m-%d %H:%M:%S") if schedule.get("next_run_at") else None,
+                    int(task_id),
+                    int(user["id"]),
+                ),
+            )
+            cur.execute(
+                "SELECT st.*,r.robot_id FROM scheduled_tasks st JOIN robots r ON r.id=st.robot_pk WHERE st.id=%s LIMIT 1",
+                (int(task_id),),
+            )
+            out = cur.fetchone() or {}
+        conn.commit()
+    finally:
+        conn.close()
+    return _serialize_scheduled_task(out)
+
+
+@app.post("/api/v1/scheduled-tasks/{task_id}/pause")
+async def pause_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scheduled_tasks SET status='paused',version=version+1 WHERE id=%s AND created_by=%s",
+                (int(task_id), int(user["id"])),
+            )
+            cur.execute(
+                "SELECT st.*,r.robot_id FROM scheduled_tasks st JOIN robots r ON r.id=st.robot_pk WHERE st.id=%s LIMIT 1",
+                (int(task_id),),
+            )
+            out = cur.fetchone() or {}
+        conn.commit()
+    finally:
+        conn.close()
+    return _serialize_scheduled_task(out)
+
+
+@app.post("/api/v1/scheduled-tasks/{task_id}/run-now")
+async def run_scheduled_task_now(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    planned = datetime.now().replace(microsecond=0)
+    idem = f"task:{int(task_id)}:{planned.strftime('%Y%m%d%H%M%S')}:manual"
+    conn = db_conn()
+    run_id = 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scheduled_task_runs(task_id,planned_at,status,idempotency_key)
+                VALUES(%s,%s,'running',%s)
+                """,
+                (int(task_id), planned.strftime("%Y-%m-%d %H:%M:%S"), idem),
+            )
+            run_id = int(cur.lastrowid)
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        payload = _serialize_scheduled_task(row).get("payload_json") or {}
+        res = await _dispatch_task_action_internal(int(user["id"]), str(row.get("robot_id") or ""), str(row.get("action") or ""), payload)
+        conn2 = db_conn()
+        try:
+            with conn2.cursor() as cur:
+                cur.execute(
+                    "UPDATE scheduled_task_runs SET status='success',finished_at=CURRENT_TIMESTAMP,result_json=%s WHERE id=%s",
+                    (json.dumps(res, ensure_ascii=False), int(run_id)),
+                )
+            conn2.commit()
+        finally:
+            conn2.close()
+        return {"ok": True, "run_id": run_id, "result": res}
+    except Exception as e:
+        conn3 = db_conn()
+        try:
+            with conn3.cursor() as cur:
+                cur.execute(
+                    "UPDATE scheduled_task_runs SET status='failed',finished_at=CURRENT_TIMESTAMP,error_text=%s WHERE id=%s",
+                    (str(e)[:1000], int(run_id)),
+                )
+            conn3.commit()
+        finally:
+            conn3.close()
+        raise
+
+
+@app.get("/api/v1/scheduled-tasks/{task_id}/runs")
+async def list_scheduled_task_runs(
+    task_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(1) AS c FROM scheduled_task_runs WHERE task_id=%s", (int(task_id),))
+            total = int((cur.fetchone() or {}).get("c") or 0)
+            off = (page - 1) * page_size
+            cur.execute(
+                """
+                SELECT *
+                FROM scheduled_task_runs
+                WHERE task_id=%s
+                ORDER BY id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (int(task_id), int(page_size), int(off)),
+            )
+            rows = cur.fetchall() or []
+    finally:
+        conn.close()
+    return {
+        "items": [
+            {
+                "id": int(x.get("id") or 0),
+                "planned_at": str(x.get("planned_at") or ""),
+                "started_at": str(x.get("started_at") or ""),
+                "finished_at": str(x.get("finished_at") or ""),
+                "status": str(x.get("status") or ""),
+                "attempt": int(x.get("attempt") or 1),
+                "error_text": str(x.get("error_text") or ""),
+                "result_json": _parse_json_object(x.get("result_json")) if x.get("result_json") is not None else None,
+                "created_at": str(x.get("created_at") or ""),
+            }
+            for x in rows
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+async def run_scheduled_tasks_tick(limit: int = 20) -> Dict[str, Any]:
+    now_dt = datetime.now().replace(microsecond=0)
+    conn = db_conn()
+    picked = 0
+    done = 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT st.*,r.robot_id
+                FROM scheduled_tasks st
+                JOIN robots r ON r.id=st.robot_pk
+                WHERE st.status='enabled' AND st.next_run_at IS NOT NULL AND st.next_run_at<=%s
+                ORDER BY st.next_run_at ASC, st.id ASC
+                LIMIT %s
+                """,
+                (now_dt.strftime("%Y-%m-%d %H:%M:%S"), int(limit)),
+            )
+            tasks = cur.fetchall() or []
+        for task in tasks:
+            planned_at = task.get("next_run_at")
+            version = int(task.get("version") or 0)
+            task_id = int(task.get("id") or 0)
+            if task_id <= 0 or planned_at is None:
+                continue
+            picked += 1
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE scheduled_tasks
+                    SET version=version+1
+                    WHERE id=%s AND status='enabled' AND version=%s
+                    """,
+                    (task_id, version),
+                )
+                if int(cur.rowcount or 0) <= 0:
+                    continue
+            conn.commit()
+
+            planned_s = str(planned_at)
+            idem = f"task:{task_id}:{planned_s}"
+            run_id = 0
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO scheduled_task_runs(task_id,planned_at,status,idempotency_key)
+                        VALUES(%s,%s,'running',%s)
+                        """,
+                        (task_id, planned_s, idem),
+                    )
+                    run_id = int(cur.lastrowid)
+                except pymysql.err.IntegrityError:
+                    run_id = 0
+            conn.commit()
+
+            next_at = _compute_next_run_at_by_rule(
+                str(task.get("schedule_type") or "once"),
+                run_at=str(task.get("run_at") or ""),
+                daily_time=str(task.get("daily_time") or ""),
+                weekly_days=str(task.get("weekly_days") or ""),
+                cron_expr=str(task.get("cron_expr") or ""),
+                base_dt=planned_at if isinstance(planned_at, datetime) else now_dt,
+            )
+            execute_now = True
+            if str(task.get("misfire_policy") or "skip") == "skip":
+                if isinstance(planned_at, datetime) and (now_dt - planned_at).total_seconds() > 90:
+                    execute_now = False
+            if run_id > 0:
+                if execute_now:
+                    try:
+                        payload = _serialize_scheduled_task(task).get("payload_json") or {}
+                        res = await _dispatch_task_action_internal(
+                            int(task.get("created_by") or 0),
+                            str(task.get("robot_id") or ""),
+                            str(task.get("action") or ""),
+                            payload,
+                        )
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE scheduled_task_runs SET status='success',finished_at=CURRENT_TIMESTAMP,result_json=%s WHERE id=%s",
+                                (json.dumps(res, ensure_ascii=False), run_id),
+                            )
+                    except Exception as e:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE scheduled_task_runs SET status='failed',finished_at=CURRENT_TIMESTAMP,error_text=%s WHERE id=%s",
+                                (str(e)[:1000], run_id),
+                            )
+                else:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE scheduled_task_runs SET status='skipped',finished_at=CURRENT_TIMESTAMP,error_text='misfire skipped' WHERE id=%s",
+                            (run_id,),
+                        )
+                conn.commit()
+
+            next_status = str(task.get("status") or "enabled")
+            if str(task.get("schedule_type") or "once") == "once" and next_at is None:
+                next_status = "paused"
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE scheduled_tasks SET last_run_at=CURRENT_TIMESTAMP,next_run_at=%s,status=%s,version=version+1 WHERE id=%s",
+                    (next_at.strftime("%Y-%m-%d %H:%M:%S") if next_at else None, next_status, task_id),
+                )
+            conn.commit()
+            done += 1
+    finally:
+        conn.close()
+    return {"picked": picked, "done": done}
 
 
 @app.post("/api/v1/groups/sync")

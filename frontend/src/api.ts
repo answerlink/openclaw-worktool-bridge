@@ -155,6 +155,15 @@ export const api = {
   suggestGroupNames: (params: { robot_id: string; keyword?: string; limit?: number }) =>
     http.get('/group-tags/group-suggestions', { params }).then((r) => r.data),
   dispatchTask: (payload: any) => http.post('/tasks/dispatch', payload, { timeout: 30000 }).then((r) => r.data),
+  listScheduledTasks: (robotId: string) => http.get('/scheduled-tasks', { params: { robot_id: robotId } }).then((r) => r.data),
+  createScheduledTask: (payload: any) => http.post('/scheduled-tasks', payload).then((r) => r.data),
+  updateScheduledTask: (id: number, payload: any) => http.put(`/scheduled-tasks/${id}`, payload).then((r) => r.data),
+  deleteScheduledTask: (id: number) => http.delete(`/scheduled-tasks/${id}`).then((r) => r.data),
+  enableScheduledTask: (id: number) => http.post(`/scheduled-tasks/${id}/enable`).then((r) => r.data),
+  pauseScheduledTask: (id: number) => http.post(`/scheduled-tasks/${id}/pause`).then((r) => r.data),
+  runScheduledTaskNow: (id: number) => http.post(`/scheduled-tasks/${id}/run-now`).then((r) => r.data),
+  listScheduledTaskRuns: (id: number, params?: { page?: number; page_size?: number }) =>
+    http.get(`/scheduled-tasks/${id}/runs`, { params: params || {} }).then((r) => r.data),
   getRobotInfoDetail: (robotId: string) => http.get('/robot-info/detail', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoCallbacks: (robotId: string) => http.get('/robot-info/callbacks', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoOnline: (robotId: string) => http.get('/robot-info/online', { params: { robot_id: robotId } }).then((r) => r.data),
