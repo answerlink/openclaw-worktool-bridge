@@ -154,6 +154,7 @@ export const api = {
     http.delete(`/group-tags/${tagId}/items/${itemId}`, { params: { robot_id: robotId } }).then((r) => r.data),
   suggestGroupNames: (params: { robot_id: string; keyword?: string; limit?: number }) =>
     http.get('/group-tags/group-suggestions', { params }).then((r) => r.data),
+  dispatchTask: (payload: any) => http.post('/tasks/dispatch', payload, { timeout: 30000 }).then((r) => r.data),
   getRobotInfoDetail: (robotId: string) => http.get('/robot-info/detail', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoCallbacks: (robotId: string) => http.get('/robot-info/callbacks', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoOnline: (robotId: string) => http.get('/robot-info/online', { params: { robot_id: robotId } }).then((r) => r.data),

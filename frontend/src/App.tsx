@@ -27,6 +27,7 @@ import TroubleshootPage from './pages/TroubleshootPage';
 import CommandTaskPage from './pages/CommandTaskPage';
 import GroupListPage from './pages/GroupListPage';
 import GroupTagLibraryPage from './pages/GroupTagLibraryPage';
+import TaskCenterPage from './pages/TaskCenterPage';
 import InboxPage from './pages/InboxPage';
 import InboxAdminPage from './pages/InboxAdminPage';
 import LoginPage from './pages/LoginPage';
@@ -183,6 +184,7 @@ export default function App() {
       { key: '/logs', icon: <FileTextOutlined />, label: <Link to="/logs">消息监控</Link> },
       { key: '/group-tags', icon: <TagsOutlined />, label: <Link to="/group-tags">标签库</Link> },
       { key: '/groups', icon: <TeamOutlined />, label: <Link to="/groups">群列表</Link> },
+      { key: '/task-center', icon: <ProfileOutlined />, label: <Link to="/task-center">任务中心</Link> },
       { key: '/command-tasks', icon: <ProfileOutlined />, label: <Link to="/command-tasks">指令任务查询</Link> },
       { key: '/forward', icon: <ShareAltOutlined />, label: <Link to="/forward">消息转发</Link> },
       { key: '/providers', icon: <ApiOutlined />, label: <Link to="/providers">AI回复引擎</Link> }
@@ -290,6 +292,7 @@ export default function App() {
             <Route path="/robots" element={<RobotPage />} />
             <Route path="/logs" element={<MessageLogPage />} />
             <Route path="/group-tags" element={<GroupTagLibraryPage />} />
+            <Route path="/task-center" element={<TaskCenterPage />} />
             <Route path="/groups" element={<GroupListPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/command-tasks" element={<CommandTaskPage />} />

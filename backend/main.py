@@ -1142,6 +1142,40 @@ class GroupTagItemCreateRequest(BaseModel):
     values: List[str] = Field(default_factory=list)
 
 
+class TaskDispatchRequest(BaseModel):
+    robot_id: str
+    action: Literal[
+        "send_text",
+        "send_file",
+        "create_external_group",
+        "update_group",
+        "dissolve_group",
+        "add_friend_by_phone",
+    ]
+    tag_ids: List[int] = Field(default_factory=list)
+    target_names: List[str] = Field(default_factory=list)
+    at_list: List[str] = Field(default_factory=list)
+    content: Optional[str] = None
+    object_name: Optional[str] = None
+    file_url: Optional[str] = None
+    file_type: Optional[str] = None
+    extra_text: Optional[str] = None
+    group_name: Optional[str] = None
+    new_group_name: Optional[str] = None
+    new_group_announcement: Optional[str] = None
+    select_list: List[str] = Field(default_factory=list)
+    show_message_history: Optional[bool] = None
+    remove_list: List[str] = Field(default_factory=list)
+    group_announcement: Optional[str] = None
+    group_remark: Optional[str] = None
+    group_template: Optional[str] = None
+    phone: Optional[str] = None
+    mark_name: Optional[str] = None
+    mark_extra: Optional[str] = None
+    friend_tag_list: List[str] = Field(default_factory=list)
+    leaving_msg: Optional[str] = None
+
+
 class InboxMessageCreate(BaseModel):
     category: Literal["system", "ops"] = "ops"
     level: Literal["info", "warning", "error"] = "info"
@@ -1967,6 +2001,85 @@ def _get_group_tag_or_404(tag_id: int, user_id: int, robot_pk: Optional[int] = N
             return row
     finally:
         conn.close()
+
+
+def _normalize_str_list(values: List[Any], max_len: int = 255) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for raw in values or []:
+        v = str(raw or "").strip()
+        if not v:
+            continue
+        if len(v) > max_len:
+            v = v[:max_len]
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
+
+
+def _resolve_targets_by_group_tags(user_id: int, robot_pk: int, tag_ids: List[int], manual_targets: List[str]) -> List[str]:
+    targets = _normalize_str_list(manual_targets or [])
+    tids = [int(x) for x in (tag_ids or []) if int(x) > 0]
+    if not tids:
+        return targets
+    placeholders = ",".join(["%s"] * len(tids))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT i.match_type,i.value
+                FROM group_tag_items i
+                JOIN group_tags t ON t.id=i.tag_id
+                WHERE t.created_by=%s AND t.robot_pk=%s AND i.tag_id IN ({placeholders})
+                """,
+                tuple([int(user_id), int(robot_pk)] + tids),
+            )
+            rules = cur.fetchall() or []
+            cur.execute("SELECT group_name FROM robot_group_cache WHERE robot_pk=%s", (int(robot_pk),))
+            group_rows = cur.fetchall() or []
+    finally:
+        conn.close()
+
+    group_names = [str(x.get("group_name") or "").strip() for x in group_rows]
+    group_names = [x for x in group_names if x]
+    for rule in rules:
+        mtype = str(rule.get("match_type") or "exact").strip().lower()
+        val = str(rule.get("value") or "").strip()
+        if not val:
+            continue
+        if mtype == "exact":
+            if val not in targets:
+                targets.append(val)
+            continue
+        if mtype == "regex":
+            for g in group_names:
+                try:
+                    ok = _match_with_mode("regex", val, g)
+                except Exception:
+                    ok = False
+                if ok and g not in targets:
+                    targets.append(g)
+    return targets
+
+
+async def _send_raw_message_batch(robot_id: str, list_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    items = [x for x in (list_items or []) if isinstance(x, dict)]
+    if not items:
+        raise HTTPException(status_code=400, detail="无可发送指令")
+    chunks = [items[i : i + 100] for i in range(0, len(items), 100)]
+    results: List[Dict[str, Any]] = []
+    for chunk in chunks:
+        res = await post_worktool_api(
+            "/wework/sendRawMessage",
+            params={"robotId": robot_id},
+            body={"socketType": 2, "list": chunk},
+        )
+        _ensure_worktool_ok(res, "发送指令")
+        results.append(res)
+    return {"batch_count": len(chunks), "item_count": len(items), "results": results}
 
 
 def _ensure_worktool_ok(data: Optional[Dict[str, Any]], action: str) -> None:
@@ -5065,6 +5178,117 @@ async def group_tag_group_suggestions(
         seen.add(val)
         options.append(val)
     return {"items": options}
+
+
+@app.post("/api/v1/tasks/dispatch")
+async def dispatch_task_command(body: TaskDispatchRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    robot_id = (body.robot_id or "").strip()
+    if not robot_id:
+        raise HTTPException(status_code=400, detail="robot_id 不能为空")
+    robot = _require_robot_access(int(user["id"]), robot_id)
+    action = (body.action or "").strip().lower()
+    target_names = _resolve_targets_by_group_tags(int(user["id"]), int(robot["id"]), body.tag_ids, body.target_names)
+
+    list_items: List[Dict[str, Any]] = []
+    if action == "send_text":
+        content = str(body.content or "").strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="content 不能为空")
+        targets = _normalize_str_list(target_names)
+        if not targets:
+            raise HTTPException(status_code=400, detail="请至少提供一个发送对象或标签")
+        at_list = _normalize_str_list(body.at_list or [])
+        for t in targets:
+            item: Dict[str, Any] = {"type": 203, "titleList": [t], "receivedContent": content}
+            if at_list:
+                item["atList"] = at_list
+            list_items.append(item)
+    elif action == "send_file":
+        object_name = str(body.object_name or "").strip()
+        file_url = str(body.file_url or "").strip()
+        file_type = str(body.file_type or "").strip() or "*"
+        if not object_name or not file_url:
+            raise HTTPException(status_code=400, detail="object_name 与 file_url 不能为空")
+        targets = _normalize_str_list(target_names)
+        if not targets:
+            raise HTTPException(status_code=400, detail="请至少提供一个发送对象或标签")
+        extra_text = str(body.extra_text or "").strip()
+        for t in targets:
+            item = {
+                "type": 218,
+                "titleList": [t],
+                "objectName": object_name,
+                "fileUrl": file_url,
+                "fileType": file_type,
+            }
+            if extra_text:
+                item["extraText"] = extra_text
+            list_items.append(item)
+    elif action == "create_external_group":
+        group_name = str(body.group_name or "").strip()
+        select_list = _normalize_str_list(body.select_list or [])
+        if not group_name or not select_list:
+            raise HTTPException(status_code=400, detail="group_name 与 select_list 不能为空")
+        item = {"type": 206, "groupName": group_name, "selectList": select_list}
+        if body.group_announcement:
+            item["groupAnnouncement"] = str(body.group_announcement).strip()
+        if body.group_remark:
+            item["groupRemark"] = str(body.group_remark).strip()
+        if body.group_template:
+            item["groupTemplate"] = str(body.group_template).strip()
+        list_items.append(item)
+    elif action == "update_group":
+        group_name = str(body.group_name or "").strip()
+        if not group_name:
+            raise HTTPException(status_code=400, detail="group_name 不能为空")
+        item: Dict[str, Any] = {"type": 207, "groupName": group_name}
+        if body.new_group_name:
+            item["newGroupName"] = str(body.new_group_name).strip()
+        if body.new_group_announcement:
+            item["newGroupAnnouncement"] = str(body.new_group_announcement).strip()
+        if body.group_remark:
+            item["groupRemark"] = str(body.group_remark).strip()
+        if body.group_template:
+            item["groupTemplate"] = str(body.group_template).strip()
+        select_list = _normalize_str_list(body.select_list or [])
+        remove_list = _normalize_str_list(body.remove_list or [])
+        if select_list:
+            item["selectList"] = select_list
+            item["showMessageHistory"] = bool(body.show_message_history)
+        if remove_list:
+            item["removeList"] = remove_list
+        list_items.append(item)
+    elif action == "dissolve_group":
+        group_name = str(body.group_name or "").strip()
+        if not group_name:
+            raise HTTPException(status_code=400, detail="group_name 不能为空")
+        list_items.append({"type": 219, "groupName": group_name})
+    elif action == "add_friend_by_phone":
+        phone = str(body.phone or "").strip()
+        if not phone:
+            raise HTTPException(status_code=400, detail="phone 不能为空")
+        friend: Dict[str, Any] = {"phone": phone}
+        if body.mark_name:
+            friend["markName"] = str(body.mark_name).strip()
+        if body.mark_extra:
+            friend["markExtra"] = str(body.mark_extra).strip()
+        tags = _normalize_str_list(body.friend_tag_list or [])
+        if tags:
+            friend["tagList"] = tags
+        if body.leaving_msg:
+            friend["leavingMsg"] = str(body.leaving_msg).strip()
+        list_items.append({"type": 213, "friend": friend})
+    else:
+        raise HTTPException(status_code=400, detail="暂不支持的 action")
+
+    send_res = await _send_raw_message_batch(robot_id, list_items)
+    return {
+        "ok": True,
+        "robot_id": robot_id,
+        "action": action,
+        "resolved_target_count": len(_normalize_str_list(target_names)),
+        **send_res,
+    }
 
 
 @app.post("/api/v1/groups/sync")
