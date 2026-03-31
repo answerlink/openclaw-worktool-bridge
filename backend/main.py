@@ -5284,22 +5284,41 @@ async def get_worktool_qa_logs(
 
 
 @app.get("/api/v1/group-tags")
-async def list_group_tags(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def list_group_tags(
+    robot_id: str,
+    keyword: str = "",
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    kw = (keyword or "").strip()
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
-                FROM group_tags t
-                LEFT JOIN group_tag_items i ON i.tag_id=t.id
-                WHERE t.created_by=%s AND t.robot_pk=%s
-                GROUP BY t.id,t.name,t.created_at,t.updated_at
-                ORDER BY t.updated_at DESC,t.id DESC
-                """,
-                (int(user["id"]), int(robot["id"])),
-            )
+            if kw:
+                like = f"%{kw}%"
+                cur.execute(
+                    """
+                    SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
+                    FROM group_tags t
+                    LEFT JOIN group_tag_items i ON i.tag_id=t.id
+                    WHERE t.created_by=%s AND t.robot_pk=%s AND t.name LIKE %s
+                    GROUP BY t.id,t.name,t.created_at,t.updated_at
+                    ORDER BY t.updated_at DESC,t.id DESC
+                    """,
+                    (int(user["id"]), int(robot["id"]), like),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
+                    FROM group_tags t
+                    LEFT JOIN group_tag_items i ON i.tag_id=t.id
+                    WHERE t.created_by=%s AND t.robot_pk=%s
+                    GROUP BY t.id,t.name,t.created_at,t.updated_at
+                    ORDER BY t.updated_at DESC,t.id DESC
+                    """,
+                    (int(user["id"]), int(robot["id"])),
+                )
             rows = cur.fetchall() or []
     finally:
         conn.close()

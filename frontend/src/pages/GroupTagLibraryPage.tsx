@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
@@ -42,6 +43,7 @@ export default function GroupTagLibraryPage() {
   const [addingItems, setAddingItems] = useState(false);
   const [robots, setRobots] = useState<Robot[]>([]);
   const [sourceRobotId, setSourceRobotId] = useState<string | undefined>(() => getLastSelectedRobotId());
+  const [tagKeyword, setTagKeyword] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchingSuggestions, setSearchingSuggestions] = useState(false);
   const suggestTimerRef = useRef<number | null>(null);
@@ -63,7 +65,7 @@ export default function GroupTagLibraryPage() {
     }
     setTagsLoading(true);
     try {
-      const res = await api.listGroupTags(rid);
+      const res = await api.listGroupTags(rid, tagKeyword.trim() || undefined);
       const rows = (res?.items || []) as GroupTagRow[];
       setTags(rows);
       if (!rows.length) {
@@ -154,6 +156,7 @@ export default function GroupTagLibraryPage() {
     setSelectedTagId(null);
     setItems([]);
     setItemsTotal(0);
+    setTagKeyword('');
     void loadTags();
   }, [sourceRobotId]);
 
@@ -261,6 +264,11 @@ export default function GroupTagLibraryPage() {
             <Typography.Text type="secondary">标签用于维护群发范围。每个标签对应一组群名或群名规则（后续可扩展到客户对象）。</Typography.Text>
           </Space>
         )}
+        extra={(
+          <Button icon={<ReloadOutlined />} onClick={() => void loadTags()}>
+            刷新
+          </Button>
+        )}
       >
         <Space style={{ marginBottom: 12 }}>
           <Select
@@ -276,10 +284,17 @@ export default function GroupTagLibraryPage() {
         <Space align="start" size={16} style={{ width: '100%' }}>
           <Card
             title="标签列表"
-            style={{ width: 460 }}
+            style={{ width: 520 }}
             extra={(
               <Space>
-                <Button onClick={() => void loadTags()}>刷新标签</Button>
+                <Input
+                  style={{ width: 180 }}
+                  value={tagKeyword}
+                  onChange={(e) => setTagKeyword(e.target.value)}
+                  onPressEnter={() => void loadTags()}
+                  placeholder="标签名称搜索"
+                />
+                <Button onClick={() => void loadTags()}>查询</Button>
                 <Button type="primary" onClick={openCreateTag}>新建标签</Button>
               </Space>
             )}

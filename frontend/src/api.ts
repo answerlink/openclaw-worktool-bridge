@@ -139,7 +139,8 @@ export const api = {
   syncGroups: (robotId: string) => http.post('/groups/sync', null, { params: { robot_id: robotId } }).then((r) => r.data),
   listGroups: (params: { robot_id: string; keyword?: string; page?: number; page_size?: number }) =>
     http.get('/groups', { params }).then((r) => r.data),
-  listGroupTags: (robotId: string) => http.get('/group-tags', { params: { robot_id: robotId } }).then((r) => r.data),
+  listGroupTags: (robotId: string, keyword?: string) =>
+    http.get('/group-tags', { params: { robot_id: robotId, keyword: keyword || undefined } }).then((r) => r.data),
   createGroupTag: (robotId: string, payload: { name: string }) =>
     http.post('/group-tags', payload, { params: { robot_id: robotId } }).then((r) => r.data),
   updateGroupTag: (robotId: string, id: number, payload: { name: string }) =>
