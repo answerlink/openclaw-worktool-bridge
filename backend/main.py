@@ -2411,26 +2411,31 @@ async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: st
             item["groupTemplate"] = str(payload.get("group_template")).strip()
         list_items.append(item)
     elif action == "update_group":
-        group_name = str(payload.get("group_name") or "").strip()
-        if not group_name:
-            raise HTTPException(status_code=400, detail="group_name 不能为空")
-        item = {"type": 207, "groupName": group_name}
-        if payload.get("new_group_name"):
-            item["newGroupName"] = str(payload.get("new_group_name")).strip()
-        if payload.get("new_group_announcement"):
-            item["newGroupAnnouncement"] = str(payload.get("new_group_announcement")).strip()
-        if payload.get("group_remark"):
-            item["groupRemark"] = str(payload.get("group_remark")).strip()
-        if payload.get("group_template"):
-            item["groupTemplate"] = str(payload.get("group_template")).strip()
-        select_list = _normalize_str_list(payload.get("select_list") or [])
-        remove_list = _normalize_str_list(payload.get("remove_list") or [])
-        if select_list:
-            item["selectList"] = select_list
-            item["showMessageHistory"] = bool(payload.get("show_message_history"))
-        if remove_list:
-            item["removeList"] = remove_list
-        list_items.append(item)
+        targets = _normalize_str_list(target_names)
+        single_group_name = str(payload.get("group_name") or "").strip()
+        if single_group_name:
+            targets = [single_group_name]
+        if not targets:
+            raise HTTPException(status_code=400, detail="请至少提供一个群名（可使用标签组或手动目标名）")
+
+        for group_name in targets:
+            item = {"type": 207, "groupName": group_name}
+            if payload.get("new_group_name"):
+                item["newGroupName"] = str(payload.get("new_group_name")).strip()
+            if payload.get("new_group_announcement"):
+                item["newGroupAnnouncement"] = str(payload.get("new_group_announcement")).strip()
+            if payload.get("group_remark"):
+                item["groupRemark"] = str(payload.get("group_remark")).strip()
+            if payload.get("group_template"):
+                item["groupTemplate"] = str(payload.get("group_template")).strip()
+            select_list = _normalize_str_list(payload.get("select_list") or [])
+            remove_list = _normalize_str_list(payload.get("remove_list") or [])
+            if select_list:
+                item["selectList"] = select_list
+                item["showMessageHistory"] = bool(payload.get("show_message_history"))
+            if remove_list:
+                item["removeList"] = remove_list
+            list_items.append(item)
     elif action == "dissolve_group":
         group_name = str(payload.get("group_name") or "").strip()
         if not group_name:
@@ -6026,7 +6031,8 @@ async def run_scheduled_tasks_tick(limit: int = 20) -> Dict[str, Any]:
             )
             execute_now = True
             if str(task.get("misfire_policy") or "skip") == "skip":
-                if isinstance(planned_at, datetime) and (now_dt - planned_at).total_seconds() > 90:
+                # Default policy: run once only when delay is within 10 minutes; otherwise skip.
+                if isinstance(planned_at, datetime) and (now_dt - planned_at).total_seconds() > 600:
                     execute_now = False
             if run_id > 0:
                 if execute_now:

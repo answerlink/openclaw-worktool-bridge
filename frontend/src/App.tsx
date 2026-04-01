@@ -185,7 +185,7 @@ export default function App() {
       { key: '/logs', icon: <FileTextOutlined />, label: <Link to="/logs">消息监控</Link> },
       { key: '/group-tags', icon: <TagsOutlined />, label: <Link to="/group-tags">标签库</Link> },
       { key: '/groups', icon: <TeamOutlined />, label: <Link to="/groups">群列表</Link> },
-      { key: '/task-center', icon: <ProfileOutlined />, label: <Link to="/task-center">任务中心</Link> },
+      { key: '/task-center', icon: <ProfileOutlined />, label: <Link to="/task-center">指令任务下发</Link> },
       { key: '/scheduled-tasks', icon: <ProfileOutlined />, label: <Link to="/scheduled-tasks">定时任务</Link> },
       { key: '/command-tasks', icon: <ProfileOutlined />, label: <Link to="/command-tasks">指令任务查询</Link> },
       { key: '/forward', icon: <ShareAltOutlined />, label: <Link to="/forward">消息转发</Link> },

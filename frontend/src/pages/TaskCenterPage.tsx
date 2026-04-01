@@ -149,12 +149,19 @@ export default function TaskCenterPage() {
   const submitUpdateGroup = async () => {
     const v = await updateGroupForm.validateFields();
     if (!robotId) return message.warning('请先选择机器人');
+    const { targetNames, tagIds } = parseTargets(v);
+    const singleGroupName = String(v.group_name || '').trim();
+    if (!singleGroupName && targetNames.length === 0 && tagIds.length === 0) {
+      return message.warning('请至少提供一个目标群（可用标签组、手动目标名或单个目标群名）');
+    }
     setSubmitting(true);
     try {
       await api.dispatchTask({
         robot_id: robotId,
         action: 'update_group',
-        group_name: String(v.group_name || ''),
+        tag_ids: tagIds,
+        target_names: targetNames,
+        group_name: singleGroupName,
         new_group_name: String(v.new_group_name || ''),
         new_group_announcement: String(v.new_group_announcement || ''),
         group_remark: String(v.group_remark || ''),
@@ -211,7 +218,7 @@ export default function TaskCenterPage() {
     <Card
       title={(
         <Space direction="vertical" size={0}>
-          <span>任务中心</span>
+          <span>指令任务下发</span>
           <Typography.Text type="secondary">对 WorkTool 常用指令提供可视化下发；消息与文件支持按标签组批量下发。</Typography.Text>
         </Space>
       )}
@@ -303,7 +310,16 @@ export default function TaskCenterPage() {
             label: '修改群信息',
             children: (
               <Form form={updateGroupForm} layout="vertical" onFinish={() => void submitUpdateGroup()}>
-                <Form.Item label="目标群名/备注名" name="group_name" rules={[{ required: true, message: '请输入群名' }]}><Input /></Form.Item>
+                <Alert type="info" showIcon style={{ marginBottom: 12 }} message="支持批量：可选择标签组或手动填写多个目标名；若只改单个群，也可直接填“单个目标群名”。" />
+                <Form.Item label="标签组" name="tag_ids">
+                  <Select mode="multiple" options={tagOptions} placeholder="选择标签组" allowClear />
+                </Form.Item>
+                <Form.Item label="手动目标名（每行一个）" name="target_names_text">
+                  <Input.TextArea rows={3} placeholder={`例如：
+测试群A
+测试群B`} />
+                </Form.Item>
+                <Form.Item label="单个目标群名（可选）" name="group_name"><Input /></Form.Item>
                 <Form.Item label="新群名" name="new_group_name"><Input /></Form.Item>
                 <Form.Item label="新群公告" name="new_group_announcement"><Input.TextArea rows={3} /></Form.Item>
                 <Form.Item label="拉人名单（每行一个）" name="select_list_text"><Input.TextArea rows={3} /></Form.Item>
