@@ -44,6 +44,11 @@ ADMIN_PHONE_WHITELIST = {
     for x in os.getenv("ADMIN_PHONE_WHITELIST", "").split(",")
     if x.strip()
 }
+DEMO_ROBOT_IDS = {
+    x.strip().lower()
+    for x in os.getenv("DEMO_ROBOT_IDS", "").split(",")
+    if x.strip()
+}
 
 SMS_HUARUI_API_URL = os.getenv("SMS_HUARUI_API_URL", "").strip()
 SMS_HUARUI_APPKEY = os.getenv("SMS_HUARUI_APPKEY", "").strip()
@@ -1341,6 +1346,19 @@ def _require_robot_access_by_pk(user_id: int, robot_pk: int) -> Dict[str, Any]:
     if int(row["id"]) not in _bound_robot_pk_set(user_id):
         raise HTTPException(status_code=403, detail="无权访问该机器人")
     return row
+
+
+def _is_demo_robot_id(robot_id: str) -> bool:
+    rid = str(robot_id or "").strip().lower()
+    return bool(rid) and rid in DEMO_ROBOT_IDS
+
+
+def _reject_demo_robot_write(robot_id: str, scope: str = "当前配置") -> None:
+    if _is_demo_robot_id(robot_id):
+        raise HTTPException(
+            status_code=403,
+            detail=f"演示机器人（{robot_id}）为只读模式，不能修改{scope}。你可以查看配置并下发任务进行体验。",
+        )
 
 
 def _provider_exists(provider_id: int) -> bool:
@@ -4087,6 +4105,7 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
 @app.put("/api/v1/robots/{robot_id}")
 async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "机器人配置")
     updates: List[str] = []
     params: List[Any] = []
     if body.name is not None:
@@ -4150,6 +4169,7 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
 @app.delete("/api/v1/robots/{robot_id}")
 async def delete_robot(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "机器人配置")
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -4416,6 +4436,7 @@ async def list_rules(robot_id: str, scene: Optional[str] = None, user: Dict[str,
 @app.post("/api/v1/rules")
 async def create_rule(body: RuleCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), body.robot_id)
+    _reject_demo_robot_write(body.robot_id, "机器人配置")
     if not _provider_accessible_by_user(body.provider_id, int(user["id"])):
         raise HTTPException(status_code=403, detail="无权使用该Provider")
     pattern_match_type = body.pattern_match_type
@@ -4472,6 +4493,8 @@ async def update_rule(rule_id: int, body: RuleUpdate, user: Dict[str, Any] = Dep
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=403, detail="无权修改该规则")
+            robot_row = _get_robot_by_pk_or_404(int(row["robot_pk"]))
+            _reject_demo_robot_write(str(robot_row.get("robot_id") or ""), "机器人配置")
 
             updates: List[str] = []
             params: List[Any] = []
@@ -4540,6 +4563,27 @@ async def delete_rule(rule_id: int, user: Dict[str, Any] = Depends(get_current_u
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT r.robot_pk
+                FROM routing_rules r
+                JOIN user_robots ur ON ur.robot_pk=r.robot_pk
+                WHERE r.id=%s AND ur.user_id=%s
+                LIMIT 1
+                """,
+                (rule_id, int(user["id"])),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=403, detail="无权删除该规则")
+            robot_row = _get_robot_by_pk_or_404(int(row["robot_pk"]))
+            _reject_demo_robot_write(str(robot_row.get("robot_id") or ""), "机器人配置")
+    finally:
+        conn.close()
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
                 DELETE r FROM routing_rules r
                 JOIN user_robots ur ON ur.robot_pk=r.robot_pk
                 WHERE r.id=%s AND ur.user_id=%s
@@ -4555,6 +4599,7 @@ async def delete_rule(rule_id: int, user: Dict[str, Any] = Depends(get_current_u
 @app.put("/api/v1/robots/{robot_id}/rules/reorder")
 async def reorder_rules(robot_id: str, scene: str, body: ReorderPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "机器人配置")
     if scene not in {"group", "private"}:
         raise HTTPException(status_code=400, detail="scene must be group/private")
     conn = db_conn()
@@ -4631,6 +4676,7 @@ async def list_forward_rules(
 async def create_forward_rule(body: ForwardRuleCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     uid = int(user["id"])
     source_robot = _require_robot_access(uid, body.source_robot_id)
+    _reject_demo_robot_write(str(source_robot.get("robot_id") or body.source_robot_id), "消息转发规则")
     source_match_type = body.source_match_type
     source_pattern = (body.source_pattern or "").strip()
     if source_match_type != "all" and not source_pattern:
@@ -4693,6 +4739,8 @@ async def update_forward_rule(rule_id: int, body: ForwardRuleUpdate, user: Dict[
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="转发规则不存在")
+            current_source_robot_row = _get_robot_by_pk_or_404(int(row["source_robot_pk"]))
+            _reject_demo_robot_write(str(current_source_robot_row.get("robot_id") or ""), "消息转发规则")
 
             source_robot_pk = int(row["source_robot_pk"])
             if body.source_robot_id is not None:
@@ -4787,10 +4835,17 @@ async def update_forward_rule(rule_id: int, body: ForwardRuleUpdate, user: Dict[
 
 @app.delete("/api/v1/forwards/{rule_id}")
 async def delete_forward_rule(rule_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    uid = int(user["id"])
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM forward_rules WHERE id=%s AND created_by=%s", (rule_id, int(user["id"])))
+            cur.execute("SELECT source_robot_pk FROM forward_rules WHERE id=%s AND created_by=%s LIMIT 1", (rule_id, uid))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="转发规则不存在")
+            source_robot_row = _get_robot_by_pk_or_404(int(row["source_robot_pk"]))
+            _reject_demo_robot_write(str(source_robot_row.get("robot_id") or ""), "消息转发规则")
+            cur.execute("DELETE FROM forward_rules WHERE id=%s AND created_by=%s", (rule_id, uid))
         conn.commit()
     finally:
         conn.close()
@@ -5348,6 +5403,7 @@ async def create_group_tag(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "标签库")
     name = _normalize_group_tag_name(body.name)
     conn = db_conn()
     try:
@@ -5382,6 +5438,7 @@ async def update_group_tag(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "标签库")
     name = _normalize_group_tag_name(body.name)
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     conn = db_conn()
@@ -5423,6 +5480,7 @@ async def update_group_tag(
 @app.delete("/api/v1/group-tags/{tag_id}")
 async def delete_group_tag(tag_id: int, robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "标签库")
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     conn = db_conn()
     try:
@@ -5492,6 +5550,7 @@ async def create_group_tag_items(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "标签库")
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     values = _normalize_group_tag_values(body.values or [])
     match_type = (body.match_type or "exact").strip().lower()
@@ -5526,6 +5585,7 @@ async def delete_group_tag_item(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
+    _reject_demo_robot_write(robot_id, "标签库")
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     conn = db_conn()
     try:
@@ -5689,6 +5749,7 @@ async def list_scheduled_tasks(robot_id: str, user: Dict[str, Any] = Depends(get
 @app.post("/api/v1/scheduled-tasks")
 async def create_scheduled_task(body: ScheduledTaskCreateRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), body.robot_id)
+    _reject_demo_robot_write(body.robot_id, "定时任务")
     name = str(body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name 不能为空")
@@ -5744,6 +5805,7 @@ async def create_scheduled_task(body: ScheduledTaskCreateRequest, user: Dict[str
 @app.put("/api/v1/scheduled-tasks/{task_id}")
 async def update_scheduled_task(task_id: int, body: ScheduledTaskUpdateRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     current = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    _reject_demo_robot_write(str(current.get("robot_id") or ""), "定时任务")
     next_schedule_type = body.schedule_type or str(current.get("schedule_type") or "once")
     next_run_at_raw = body.run_at if body.run_at is not None else str(current.get("run_at") or "")
     next_daily_time = body.daily_time if body.daily_time is not None else str(current.get("daily_time") or "")
@@ -5805,7 +5867,8 @@ async def update_scheduled_task(task_id: int, body: ScheduledTaskUpdateRequest, 
 
 @app.delete("/api/v1/scheduled-tasks/{task_id}")
 async def delete_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -5819,6 +5882,7 @@ async def delete_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get
 @app.post("/api/v1/scheduled-tasks/{task_id}/enable")
 async def enable_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
     schedule = _normalize_scheduled_task_fields(
         str(row.get("schedule_type") or "once"),
         run_at=str(row.get("run_at") or ""),
@@ -5850,7 +5914,8 @@ async def enable_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get
 
 @app.post("/api/v1/scheduled-tasks/{task_id}/pause")
 async def pause_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -5872,6 +5937,7 @@ async def pause_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_
 @app.post("/api/v1/scheduled-tasks/{task_id}/run-now")
 async def run_scheduled_task_now(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
     planned = datetime.now().replace(microsecond=0)
     idem = f"task:{int(task_id)}:{planned.strftime('%Y%m%d%H%M%S')}:manual"
     conn = db_conn()
@@ -6308,7 +6374,9 @@ async def get_robot_info_version(robot_id: str, user: Dict[str, Any] = Depends(g
 
 @app.post("/api/v1/robot-info/message-callback/test")
 async def test_robot_message_callback(body: MessageCallbackPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    _require_robot_access(int(user["id"]), (body.robot_id or "").strip())
+    rid = (body.robot_id or "").strip()
+    _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "回调地址")
     callback_url = (body.callback_url or "").strip()
     if not callback_url:
         raise HTTPException(status_code=400, detail="callback_url required")
@@ -6357,6 +6425,7 @@ async def test_robot_callback(body: CallbackTestPayload, user: Dict[str, Any] = 
 async def bind_robot_message_callback(body: MessageCallbackPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "回调地址")
     res = await bind_message_callback(rid, (body.callback_url or "").strip(), int(body.reply_all))
     return {"ok": True, "result": res}
 
@@ -6365,6 +6434,7 @@ async def bind_robot_message_callback(body: MessageCallbackPayload, user: Dict[s
 async def bind_robot_callback(body: RobotCallbackBindPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "回调地址")
     res = await bind_callback_by_type(rid, (body.callback_url or "").strip(), int(body.type))
     return {"ok": True, "type": body.type, "result": res}
 
@@ -6373,6 +6443,7 @@ async def bind_robot_callback(body: RobotCallbackBindPayload, user: Dict[str, An
 async def delete_robot_callback(body: RobotCallbackDeletePayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "回调地址")
     result = await delete_callback_by_type(rid, int(body.type))
     return {"ok": True, "robot_id": rid, "type": int(body.type), "result": result}
 

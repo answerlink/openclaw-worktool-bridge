@@ -92,7 +92,7 @@ export default function MessageLogPage() {
       setRobots(items);
       setRobotsLoaded(true);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || '加载机器人失败，请先到“机器人配置”页确认已添加机器人后重试。');
+      message.error(e?.response?.data?.detail || '加载机器人失败');
       setRobots([]);
       setRobotsLoaded(true);
     }
@@ -118,7 +118,7 @@ export default function MessageLogPage() {
       setPage(data.pageNum || nextPage);
       setPageSize(data.pageSize || nextPageSize);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || '拉取消息监控失败，请先确认已绑定消息回调且机器人有实际会话消息。');
+      message.error(e?.response?.data?.detail || '拉取消息监控失败');
       setLogs([]);
       setTotal(0);
     } finally {

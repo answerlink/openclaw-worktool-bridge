@@ -51,7 +51,7 @@ export default function AIHubPage() {
       const ps = await api.listProviders();
       setItems(ps);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || '加载AI回复引擎失败，请刷新页面后重试。');
+      message.error(e?.response?.data?.detail || '加载AI回复引擎失败');
     }
   };
 
@@ -74,7 +74,7 @@ export default function AIHubPage() {
       setOpen(false);
       load();
     } catch (e: any) {
-      message.error(`${e?.response?.data?.detail || e?.message || '保存失败'}。请检查 Base URL 和 API Token 是否可用后重试。`);
+      message.error(e?.response?.data?.detail || e?.message || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -104,7 +104,7 @@ export default function AIHubPage() {
       message.success('AI回复引擎已删除');
       await load();
     } catch (e: any) {
-      message.error(`${e?.response?.data?.detail || e?.message || '删除失败'}。若该引擎已被规则引用，请先删除或修改对应规则。`);
+      message.error(e?.response?.data?.detail || e?.message || '删除失败');
     }
   };
 

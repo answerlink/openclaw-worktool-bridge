@@ -153,7 +153,7 @@ export default function RobotPage() {
       message.success('规则排序已更新');
       await loadRulesAndProviders(selectedRobotId);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || '规则排序失败，请刷新后重试；若仍失败请检查该机器人规则是否被并发修改。');
+      message.error(e?.response?.data?.detail || '规则排序失败');
     }
   };
 
@@ -194,7 +194,7 @@ export default function RobotPage() {
     } catch (e: any) {
       Modal.error({
         title: '读取机器人失败',
-        content: `${e?.response?.data?.detail || e?.message || '未知错误'}。请先到“机器人信息”页确认该 robot_id 可用，再重试。`,
+        content: e?.response?.data?.detail || e?.message || '未知错误',
       });
     }
   };
@@ -242,7 +242,7 @@ export default function RobotPage() {
     } catch (e: any) {
       Modal.error({
         title: editingRobotId ? '更新失败' : '创建失败',
-        content: `${e?.response?.data?.detail || e?.message || '未知错误'}。请检查 Robot ID 是否正确、是否已重复，以及必填项是否完整。`,
+        content: e?.response?.data?.detail || e?.message || '未知错误',
       });
     }
   };
@@ -302,10 +302,17 @@ export default function RobotPage() {
       setRuleOpen(false);
       await loadRulesAndProviders(selectedRobotId);
     } catch (e: any) {
+      if (Array.isArray(e?.errorFields) && e.errorFields.length > 0) {
+        const firstMsg = e?.errorFields?.[0]?.errors?.[0];
+        if (firstMsg) {
+          message.warning(String(firstMsg));
+        }
+        return;
+      }
       const detail = e?.response?.data?.detail || e?.message || '未知错误';
       Modal.error({
         title: editingRule ? '规则更新失败' : '规则创建失败',
-        content: `${detail}。请重点检查“群名/昵称匹配规则（正则）”“聊天内容匹配规则（正则）”和“AI回复引擎”是否正确。`,
+        content: detail,
       });
     }
   };
@@ -317,7 +324,7 @@ export default function RobotPage() {
       setRules((prev) => prev.map((r) => (r.id === row.id ? { ...r, enabled } : r)));
       message.success(`规则已${enabled ? '启用' : '停用'}`);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || '更新规则状态失败，请刷新后重试。');
+      message.error(e?.response?.data?.detail || '更新规则状态失败');
     } finally {
       setRuleSwitchLoading((prev) => prev.filter((id) => id !== row.id));
     }

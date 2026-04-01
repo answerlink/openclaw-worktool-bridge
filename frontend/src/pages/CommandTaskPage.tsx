@@ -138,7 +138,7 @@ export default function CommandTaskPage() {
       setRobots(items);
       setRobotsLoaded(true);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || '加载机器人失败，请先到“机器人配置”页确认已添加机器人后重试。');
+      message.error(e?.response?.data?.detail || '加载机器人失败');
       setRobots([]);
       setRobotsLoaded(true);
     }

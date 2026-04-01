@@ -255,7 +255,7 @@ export default function RobotInfoPage() {
     } catch (e: any) {
       Modal.error({
         title: '绑定失败',
-        content: `${e?.response?.data?.detail || e?.message || '未知错误'}。请稍后重试；若仍失败，请检查该地址是否被 WorkTool 接受。`,
+        content: e?.response?.data?.detail || e?.message || '未知错误',
       });
     } finally {
       setSaving(false);
@@ -283,7 +283,7 @@ export default function RobotInfoPage() {
     } catch (e: any) {
       Modal.error({
         title: '自动设置失败',
-        content: `${e?.response?.data?.detail || e?.message || '未知错误'}。请稍后重试；若仍失败，请改为手动填写后保存。`,
+        content: e?.response?.data?.detail || e?.message || '未知错误',
       });
     } finally {
       setPlatformBinding(false);
