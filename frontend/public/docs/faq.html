@@ -31,6 +31,13 @@
 <li>发送机器人不可用</li>
 <li>上游接口错误</li>
 </ul>
+<h2 id="为什么演示机器人不能保存配置">为什么演示机器人不能保存配置？</h2><p>如果机器人 ID 被配置为演示机器人（<code>DEMO_ROBOT_IDS</code>），系统会按只读模式拦截配置变更。</p>
+<p>这是预期行为。演示机器人只用于：</p>
+<ul>
+<li>查看配置</li>
+<li>测试下发任务</li>
+</ul>
+<h2 id="为什么新增规则会提示必须选择-ai-回复引擎">为什么“新增规则”会提示必须选择 AI 回复引擎？</h2><p>规则执行必须绑定 AI 回复引擎。未选择时会直接做前端校验并提示，不会创建规则。</p>
 <h2 id="新手最稳妥的上线方式">新手最稳妥的上线方式？</h2><ol>
 <li>先私聊验证</li>
 <li>再测试群灰度</li>
@@ -47,7 +54,7 @@
     </main>
     <aside class="toc-wrap">
       <div class="toc-title">本页目录</div>
-      <nav class="toc"><a class="toc-item toc-1" href="#常见问题faq">常见问题（FAQ）</a><a class="toc-item toc-2" href="#为什么我能收到消息但不回复">为什么我能收到消息但不回复？</a><a class="toc-item toc-2" href="#为什么回调绑定显示成功但没生效">为什么回调绑定显示成功但没生效？</a><a class="toc-item toc-2" href="#为什么转发失败">为什么转发失败？</a><a class="toc-item toc-2" href="#新手最稳妥的上线方式">新手最稳妥的上线方式？</a></nav>
+      <nav class="toc"><a class="toc-item toc-1" href="#常见问题faq">常见问题（FAQ）</a><a class="toc-item toc-2" href="#为什么我能收到消息但不回复">为什么我能收到消息但不回复？</a><a class="toc-item toc-2" href="#为什么回调绑定显示成功但没生效">为什么回调绑定显示成功但没生效？</a><a class="toc-item toc-2" href="#为什么转发失败">为什么转发失败？</a><a class="toc-item toc-2" href="#为什么演示机器人不能保存配置">为什么演示机器人不能保存配置？</a><a class="toc-item toc-2" href="#为什么新增规则会提示必须选择-ai-回复引擎">为什么“新增规则”会提示必须选择 AI 回复引擎？</a><a class="toc-item toc-2" href="#新手最稳妥的上线方式">新手最稳妥的上线方式？</a></nav>
     </aside>
   </div>
   <script>

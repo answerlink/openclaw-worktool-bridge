@@ -22,9 +22,13 @@
 <p>重点字段：</p>
 <ul>
 <li>问题</li>
+<li>原始问题</li>
+<li>是否@</li>
 <li>回答</li>
 <li>耗时</li>
 <li>回调地址</li>
+<li>AI回复引擎</li>
+<li>AI判断群回复</li>
 </ul>
 <h2 id="本地监控与第三方监控">本地监控与第三方监控</h2><ul>
 <li>本平台托管回调：优先展示本地处理记录</li>
@@ -40,6 +44,11 @@
 <li>待执行列表每 60 秒自动刷新</li>
 <li>支持按 <code>messageId</code> 精准查询</li>
 </ul>
+<h2 id="指令任务下发与执行状态联动">指令任务下发与执行状态联动</h2><ul>
+<li>“指令任务下发”用于主动下发任务</li>
+<li>“指令任务查询”用于查看实际执行状态</li>
+<li>推荐流程：先下发，再按 <code>messageId</code> 精准核对执行结果</li>
+</ul>
 <h2 id="机器人登录日志异常提醒">机器人登录日志异常提醒</h2><p>在“机器人信息 &gt; 机器人登录日志”里，系统会判断登录上下线波动：</p>
 <ul>
 <li>最近 24 小时或当天内</li>
@@ -53,6 +62,7 @@
 <li>workVersion</li>
 <li>是否 root</li>
 <li>登录 IP</li>
+<li>问答回调记录（含原始问题、是否@）</li>
 </ul>
 <h2 id="常见异常">常见异常</h2><ul>
 <li>AI 请求失败：检查 URL、Token、Model</li>
@@ -71,7 +81,7 @@
     </main>
     <aside class="toc-wrap">
       <div class="toc-title">本页目录</div>
-      <nav class="toc"><a class="toc-item toc-1" href="#消息监控与排障">消息监控与排障</a><a class="toc-item toc-2" href="#消息监控">消息监控</a><a class="toc-item toc-2" href="#本地监控与第三方监控">本地监控与第三方监控</a><a class="toc-item toc-2" href="#指令任务查询">指令任务查询</a><a class="toc-item toc-2" href="#机器人登录日志异常提醒">机器人登录日志异常提醒</a><a class="toc-item toc-2" href="#机器人排查">机器人排查</a><a class="toc-item toc-2" href="#常见异常">常见异常</a></nav>
+      <nav class="toc"><a class="toc-item toc-1" href="#消息监控与排障">消息监控与排障</a><a class="toc-item toc-2" href="#消息监控">消息监控</a><a class="toc-item toc-2" href="#本地监控与第三方监控">本地监控与第三方监控</a><a class="toc-item toc-2" href="#指令任务查询">指令任务查询</a><a class="toc-item toc-2" href="#指令任务下发与执行状态联动">指令任务下发与执行状态联动</a><a class="toc-item toc-2" href="#机器人登录日志异常提醒">机器人登录日志异常提醒</a><a class="toc-item toc-2" href="#机器人排查">机器人排查</a><a class="toc-item toc-2" href="#常见异常">常见异常</a></nav>
     </aside>
   </div>
   <script>
