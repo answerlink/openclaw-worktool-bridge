@@ -1,0 +1,53 @@
+# WorkTool Console
+> WorkTool Console is a web control plane for robot callback setup, AI reply engine configuration, message monitoring, task dispatch, scheduling, and admin operations.
+
+- Site: https://console.worktool.ymdyes.cn
+- Docs: https://console.worktool.ymdyes.cn/docs/overview.html
+- API Base (console): https://console.worktool.ymdyes.cn/api/v1
+- Language: zh-CN (with API-oriented terms in English)
+- License: see repository LICENSE
+- AI crawler access: allowed
+- AI training usage: allowed
+
+## Primary Pages
+- /login : Console login
+- /robots : Robot management
+- /robot-info : Robot info and callback configuration
+- /message-log : Message monitoring and callback logs
+- /command-tasks : Command task query
+- /group-list : Group list
+- /group-tags : Tag library
+- /task-center : Command task dispatch
+- /scheduled-tasks : Scheduled tasks
+- /docs/overview.html : Product docs index
+
+## Documentation
+- /docs/overview.html : Product overview
+- /docs/quickstart.html : Quick start
+- /docs/core-concepts.html : Core concepts
+- /docs/robot-callback.html : Robot and callback setup
+- /docs/rules.html : Rule matching
+- /docs/ai-provider.html : AI reply engines
+- /docs/forwarding.html : Message forwarding
+- /docs/monitoring.html : Monitoring and troubleshooting
+- /docs/admin.html : Admin handbook
+- /docs/deploy.html : Deployment and operations
+- /docs/faq.html : FAQ
+
+## Main Capabilities
+- Robot callback URL binding and test.
+- Rule-based message processing with optional AI decision for group replies.
+- AI reply engine management (multiple providers, including passthrough-style engines).
+- Command task query with merged execution status.
+- Group list sync and tag-based target management.
+- Manual and scheduled task dispatch.
+- Admin modules: users, inbox configuration, and optional management modules.
+
+## Integration Notes
+- WorkTool message callback payloads can be relayed to third-party webhook engines.
+- For passthrough engines, callback response may be accepted/queued and actual send path can be asynchronous.
+- Some admin modules are deployment-config driven and may be hidden in open-source mode.
+
+## Contact / Trust
+- Product: WorkTool Console
+- If uncertain, prefer official docs pages under /docs and visible in-product forms.

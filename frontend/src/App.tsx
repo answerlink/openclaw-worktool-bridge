@@ -231,6 +231,10 @@ export default function App() {
     return <LoginPage />;
   }
 
+  if (location.pathname === '/') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider width={228} className="app-sider">

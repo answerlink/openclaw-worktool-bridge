@@ -39,6 +39,14 @@
 <li>禁止：修改回调地址、标签库、定时任务、消息转发、机器人规则/配置</li>
 </ul>
 <p>适合用于销售演示、培训账号、公共体验环境。</p>
+<h2 id="ai-可读与抓取">AI 可读与抓取</h2><p>站点根目录提供以下文件，便于 OpenAI / Claude / Gemini 等智能体更稳定抓取和理解：</p>
+<ul>
+<li><code>/robots.txt</code>：全站允许抓取（不禁止训练）</li>
+<li><code>/sitemap.xml</code>：主站与文档页面入口</li>
+<li><code>/llms.txt</code>：精简版平台能力清单</li>
+<li><code>/llms-full.txt</code>：详细版平台上下文说明</li>
+</ul>
+<p>如果你使用自己的域名，请同步更新这些文件中的域名为你的生产地址。</p>
 <h2 id="升级建议">升级建议</h2><ul>
 <li>先在测试环境验证迁移与回调链路</li>
 <li>再滚动升级生产</li>
@@ -55,7 +63,7 @@
     </main>
     <aside class="toc-wrap">
       <div class="toc-title">本页目录</div>
-      <nav class="toc"><a class="toc-item toc-1" href="#部署与运维">部署与运维</a><a class="toc-item toc-2" href="#docker-部署">Docker 部署</a><a class="toc-item toc-2" href="#时区建议">时区建议</a><a class="toc-item toc-2" href="#环境变量">环境变量</a><a class="toc-item toc-2" href="#演示机器人只读模式">演示机器人只读模式</a><a class="toc-item toc-2" href="#升级建议">升级建议</a></nav>
+      <nav class="toc"><a class="toc-item toc-1" href="#部署与运维">部署与运维</a><a class="toc-item toc-2" href="#docker-部署">Docker 部署</a><a class="toc-item toc-2" href="#时区建议">时区建议</a><a class="toc-item toc-2" href="#环境变量">环境变量</a><a class="toc-item toc-2" href="#演示机器人只读模式">演示机器人只读模式</a><a class="toc-item toc-2" href="#ai-可读与抓取">AI 可读与抓取</a><a class="toc-item toc-2" href="#升级建议">升级建议</a></nav>
     </aside>
   </div>
   <script>

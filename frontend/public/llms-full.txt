@@ -1,0 +1,95 @@
+# WorkTool Console - Full LLM Context
+Last-Updated: 2026-04-01
+Canonical-Site: https://console.worktool.ymdyes.cn
+Canonical-Docs: https://console.worktool.ymdyes.cn/docs/overview.html
+Console-API-Base: https://console.worktool.ymdyes.cn/api/v1
+Access-Policy: Public pages and authenticated console pages
+AI-Crawler-Policy: Allowed
+AI-Training-Policy: Allowed
+
+## Product Summary
+WorkTool Console is the management portal for WorkTool robot operations.
+It focuses on:
+1. Callback and rule configuration.
+2. AI reply engine integration.
+3. Message and callback observability.
+4. Task dispatch and scheduling.
+5. Admin operations for enterprise scenarios.
+
+## Domain Model
+1. User: console account.
+2. Robot: terminal/client identity (robotId).
+3. Rule: message matching and reply/processing behavior.
+4. AI Reply Engine: provider config used by rules.
+5. Callback: inbound message push and optional outbound processing.
+6. Group: synced group contact metadata.
+7. Group Tag: user-defined set of group names/rules (not tightly bound to upstream numeric ids).
+8. Task: command dispatch operation to one or more targets.
+9. Scheduled Task: cron-style trigger for task templates.
+10. Inbox Message: in-console notice for reminders and announcements.
+
+## Key Functional Areas
+1. Robot Info
+- Configure callback URLs.
+- Test callback URL availability before save.
+- View robot login logs and version summary.
+
+2. Rules and AI Behavior
+- Configure matching conditions (group name/nickname regex, content regex, etc.).
+- Configure group reply mode including AI-assisted decision behavior.
+- Associate AI reply engine for matched processing.
+
+3. Monitoring and Troubleshooting
+- Message monitoring table with callback records and context columns.
+- Callback and task execution visibility for diagnosis.
+
+4. Command Task Query
+- Shows recent command tasks.
+- Merges command dispatch list and execution-result list by messageId.
+- Pending items can be polled at configured interval.
+
+5. Group and Tag Management
+- Sync/display group list from WorkTool APIs.
+- Maintain reusable tag groups for batch target selection.
+- Tags support manual group-name additions and fuzzy search input.
+
+6. Task Dispatch Center
+- Friendly UI wrapper around WorkTool command APIs.
+- Supports common actions like sending text/media/files and batch targets.
+- Supports tag-based target selection.
+
+7. Scheduled Tasks
+- Persisted schedules stored in MySQL.
+- Dedicated scheduler worker executes due jobs and records runs.
+- Defaults are simplified for non-technical users with advanced options hidden.
+
+8. Admin Modules
+- User management.
+- Inbox message configuration.
+- Optional modules such as IP blacklist management and enterprise authorization (deployment-config controlled).
+
+## Behavior Notes for AI Agents
+1. UI labels and copy are user-friendly Chinese; preserve existing wording conventions.
+2. When writing or editing rules, avoid exposing internal ids to end users.
+3. For status calculation, execution-result presence means task is not pending.
+4. Demo robot ids may be configured as read-only for safety; write APIs should return friendly 403 details.
+5. Optional modules can be disabled by config in open-source deployments.
+
+## Public Documentation Map
+- https://console.worktool.ymdyes.cn/docs/overview.html
+- https://console.worktool.ymdyes.cn/docs/quickstart.html
+- https://console.worktool.ymdyes.cn/docs/core-concepts.html
+- https://console.worktool.ymdyes.cn/docs/robot-callback.html
+- https://console.worktool.ymdyes.cn/docs/rules.html
+- https://console.worktool.ymdyes.cn/docs/ai-provider.html
+- https://console.worktool.ymdyes.cn/docs/forwarding.html
+- https://console.worktool.ymdyes.cn/docs/monitoring.html
+- https://console.worktool.ymdyes.cn/docs/admin.html
+- https://console.worktool.ymdyes.cn/docs/deploy.html
+- https://console.worktool.ymdyes.cn/docs/faq.html
+
+## Machine-Use Guidance
+1. Prefer docs pages for product behavior explanations.
+2. Prefer in-product API responses for runtime truth.
+3. Treat fields marked optional as potentially absent.
+4. Do not infer upstream data volume from internal local identifiers.

@@ -1,0 +1,32 @@
+# WorkTool Console crawler policy
+# Training usage is allowed.
+
+User-agent: *
+Allow: /
+
+# Explicit allow for major AI crawlers/agents.
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
+User-agent: Gemini
+Allow: /
+
+Sitemap: https://console.worktool.ymdyes.cn/sitemap.xml
