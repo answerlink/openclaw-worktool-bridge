@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button, Card, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
@@ -42,6 +42,13 @@ interface RawResultRecord {
   failList?: string;
 }
 
+interface BacklogWarningState {
+  pendingOverdueCount: number;
+  oldestPendingTime: string;
+  newestResultTime: string;
+  oldestPendingMinutes: number;
+}
+
 function safeParseJson(raw: unknown): any {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   try {
@@ -55,6 +62,16 @@ function parseTargets(value: unknown): string[] {
   const parsed = safeParseJson(value);
   if (!Array.isArray(parsed)) return [];
   return parsed.map((x) => String(x || '').trim()).filter(Boolean);
+}
+
+function parseDateTimeMs(value: unknown): number {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const ts = Date.parse(raw);
+  if (!Number.isNaN(ts)) return ts;
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const ts2 = Date.parse(normalized);
+  return Number.isNaN(ts2) ? 0 : ts2;
 }
 
 function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[]): CommandTaskRow[] {
@@ -121,6 +138,8 @@ export default function CommandTaskPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState('');
   const [messageIdInput, setMessageIdInput] = useState('');
   const [messageIdFilter, setMessageIdFilter] = useState('');
+  const [backlogWarning, setBacklogWarning] = useState<BacklogWarningState | null>(null);
+  const backlogNoticeKeyRef = useRef('');
 
   const selectRobot = (nextRobotId?: string) => {
     setRobotId(nextRobotId);
@@ -160,11 +179,71 @@ export default function CommandTaskPage() {
       ]);
       const commandRows = (commandsRes?.data?.list || []) as RawCommandRecord[];
       const resultRows = (resultsRes?.data || []) as RawResultRecord[];
-      setRows(mergeRows(commandRows, resultRows));
+      const mergedRows = mergeRows(commandRows, resultRows);
+      setRows(mergedRows);
       setLastUpdatedAt(new Date().toLocaleString());
+
+      const midForQuery = mid;
+      if (!midForQuery) {
+        let resultLatestTime = '';
+        let resultLatestMs = 0;
+        for (const row of resultRows) {
+          const t = String(row?.runTime || '').trim();
+          const ms = parseDateTimeMs(t);
+          if (ms > resultLatestMs) {
+            resultLatestMs = ms;
+            resultLatestTime = t;
+          }
+        }
+
+        const nowMs = Date.now();
+        const overduePendingRows = mergedRows.filter((row) => {
+          if (row.status !== 'pending') return false;
+          const createMs = parseDateTimeMs(row.createTime);
+          if (createMs <= 0) return false;
+          return nowMs - createMs > 5 * 60 * 1000;
+        });
+        let oldestPendingTime = '';
+        let oldestPendingMs = Number.MAX_SAFE_INTEGER;
+        for (const row of overduePendingRows) {
+          const createMs = parseDateTimeMs(row.createTime);
+          if (createMs > 0 && createMs < oldestPendingMs) {
+            oldestPendingMs = createMs;
+            oldestPendingTime = row.createTime;
+          }
+        }
+
+        if (overduePendingRows.length > 0 && oldestPendingTime) {
+          const oldestPendingMinutes = Math.max((nowMs - oldestPendingMs) / 60000, 0);
+          const warningState = {
+            pendingOverdueCount: overduePendingRows.length,
+            oldestPendingTime,
+            newestResultTime: resultLatestTime || '-',
+            oldestPendingMinutes,
+          };
+          setBacklogWarning(warningState);
+          const noticeKey = `${robotId}|${oldestPendingTime}|${overduePendingRows.length}`;
+          if (noticeKey && backlogNoticeKeyRef.current !== noticeKey) {
+            backlogNoticeKeyRef.current = noticeKey;
+            void api.noticeWorktoolCommandBacklog({
+              robot_id: robotId,
+              pending_overdue_count: overduePendingRows.length,
+              oldest_pending_time: oldestPendingTime,
+              newest_result_time: resultLatestTime || undefined,
+            }).catch(() => {
+              // ignore notice failures, do not block main list rendering
+            });
+          }
+        } else {
+          setBacklogWarning(null);
+        }
+      } else {
+        setBacklogWarning(null);
+      }
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '拉取指令任务失败');
       setRows([]);
+      setBacklogWarning(null);
     } finally {
       setLoading(false);
     }
@@ -270,6 +349,22 @@ export default function CommandTaskPage() {
         <Button onClick={() => setMessageIdFilter(messageIdInput.trim())}>查询</Button>
         <Typography.Text type="secondary">最后刷新: {lastUpdatedAt || '-'}</Typography.Text>
       </Space>
+
+      {backlogWarning ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="检测到指令执行可能积压"
+          description={(
+            <span>
+              超过5分钟仍待执行的指令：{backlogWarning.pendingOverdueCount} 条；
+              最早待执行时间：{backlogWarning.oldestPendingTime}（约 {backlogWarning.oldestPendingMinutes.toFixed(1)} 分钟）；
+              最近执行结果时间：{backlogWarning.newestResultTime}。请检查机器人在线状态、客户端网络和任务负载。
+            </span>
+          )}
+        />
+      ) : null}
 
       {!robotId ? (
         <Typography.Text type="secondary">请先选择机器人。</Typography.Text>

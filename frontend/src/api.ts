@@ -136,6 +136,12 @@ export const api = {
     http.get('/worktool/raw-commands', { params }).then((r) => r.data),
   getWorktoolRawCommandResults: (params: { robot_id: string; page?: number; size?: number; sort?: string; message_id?: string }) =>
     http.get('/worktool/raw-command-results', { params }).then((r) => r.data),
+  noticeWorktoolCommandBacklog: (payload: {
+    robot_id: string;
+    pending_overdue_count: number;
+    oldest_pending_time: string;
+    newest_result_time?: string;
+  }) => http.post('/worktool/command-backlog/notice', payload).then((r) => r.data),
   syncGroups: (robotId: string) => http.post('/groups/sync', null, { params: { robot_id: robotId } }).then((r) => r.data),
   listGroups: (params: { robot_id: string; keyword?: string; page?: number; page_size?: number }) =>
     http.get('/groups', { params }).then((r) => r.data),

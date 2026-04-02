@@ -1297,6 +1297,13 @@ class InboxMessageUpdate(BaseModel):
     status: Optional[Literal["draft", "published", "offline"]] = None
 
 
+class CommandBacklogNoticeRequest(BaseModel):
+    robot_id: str
+    pending_overdue_count: int
+    oldest_pending_time: str
+    newest_result_time: Optional[str] = None
+
+
 # ----- permission helpers -----
 def _bound_robot_pk_set(user_id: int) -> set:
     conn = db_conn()
@@ -5331,6 +5338,73 @@ async def get_worktool_raw_command_results(
     if mid:
         params["messageId"] = mid
     return await fetch_worktool_api("/robot/rawMsg/list", params)
+
+
+@app.post("/api/v1/worktool/command-backlog/notice")
+async def notice_worktool_command_backlog(
+    body: CommandBacklogNoticeRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    uid = int(user["id"])
+    robot_id = (body.robot_id or "").strip()
+    if not robot_id:
+        raise HTTPException(status_code=400, detail="robot_id required")
+    _require_robot_access(uid, robot_id)
+
+    pending_overdue_count = int(body.pending_overdue_count or 0)
+    oldest_pending_dt = _parse_datetime_or_none(body.oldest_pending_time, raise_on_invalid=False)
+    newest_result_dt = _parse_datetime_or_none(body.newest_result_time, raise_on_invalid=False) if body.newest_result_time else None
+    if pending_overdue_count <= 0 or not oldest_pending_dt:
+        return {"warned": False, "reason": "no_overdue_pending"}
+
+    today_local = datetime.now().strftime("%Y-%m-%d")
+    system_ref = f"{robot_id}:{today_local}:{uid}"
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM inbox_deliveries d
+                JOIN inbox_messages m ON m.id=d.message_id
+                WHERE d.user_id=%s AND m.system_key='robot_command_backlog' AND m.system_ref=%s
+                LIMIT 1
+                """,
+                (uid, system_ref),
+            )
+            if cur.fetchone():
+                return {"warned": False, "reason": "already_warned_today", "pending_overdue_count": pending_overdue_count}
+
+        pending_minutes = max(int((datetime.utcnow() - oldest_pending_dt).total_seconds() // 60), 0)
+        newest_result_text = newest_result_dt.strftime('%Y-%m-%d %H:%M:%S') if newest_result_dt else "-"
+        _create_system_inbox_message(
+            conn,
+            title=f"机器人 {robot_id} 指令执行可能积压",
+            content=(
+                f"超过5分钟仍待执行的指令数量：{pending_overdue_count}。"
+                f"最早待执行时间：{oldest_pending_dt.strftime('%Y-%m-%d %H:%M:%S')}（约 {pending_minutes} 分钟）。"
+                f"最近执行结果时间：{newest_result_text}。"
+                "建议检查机器人在线状态、客户端网络和任务负载。"
+            ),
+            level="warning",
+            user_ids=[uid],
+            system_key="robot_command_backlog",
+            system_ref=system_ref,
+            expire_at=datetime.utcnow() + timedelta(days=30),
+        )
+        conn.commit()
+        return {"warned": True, "reason": "created", "pending_overdue_count": pending_overdue_count}
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.warning("command_backlog_notice_failed user_id=%s robot_id=%s err=%s", uid, robot_id, str(e))
+        return {"warned": False, "reason": "error", "pending_overdue_count": pending_overdue_count}
+    finally:
+        conn.close()
+
+
 @app.get("/api/v1/worktool/qa-logs")
 async def get_worktool_qa_logs(
     robot_id: str,
