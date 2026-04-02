@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Input, Popover, Select, Space, Table, Tag, Typography, message } from 'antd';
-import { ReloadOutlined, SettingOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Checkbox, Input, Popover, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { QuestionCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
@@ -75,6 +75,7 @@ export default function MessageLogPage() {
     }
     return DEFAULT_VISIBLE_COLUMNS;
   });
+  const [detectedNickname, setDetectedNickname] = useState<string>('-');
 
   const selectRobot = (nextRobotId?: string) => {
     setRobotId(nextRobotId);
@@ -144,6 +145,32 @@ export default function MessageLogPage() {
   }, [robotsLoaded, robots, robotId]);
 
   useEffect(() => {
+    let canceled = false;
+    const loadRobotNickname = async () => {
+      if (!robotId) {
+        setDetectedNickname('-');
+        return;
+      }
+      try {
+        const detailRes = await api.getRobotInfoDetail(robotId);
+        if (!canceled) {
+          const detail = detailRes?.data || detailRes || {};
+          const nick = String(detail?.name || '').trim();
+          setDetectedNickname(nick || '-');
+        }
+      } catch {
+        if (!canceled) {
+          setDetectedNickname('-');
+        }
+      }
+    };
+    void loadRobotNickname();
+    return () => {
+      canceled = true;
+    };
+  }, [robotId]);
+
+  useEffect(() => {
     void loadLogs(1, pageSize);
   }, [robotId, sceneFilter]);
 
@@ -184,7 +211,16 @@ export default function MessageLogPage() {
       },
       {
         key: 'atMe',
-        title: '是否@',
+        title: (
+          <Space size={4}>
+            <span>是否@</span>
+            <Tooltip
+              title={`识别账号昵称为：${detectedNickname}。若“是否@”显示异常，请检查企微账号“对外显示名”与昵称是否一致，可在企微APP中手动修改后重启WorkTool App。`}
+            >
+              <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+            </Tooltip>
+          </Space>
+        ),
         dataIndex: 'atMe',
         width: 100,
         render: (v: boolean | undefined) => (v === undefined ? '-' : v ? '是' : '否')
@@ -233,7 +269,7 @@ export default function MessageLogPage() {
         )
       }
     ],
-    []
+    [detectedNickname]
   );
 
   const tableColumns = useMemo(
