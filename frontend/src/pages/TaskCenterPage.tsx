@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Input, Select, Space, Switch, Tabs, Typography, message } from 'antd';
 import { api } from '../api';
 import type { Robot } from '../types';
-import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 
 function splitLines(text: string): string[] {
   return String(text || '')
@@ -26,7 +26,7 @@ export default function TaskCenterPage() {
   const [addFriendForm] = Form.useForm();
 
   const robotOptions = useMemo(
-    () => robots.map((r) => ({ label: r.name ? `${r.name} (${r.robot_id})` : r.robot_id, value: r.robot_id })),
+    () => robots.map((r) => ({ label: r.name ? `${r.name} (${maskRobotIdForDisplay(r.robot_id)})` : maskRobotIdForDisplay(r.robot_id), value: r.robot_id })),
     [robots]
   );
 

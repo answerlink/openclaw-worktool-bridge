@@ -20,3 +20,13 @@ export function setLastSelectedRobotId(robotId?: string) {
     // ignore storage errors
   }
 }
+
+export function maskRobotIdForDisplay(robotId?: string): string {
+  const rid = String(robotId || '').trim();
+  if (!rid) return '';
+  if (rid.length <= 20) return rid;
+  const start = Math.max(Math.floor((rid.length - 8) / 2), 0);
+  const prefix = rid.slice(0, start);
+  const suffix = rid.slice(start + 8);
+  return `${prefix}${"*".repeat(8)}${suffix}`;
+}

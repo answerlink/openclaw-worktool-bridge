@@ -3,7 +3,7 @@ import { Button, Card, Input, Select, Space, Table, Tag, Typography, message } f
 import { ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
-import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 
 interface GroupRow {
   group_name: string;
@@ -37,7 +37,7 @@ export default function GroupListPage() {
   };
 
   const robotOptions = useMemo(
-    () => robots.map((r) => ({ label: r.name ? `${r.name} (${r.robot_id})` : r.robot_id, value: r.robot_id })),
+    () => robots.map((r) => ({ label: r.name ? `${r.name} (${maskRobotIdForDisplay(r.robot_id)})` : maskRobotIdForDisplay(r.robot_id), value: r.robot_id })),
     [robots]
   );
 

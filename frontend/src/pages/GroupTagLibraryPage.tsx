@@ -3,7 +3,7 @@ import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag
 import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
-import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 
 interface GroupTagRow {
   id: number;
@@ -50,7 +50,7 @@ export default function GroupTagLibraryPage() {
 
   const selectedTag = useMemo(() => tags.find((x) => x.id === selectedTagId) || null, [tags, selectedTagId]);
   const robotOptions = useMemo(
-    () => robots.map((r) => ({ label: r.name ? `${r.name} (${r.robot_id})` : r.robot_id, value: r.robot_id })),
+    () => robots.map((r) => ({ label: r.name ? `${r.name} (${maskRobotIdForDisplay(r.robot_id)})` : maskRobotIdForDisplay(r.robot_id), value: r.robot_id })),
     [robots]
   );
 

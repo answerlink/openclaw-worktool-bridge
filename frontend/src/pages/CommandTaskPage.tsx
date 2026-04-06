@@ -3,7 +3,7 @@ import { Alert, Button, Card, Input, Select, Space, Table, Tag, Typography, mess
 import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
-import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 
 type TaskStatus = 'pending' | 'success' | 'failed';
 
@@ -147,7 +147,7 @@ export default function CommandTaskPage() {
   };
 
   const robotOptions = useMemo(
-    () => robots.map((r) => ({ label: r.name ? `${r.name} (${r.robot_id})` : r.robot_id, value: r.robot_id })),
+    () => robots.map((r) => ({ label: r.name ? `${r.name} (${maskRobotIdForDisplay(r.robot_id)})` : maskRobotIdForDisplay(r.robot_id), value: r.robot_id })),
     [robots]
   );
 
