@@ -64,6 +64,8 @@ DEFAULT_TEST_PROVIDER_BASE_URL = os.getenv(
 ).strip()
 DEFAULT_TEST_PROVIDER_API_KEY = os.getenv("DEFAULT_TEST_PROVIDER_API_KEY", "").strip()
 DEFAULT_TEST_PROVIDER_MODEL = os.getenv("DEFAULT_TEST_PROVIDER_MODEL", "doubao-seed-2.0-lite").strip()
+QA_CALLBACK_WORKER_CONCURRENCY = max(int(os.getenv("QA_CALLBACK_WORKER_CONCURRENCY", "8") or "8"), 1)
+QA_CALLBACK_QUEUE_MAXSIZE = max(int(os.getenv("QA_CALLBACK_QUEUE_MAXSIZE", "2000") or "2000"), 100)
 
 
 app = FastAPI(title="WorkTool Bot Console API", version=APP_VERSION)
@@ -78,6 +80,8 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
 logger = logging.getLogger("backend")
 _expiry_notice_scan_lock = asyncio.Lock()
+_qa_callback_queue: Optional[asyncio.Queue] = None
+_qa_callback_worker_tasks: List[asyncio.Task] = []
 
 
 def now_iso() -> str:
@@ -3481,8 +3485,32 @@ async def _send_worktool_text(robot_id: str, scene: str, req: QARequest, text: s
 # ----- lifecycle -----
 @app.on_event("startup")
 async def startup() -> None:
+    global _qa_callback_queue, _qa_callback_worker_tasks
     init_db()
+    _qa_callback_queue = asyncio.Queue(maxsize=QA_CALLBACK_QUEUE_MAXSIZE)
+    _qa_callback_worker_tasks = [
+        asyncio.create_task(_qa_callback_worker_loop(i + 1))
+        for i in range(QA_CALLBACK_WORKER_CONCURRENCY)
+    ]
+    logger.info(
+        "qa_callback_workers_started workers=%s queue_maxsize=%s",
+        QA_CALLBACK_WORKER_CONCURRENCY,
+        QA_CALLBACK_QUEUE_MAXSIZE,
+    )
     logger.info("backend started")
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    global _qa_callback_queue, _qa_callback_worker_tasks
+    tasks = list(_qa_callback_worker_tasks)
+    _qa_callback_worker_tasks = []
+    for t in tasks:
+        t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _qa_callback_queue = None
+    logger.info("qa_callback_workers_stopped")
 
 
 # ----- auth -----
@@ -5040,70 +5068,23 @@ async def _is_platform_message_callback(robot_id: str) -> bool:
     return False
 
 
-@app.post("/api/v1/callback/qa/{robot_id}", response_model=QAResponse)
-async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResponse:
+async def _process_qa_callback_task(
+    *,
+    robot_id: str,
+    req_payload: Dict[str, Any],
+    callback_url: str,
+    callback_payload: Dict[str, Any],
+    local_log_id: int,
+) -> None:
     started_at = time.perf_counter()
+    req = QARequest(**req_payload)
     robot = _get_robot_by_id_or_404(robot_id)
     robot_pk = int(robot["id"])
     scene = _scene_from_room_type(req.roomType)
     inbound_text = _pick_inbound_text(req)
     match_target = _rule_match_target(scene, req)
     callback_message_id = _pick_message_id(req)
-    try:
-        raw_payload = await request.json()
-    except Exception:
-        raw_payload = {}
-    if not isinstance(raw_payload, dict):
-        raw_payload = {}
-    callback_payload: Dict[str, Any] = dict(raw_payload)
-    callback_payload.setdefault("spoken", req.spoken)
-    callback_payload.setdefault("rawSpoken", req.rawSpoken)
-    callback_payload.setdefault("receivedName", req.receivedName)
-    callback_payload.setdefault("groupName", req.groupName)
-    callback_payload.setdefault("roomType", req.roomType)
-    callback_payload.setdefault("atMe", req.atMe)
-    callback_payload.setdefault("textType", req.textType)
-    callback_payload.setdefault("messageId", req.messageId)
     ai_decision_reply: Optional[bool] = None
-
-    # Only text callbacks should trigger QA reply pipeline.
-    if int(req.textType or 0) != 1:
-        logger.info(
-            "qa_callback_non_text_ignored robot_id=%s robot_pk=%s scene=%s room_type=%s text_type=%s message_id=%s",
-            robot_id,
-            robot_pk,
-            scene,
-            req.roomType,
-            req.textType,
-            callback_message_id or "-",
-        )
-        return QAResponse(code=0, message="参数接收成功")
-
-    if _is_duplicate_qa_callback(robot_pk, req, inbound_text):
-        logger.info(
-            "qa_callback_duplicate_ignored robot_id=%s robot_pk=%s scene=%s room_type=%s message_id=%s match_target=%s text=%s",
-            robot_id,
-            robot_pk,
-            scene,
-            req.roomType,
-            callback_message_id or "-",
-            _short_text(match_target, 120),
-            _short_text(inbound_text, 200),
-        )
-        return QAResponse(code=0, message="参数接收成功")
-
-    local_log_id = _insert_qa_monitor_log(robot_pk, req, inbound_text, str(request.url))
-    logger.info(
-        "qa_callback_received robot_id=%s robot_pk=%s scene=%s room_type=%s at_me=%s message_id=%s match_target=%s text=%s",
-        robot_id,
-        robot_pk,
-        scene,
-        req.roomType,
-        req.atMe,
-        callback_message_id or "-",
-        _short_text(match_target, 120),
-        _short_text(inbound_text, 200),
-    )
 
     _insert_message_log(robot_pk, "inbound", scene, inbound_text, "received")
     try:
@@ -5115,13 +5096,13 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
         logger.info("qa_callback_skipped robot_id=%s reason=private_chat_disabled", robot_id)
         _insert_message_log(robot_pk, "outbound", scene, "", "skipped")
         _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at)
-        return QAResponse(code=0, message="参数接收成功")
+        return
     if scene == "group":
         if not bool(robot.get("group_chat_enabled")):
             logger.info("qa_callback_skipped robot_id=%s reason=group_chat_disabled", robot_id)
             _insert_message_log(robot_pk, "outbound", scene, "", "skipped")
             _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at)
-            return QAResponse(code=0, message="参数接收成功")
+            return
         group_reply_mode = _normalize_group_reply_mode(
             str(robot.get("group_reply_mode") or ""),
             bool(robot.get("group_reply_only_when_mentioned")),
@@ -5131,7 +5112,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
                 logger.info("qa_callback_skipped robot_id=%s reason=group_only_when_mentioned", robot_id)
                 _insert_message_log(robot_pk, "outbound", scene, "", "skipped")
                 _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at)
-                return QAResponse(code=0, message="参数接收成功")
+                return
             if group_reply_mode == "ai_decide":
                 should_reply = await _should_reply_group_by_ai_decision(robot, req, inbound_text)
                 ai_decision_reply = bool(should_reply)
@@ -5139,7 +5120,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
                     logger.info("qa_callback_skipped robot_id=%s reason=group_ai_decide_no", robot_id)
                     _insert_message_log(robot_pk, "outbound", scene, "", "skipped")
                     _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at, ai_decision_reply=ai_decision_reply)
-                    return QAResponse(code=0, message="参数接收成功")
+                    return
 
     selected_rule: Optional[Dict[str, Any]] = None
     selected_rank: Optional[int] = None
@@ -5199,10 +5180,10 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
                 logger.exception("qa_callback_default_reply_send_failed robot_id=%s scene=%s err=%s", robot_id, scene, str(e))
                 _insert_message_log(robot_pk, "outbound", scene, str(e), "failed")
                 _update_qa_monitor_log(local_log_id, str(e), "failed", time.perf_counter() - started_at, ai_decision_reply=ai_decision_reply)
-            return QAResponse(code=0, message="参数接收成功")
+            return
         _insert_message_log(robot_pk, "outbound", scene, "", "skipped")
         _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at, ai_decision_reply=ai_decision_reply)
-        return QAResponse(code=0, message="参数接收成功")
+        return
 
     logger.info(
         "qa_callback_rule_matched robot_id=%s scene=%s rule_id=%s provider_id=%s title_match_type=%s content_match_type=%s title_pattern=%s content_pattern=%s selected_rank=%s",
@@ -5231,7 +5212,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
                 provider_name=provider_name,
                 ai_decision_reply=ai_decision_reply,
             )
-            return QAResponse(code=0, message="参数接收成功")
+            return
 
         reply_text = await _call_provider(selected_rule, inbound_text)
         await _send_worktool_text(robot_id, scene, req, reply_text)
@@ -5244,7 +5225,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
             provider_name=provider_name,
             ai_decision_reply=ai_decision_reply,
         )
-        return QAResponse(code=0, message="参数接收成功")
+        return
     except Exception as e:
         logger.exception(
             "qa_callback_provider_failed robot_id=%s scene=%s rule_id=%s provider_id=%s err=%s",
@@ -5266,7 +5247,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
                 provider_name=provider_name,
                 ai_decision_reply=ai_decision_reply,
             )
-            return QAResponse(code=0, message="参数接收成功")
+            return
         default_reply = _load_default_reply(robot_pk, scene)
         if default_reply:
             logger.info("qa_callback_fallback_default_reply robot_id=%s scene=%s", robot_id, scene)
@@ -5292,7 +5273,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
                     provider_name=provider_name,
                     ai_decision_reply=ai_decision_reply,
                 )
-            return QAResponse(code=0, message="参数接收成功")
+            return
         _update_qa_monitor_log(
             local_log_id,
             str(e),
@@ -5301,7 +5282,104 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
             provider_name=provider_name,
             ai_decision_reply=ai_decision_reply,
         )
+        return
+
+
+async def _qa_callback_worker_loop(worker_no: int) -> None:
+    global _qa_callback_queue
+    while True:
+        if _qa_callback_queue is None:
+            await asyncio.sleep(0.1)
+            continue
+        task = await _qa_callback_queue.get()
+        try:
+            await _process_qa_callback_task(**task)
+        except Exception as e:
+            logger.exception("qa_callback_worker_failed worker=%s err=%s", worker_no, str(e))
+        finally:
+            _qa_callback_queue.task_done()
+
+
+@app.post("/api/v1/callback/qa/{robot_id}", response_model=QAResponse)
+async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResponse:
+    robot = _get_robot_by_id_or_404(robot_id)
+    robot_pk = int(robot["id"])
+    scene = _scene_from_room_type(req.roomType)
+    inbound_text = _pick_inbound_text(req)
+    match_target = _rule_match_target(scene, req)
+    callback_message_id = _pick_message_id(req)
+    try:
+        raw_payload = await request.json()
+    except Exception:
+        raw_payload = {}
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+    callback_payload: Dict[str, Any] = dict(raw_payload)
+    callback_payload.setdefault("spoken", req.spoken)
+    callback_payload.setdefault("rawSpoken", req.rawSpoken)
+    callback_payload.setdefault("receivedName", req.receivedName)
+    callback_payload.setdefault("groupName", req.groupName)
+    callback_payload.setdefault("roomType", req.roomType)
+    callback_payload.setdefault("atMe", req.atMe)
+    callback_payload.setdefault("textType", req.textType)
+    callback_payload.setdefault("messageId", req.messageId)
+
+    # Only text callbacks should trigger QA reply pipeline.
+    if int(req.textType or 0) != 1:
+        logger.info(
+            "qa_callback_non_text_ignored robot_id=%s robot_pk=%s scene=%s room_type=%s text_type=%s message_id=%s",
+            robot_id,
+            robot_pk,
+            scene,
+            req.roomType,
+            req.textType,
+            callback_message_id or "-",
+        )
         return QAResponse(code=0, message="参数接收成功")
+
+    if _is_duplicate_qa_callback(robot_pk, req, inbound_text):
+        logger.info(
+            "qa_callback_duplicate_ignored robot_id=%s robot_pk=%s scene=%s room_type=%s message_id=%s match_target=%s text=%s",
+            robot_id,
+            robot_pk,
+            scene,
+            req.roomType,
+            callback_message_id or "-",
+            _short_text(match_target, 120),
+            _short_text(inbound_text, 200),
+        )
+        return QAResponse(code=0, message="参数接收成功")
+
+    callback_url = str(request.url)
+    local_log_id = _insert_qa_monitor_log(robot_pk, req, inbound_text, str(request.url))
+    logger.info(
+        "qa_callback_received robot_id=%s robot_pk=%s scene=%s room_type=%s at_me=%s message_id=%s match_target=%s text=%s",
+        robot_id,
+        robot_pk,
+        scene,
+        req.roomType,
+        req.atMe,
+        callback_message_id or "-",
+        _short_text(match_target, 120),
+        _short_text(inbound_text, 200),
+    )
+    if _qa_callback_queue is None:
+        logger.warning("qa_callback_queue_not_ready robot_id=%s", robot_id)
+        _update_qa_monitor_log(local_log_id, "qa callback queue not ready", "failed", 0)
+        return QAResponse(code=0, message="参数接收成功")
+    task = {
+        "robot_id": robot_id,
+        "req_payload": req.dict(),
+        "callback_url": callback_url,
+        "callback_payload": callback_payload,
+        "local_log_id": int(local_log_id),
+    }
+    try:
+        _qa_callback_queue.put_nowait(task)
+    except asyncio.QueueFull:
+        logger.warning("qa_callback_queue_full robot_id=%s robot_pk=%s", robot_id, robot_pk)
+        _update_qa_monitor_log(local_log_id, "qa callback queue full", "failed", 0)
+    return QAResponse(code=0, message="参数接收成功")
 
 
 

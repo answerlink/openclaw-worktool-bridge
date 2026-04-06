@@ -51,6 +51,13 @@ def _parse_loose_datetime(value: Optional[str]) -> float:
         return 0
 
 
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
 def _get_worktool_mysql_config() -> Optional[Dict[str, Any]]:
     host = (os.getenv("WORKTOOL_DB_HOST") or os.getenv("DB_HOST") or "").strip()
     port_raw = (os.getenv("WORKTOOL_DB_PORT") or os.getenv("DB_PORT") or "3306").strip()
@@ -570,9 +577,9 @@ async def run_troubleshoot_search(
     detail_data = (await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": robot_id})).get("data", {}) or {}
     callbacks_data = (await fetch_worktool_api("/robot/robotInfo/callBack/get", {"robotId": robot_id})).get("data", []) or []
     online_data = (await fetch_worktool_api("/robot/robotInfo/online", {"robotId": robot_id})).get("data", False)
-    online_infos_data = (await fetch_worktool_api("/robot/robotInfo/onlineInfos", {"robotId": robot_id})).get("data", []) or []
+    online_infos_all = (await fetch_worktool_api("/robot/robotInfo/onlineInfos", {"robotId": robot_id})).get("data", []) or []
     online_infos_data = sorted(
-        online_infos_data,
+        online_infos_all,
         key=lambda x: _parse_loose_datetime(x.get("onlineTime")),
         reverse=True,
     )[:20]
@@ -651,6 +658,110 @@ async def run_troubleshoot_search(
         diagnostics.append("找到指令发送记录，但未找到客户端执行结果记录。")
     if not _get_worktool_mysql_config():
         diagnostics.append("未配置 WorkTool MySQL，只能使用 WorkTool 接口做排查。")
+
+    now_ts = datetime.now().timestamp()
+    day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    day_count = 0
+    recent24h_count = 0
+    for x in (online_infos_all if isinstance(online_infos_all, list) else []):
+        if not isinstance(x, dict):
+            continue
+        ts = _parse_loose_datetime(str(x.get("onlineTime") or ""))
+        if ts <= 0:
+            continue
+        if ts >= day_start:
+            day_count += 1
+        if now_ts - ts <= 24 * 3600:
+            recent24h_count += 1
+    if day_count > 10 or recent24h_count > 10:
+        diagnostics.append(f"登录波动偏高：24小时 {recent24h_count} 次，今日 {day_count} 次。")
+
+    recent_online = online_infos_data[:20]
+    short_online_count = 0
+    for x in recent_online:
+        if not isinstance(x, dict):
+            continue
+        mins = _as_float(x.get("onlineTimes"), -1)
+        if mins >= 0 and mins <= 1:
+            short_online_count += 1
+    if len(recent_online) >= 6 and short_online_count / max(len(recent_online), 1) >= 0.5:
+        diagnostics.append(f"最近{len(recent_online)}条上线记录中，短时在线(<=1分钟)占比偏高：{short_online_count} 条。")
+
+    cmd_latest_ts = 0.0
+    cmd_latest_text = ""
+    for x in raw_message_rows:
+        if not isinstance(x, dict):
+            continue
+        t = str(x.get("时间") or "").strip()
+        ts = _parse_loose_datetime(t)
+        if ts > cmd_latest_ts:
+            cmd_latest_ts = ts
+            cmd_latest_text = t
+
+    result_latest_ts = 0.0
+    result_latest_text = ""
+    for x in raw_confirm_rows:
+        if not isinstance(x, dict):
+            continue
+        t = str(x.get("时间") or "").strip()
+        ts = _parse_loose_datetime(t)
+        if ts > result_latest_ts:
+            result_latest_ts = ts
+            result_latest_text = t
+
+    if cmd_latest_ts > 0 and result_latest_ts > 0:
+        gap = cmd_latest_ts - result_latest_ts
+        if gap > 5 * 60:
+            diagnostics.append(
+                f"指令结果疑似滞后：最后指令时间 {cmd_latest_text}，最后结果时间 {result_latest_text}，相差约 {int(gap // 60)} 分钟。"
+            )
+
+    result_msg_ids: set = set()
+    for x in raw_confirm_rows:
+        if not isinstance(x, dict):
+            continue
+        mid = str(x.get("消息ID") or "").strip()
+        if mid:
+            result_msg_ids.add(mid)
+
+    pending_overdue: List[Tuple[float, str]] = []
+    for x in raw_message_rows[: min(max(limit, 20), 50)]:
+        if not isinstance(x, dict):
+            continue
+        mid = str(x.get("消息ID") or "").strip()
+        t = str(x.get("时间") or "").strip()
+        ts = _parse_loose_datetime(t)
+        if not mid or ts <= 0:
+            continue
+        if mid in result_msg_ids:
+            continue
+        if now_ts - ts > 5 * 60:
+            pending_overdue.append((ts, t))
+    if pending_overdue:
+        oldest = sorted(pending_overdue, key=lambda x: x[0])[0][1]
+        diagnostics.append(
+            f"检测到真实积压：最近{min(max(limit, 20), 50)}条中有 {len(pending_overdue)} 条指令超过5分钟仍无执行结果（最早时间：{oldest}）。"
+        )
+
+    fail_rows = 0
+    for x in raw_confirm_rows[:30]:
+        if not isinstance(x, dict):
+            continue
+        if str(x.get("执行结果") or "") == "失败":
+            fail_rows += 1
+    base = min(len(raw_confirm_rows), 30)
+    if base >= 10 and fail_rows / base >= 0.2:
+        diagnostics.append(f"最近{base}条执行结果失败率偏高：{fail_rows}/{base}。")
+
+    slow_qa = 0
+    qa_base = min(len(qa_rows), 20)
+    for x in qa_rows[:20]:
+        if not isinstance(x, dict):
+            continue
+        if _as_float(x.get("timeCost"), 0) > 3:
+            slow_qa += 1
+    if qa_base >= 5 and slow_qa >= 3:
+        diagnostics.append(f"QA回调耗时偏高：最近{qa_base}条中有 {slow_qa} 条超过3秒。")
 
     return {
         "input": {
