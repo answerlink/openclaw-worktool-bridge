@@ -6,6 +6,13 @@ import { api } from '../api';
 import type { Provider, Robot, Rule } from '../types';
 import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
 
+function splitLines(text: string): string[] {
+  return String(text || '')
+    .split('\n')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 function helpLabel(title: string, content: ReactNode) {
   return (
     <Space size={6}>
@@ -168,7 +175,8 @@ export default function RobotPage() {
       group_chat_enabled: true,
       group_reply_only_when_mentioned: false,
       group_reply_mode: 'always',
-      group_decision_provider_id: undefined
+      group_decision_provider_id: undefined,
+      group_colleagues_text: ''
     });
     setRobotOpen(true);
   };
@@ -188,7 +196,8 @@ export default function RobotPage() {
         private_chat_enabled: res?.private_chat_enabled !== false,
         group_reply_only_when_mentioned: !!res?.group_reply_only_when_mentioned,
         group_reply_mode: groupReplyMode,
-        group_decision_provider_id: res?.group_decision_provider_id ?? undefined
+        group_decision_provider_id: res?.group_decision_provider_id ?? undefined,
+        group_colleagues_text: Array.isArray(res?.group_colleagues) ? res.group_colleagues.join('\n') : ''
       });
       setRobotOpen(true);
     } catch (e: any) {
@@ -214,6 +223,8 @@ export default function RobotPage() {
     if (values.group_reply_mode !== 'ai_decide') {
       values.group_decision_provider_id = null;
     }
+    values.group_colleagues = splitLines(String(values.group_colleagues_text || ''));
+    delete values.group_colleagues_text;
     try {
       if (editingRobotId) {
         await api.updateRobot(editingRobotId, values);
@@ -596,6 +607,19 @@ export default function RobotPage() {
           </Form.Item>
           <Form.Item name="group_reply_only_when_mentioned" valuePropName="checked" hidden initialValue={false}>
             <Switch />
+          </Form.Item>
+          <Form.Item
+            name="group_colleagues_text"
+            label={helpLabel(
+              '我的同事（群聊）',
+              <Space direction="vertical" size={4}>
+                <div>每行一个昵称/备注名。</div>
+                <div>命中同事且未@机器人时，机器人将不回复。</div>
+                <div>同事@机器人时，仍按规则正常回复。</div>
+              </Space>
+            )}
+          >
+            <Input.TextArea rows={4} placeholder={'例如:\n张三\n李四'} />
           </Form.Item>
         </Form>
       </Modal>
