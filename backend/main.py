@@ -1508,6 +1508,18 @@ def _parse_datetime_or_none(raw: Optional[str], raise_on_invalid: bool = True) -
     return None
 
 
+def _normalize_wework_expire_time(raw: Optional[str]) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return f"{s}T23:59:59"
+    dt = _parse_datetime_or_none(s, raise_on_invalid=True)
+    if dt is None:
+        return ""
+    return dt.replace(microsecond=0).isoformat()
+
+
 def _normalize_recipient_scope(scope: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     data = scope if isinstance(scope, dict) else {}
     scope_type = str(data.get("type") or "all").strip().lower()
@@ -6956,10 +6968,12 @@ async def admin_wework_authorization_save(
         "corpName": (body.corpName or "").strip(),
         "agentId": (body.agentId or "").strip(),
         "isEnabled": bool(body.isEnabled) if body.isEnabled is not None else True,
-        "expireTime": (body.expireTime or "").strip(),
+        "expireTime": _normalize_wework_expire_time(body.expireTime),
         "remark": (body.remark or "").strip(),
     }
-    return await post_worktool_api(save_path, body=payload)
+    res = await post_worktool_api(save_path, body=payload)
+    _ensure_worktool_ok(res, "保存企业授权")
+    return res
 
 
 @app.post("/api/v1/admin/wework/authorization/delete")

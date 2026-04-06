@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
+import { Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 
@@ -78,7 +79,7 @@ export default function EnterpriseAuthorizationPage() {
                   corpName: row.corpName || '',
                   agentId: row.agentId || '',
                   isEnabled: row.isEnabled !== false,
-                  expireTime: row.expireTime || '',
+                  expireTime: row.expireTime ? dayjs(row.expireTime) : null,
                   remark: row.remark || '',
                 });
                 setOpen(true);
@@ -177,7 +178,7 @@ export default function EnterpriseAuthorizationPage() {
               corpName: String(values.corpName || '').trim() || undefined,
               agentId: String(values.agentId || '').trim() || undefined,
               isEnabled: Boolean(values.isEnabled),
-              expireTime: String(values.expireTime || '').trim() || undefined,
+              expireTime: values.expireTime ? `${(values.expireTime as Dayjs).format('YYYY-MM-DD')}T23:59:59` : undefined,
               remark: String(values.remark || '').trim() || undefined,
             });
             message.success('保存成功');
@@ -203,8 +204,14 @@ export default function EnterpriseAuthorizationPage() {
           <Form.Item name="isEnabled" label="启用" valuePropName="checked">
             <Switch />
           </Form.Item>
-          <Form.Item name="expireTime" label="到期时间">
-            <Input placeholder="2027-03-25T23:59:59" />
+          <Form.Item
+            name="expireTime"
+            label="到期时间"
+            rules={[
+              { required: true, message: '请选择到期日期' },
+            ]}
+          >
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" placeholder="请选择日期（默认到当天 23:59:59）" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="首年授权" />
