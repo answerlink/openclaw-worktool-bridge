@@ -98,8 +98,9 @@ html, body, #root {
 }
 
 .callback-title {
-  font-size: 24px;
-  color: #1677ff;
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.88);
   margin-bottom: 8px;
 }
 

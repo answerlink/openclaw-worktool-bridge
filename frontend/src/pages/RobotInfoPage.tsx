@@ -399,6 +399,51 @@ export default function RobotInfoPage() {
         </table>
       </Card>
 
+      <Card className="robot-callback-config" bodyStyle={{ paddingTop: 8 }}>
+        <div className="callback-title">回调配置</div>
+        <Tabs
+          activeKey={tabKey}
+          onChange={(k) => {
+            const key = k as CallbackTabKey;
+            setTabKey(key);
+            syncInputByTab(key);
+          }}
+          items={[
+            { key: 'message', label: '消息回调' },
+            { key: 'command', label: '指令执行结果回调' },
+            { key: 'group_qr', label: '群二维码回调' },
+            { key: 'online_status', label: '机器人上下线回调' }
+          ]}
+        />
+        <div className="callback-form-row">
+          <label>
+            <Space size={6}>
+              <span><span className="required">*</span> 回调地址</span>
+              <Popover content="如不了解消息回调接口开发，无需修改本配置。" trigger="hover" placement="right">
+                <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+              </Popover>
+            </Space>
+          </label>
+          <Input
+            value={callbackInput}
+            onChange={(e) => setCallbackInput(e.target.value)}
+            placeholder="请输入回调地址"
+          />
+        </div>
+        <div className="callback-action-row">
+          <Button type="primary" loading={saving} onClick={onSaveCallback}>保存设置</Button>
+          <Button type="link" loading={testing} onClick={onTestCallback}>测试回调地址</Button>
+          <Button type="link" onClick={onOpenCallbackDoc}>
+            {callbackDoc.label}
+          </Button>
+          {tabKey === 'message' ? (
+            <Button type="link" loading={platformBinding} onClick={onBindPlatformCallback}>
+              由本平台处理回复消息
+            </Button>
+          ) : null}
+        </div>
+      </Card>
+
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
           <Card
@@ -444,7 +489,7 @@ export default function RobotInfoPage() {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title={`机器人登录日志${versionSuffix}`} extra={<Typography.Link>查看更多</Typography.Link>}>
+          <Card title={`机器人登录日志${versionSuffix}`}>
             {loginFlapStats.shouldWarn ? (
               <Alert
                 style={{ marginBottom: 12 }}
@@ -472,51 +517,6 @@ export default function RobotInfoPage() {
           </Card>
         </Col>
       </Row>
-
-      <Card className="robot-callback-config" bodyStyle={{ paddingTop: 8 }}>
-        <div className="callback-title">回调配置</div>
-        <Tabs
-          activeKey={tabKey}
-          onChange={(k) => {
-            const key = k as CallbackTabKey;
-            setTabKey(key);
-            syncInputByTab(key);
-          }}
-          items={[
-            { key: 'message', label: '消息回调' },
-            { key: 'command', label: '指令执行结果回调' },
-            { key: 'group_qr', label: '群二维码回调' },
-            { key: 'online_status', label: '机器人上下线回调' }
-          ]}
-        />
-        <div className="callback-form-row">
-          <label>
-            <Space size={6}>
-              <span><span className="required">*</span> 回调地址</span>
-              <Popover content="如不了解消息回调接口开发，无需修改本配置。" trigger="hover" placement="right">
-                <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
-              </Popover>
-            </Space>
-          </label>
-          <Input
-            value={callbackInput}
-            onChange={(e) => setCallbackInput(e.target.value)}
-            placeholder="请输入回调地址"
-          />
-        </div>
-        <div className="callback-action-row">
-          <Button type="primary" loading={saving} onClick={onSaveCallback}>保存设置</Button>
-          <Button type="link" loading={testing} onClick={onTestCallback}>测试回调地址</Button>
-          <Button type="link" onClick={onOpenCallbackDoc}>
-            {callbackDoc.label}
-          </Button>
-          {tabKey === 'message' ? (
-            <Button type="link" loading={platformBinding} onClick={onBindPlatformCallback}>
-              由本平台处理回复消息
-            </Button>
-          ) : null}
-        </div>
-      </Card>
     </Space>
   );
 }
