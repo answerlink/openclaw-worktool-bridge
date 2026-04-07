@@ -58,6 +58,44 @@
 - 登录 IP
 - 问答回调记录（含原始问题、是否@）
 
+## 机器人排查开放 API（给智能体）
+
+用于让智能体直接查询排查结果，不需要走后台页面操作。
+
+- 地址：`POST /api/v1/open/troubleshoot/search`
+- 请求头：`X-Open-API-Key: <你的密钥>`
+- Content-Type：`application/json`
+
+请求体字段：
+
+- `robot_id`：机器人ID（建议优先传）
+- `message_id`：消息ID（可选；不传 robot_id 时可用它反查）
+- `keyword`：关键字（可选）
+- `start_time`：开始时间（可选）
+- `end_time`：结束时间（可选）
+- `limit`：每个分区返回数量，默认20，最大100
+
+示例：
+
+```bash
+curl -X POST 'https://console.worktool.ymdyes.cn/api/v1/open/troubleshoot/search' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Open-API-Key: your-open-api-key' \
+  -d '{
+    "robot_id": "worktool1",
+    "message_id": "",
+    "keyword": "",
+    "start_time": "",
+    "end_time": "",
+    "limit": 20
+  }'
+```
+
+安全建议：
+
+- 建议在配置中限制可查询机器人ID范围（白名单）
+- 密钥只用于服务端调用，不要放在前端页面代码里
+
 ## 常见异常
 
 - AI 请求失败：检查 URL、Token、Model

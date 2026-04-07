@@ -525,6 +525,7 @@ async def run_troubleshoot_search(
     get_worktool_api_base: Callable[[], str],
     fetch_worktool_api: Callable[[str, Dict[str, Any]], Any],
     db_conn_factory: Callable[[], Any],
+    allowed_robot_ids: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     if not enable_troubleshoot:
         raise HTTPException(status_code=404, detail="机器人排查功能在开源版中默认关闭")
@@ -539,7 +540,14 @@ async def run_troubleshoot_search(
     if not robot_id and not message_id:
         raise HTTPException(status_code=400, detail="robot_id 和 message_id 至少填写一个")
 
+    allowed_set = {str(x).strip() for x in (allowed_robot_ids or []) if str(x).strip()}
+    if allowed_set and robot_id and robot_id not in allowed_set:
+        raise HTTPException(status_code=403, detail=f"robot_id 无权限访问: {robot_id}")
+
     robot_ids = _load_local_robot_ids(db_conn_factory)
+    if allowed_set:
+        robot_ids = [x for x in robot_ids if x in allowed_set]
+
     resolved_from_message = False
     if not robot_id and message_id:
         robot_id = _mysql_resolve_robot_id_by_message(message_id) or ""
@@ -620,6 +628,7 @@ async def run_troubleshoot_search(
         time_field="create_time",
         keyword_fields=["raw_msg", "error_reason", "success_list", "fail_list"],
     )
+    robot_log_limit = 3
     mysql_robot_log_rows = _mysql_table_query(
         table="robot_log",
         robot_id=robot_id,
@@ -627,7 +636,7 @@ async def run_troubleshoot_search(
         keyword=keyword,
         start_time=start_time,
         end_time=end_time,
-        limit=limit,
+        limit=robot_log_limit,
         robot_field="robot_id",
         message_field=None,
         time_field="create_time",

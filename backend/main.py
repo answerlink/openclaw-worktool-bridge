@@ -33,12 +33,19 @@ WORKTOOL_API_BASE_FIXED_RAW = os.getenv("WORKTOOL_API_BASE", "").strip()
 CALLBACK_PUBLIC_BASE_URL_FIXED_RAW = os.getenv("CALLBACK_PUBLIC_BASE_URL", "").strip()
 ENABLE_ADMIN_IP_BLACKLIST = os.getenv("ENABLE_ADMIN_IP_BLACKLIST", "false").strip().lower() in {"1", "true", "yes", "on"}
 ENABLE_ADMIN_ENTERPRISE_AUTH = os.getenv("ENABLE_ADMIN_ENTERPRISE_AUTH", "false").strip().lower() in {"1", "true", "yes", "on"}
+ENABLE_OPEN_TROUBLESHOOT_API = os.getenv("ENABLE_OPEN_TROUBLESHOOT_API", "false").strip().lower() in {"1", "true", "yes", "on"}
 WORKTOOL_IPACL_QUERY_PATH = os.getenv("WORKTOOL_IPACL_QUERY_PATH", "").strip()
 WORKTOOL_IPACL_ADD_PATH = os.getenv("WORKTOOL_IPACL_ADD_PATH", "").strip()
 WORKTOOL_IPACL_DELETE_PATH = os.getenv("WORKTOOL_IPACL_DELETE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_LIST_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_LIST_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_SAVE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_SAVE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_DELETE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_DELETE_PATH", "").strip()
+OPEN_TROUBLESHOOT_API_KEY = os.getenv("OPEN_TROUBLESHOOT_API_KEY", "").strip()
+OPEN_TROUBLESHOOT_ALLOWED_ROBOT_IDS = {
+    x.strip()
+    for x in os.getenv("OPEN_TROUBLESHOOT_ALLOWED_ROBOT_IDS", "").split(",")
+    if x.strip()
+}
 ADMIN_PHONE_WHITELIST = {
     x.strip()
     for x in os.getenv("ADMIN_PHONE_WHITELIST", "").split(",")
@@ -927,6 +934,16 @@ def _require_admin(user: Dict[str, Any]) -> None:
 def _require_feature_enabled(enabled: bool, feature_name: str) -> None:
     if not enabled:
         raise HTTPException(status_code=404, detail=f"{feature_name} disabled")
+
+
+def _require_open_troubleshoot_access(x_open_api_key: Optional[str]) -> None:
+    _require_feature_enabled(ENABLE_OPEN_TROUBLESHOOT_API, "open troubleshoot api")
+    expected = (OPEN_TROUBLESHOOT_API_KEY or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="open troubleshoot api key not configured")
+    actual = (x_open_api_key or "").strip()
+    if not actual or actual != expected:
+        raise HTTPException(status_code=401, detail="invalid open api key")
 
 
 def _require_configured_path(path: str, feature_name: str) -> str:
@@ -3942,6 +3959,7 @@ async def health() -> Dict[str, Any]:
         "version": APP_VERSION,
         "time": now_iso(),
         "enable_troubleshoot": ENABLE_TROUBLESHOOT,
+        "enable_open_troubleshoot_api": ENABLE_OPEN_TROUBLESHOOT_API,
         "enable_admin_ip_blacklist": ENABLE_ADMIN_IP_BLACKLIST,
         "enable_admin_enterprise_auth": ENABLE_ADMIN_ENTERPRISE_AUTH,
     }
@@ -6683,6 +6701,22 @@ async def troubleshoot_search(body: TroubleshootSearchPayload, user: Dict[str, A
         get_worktool_api_base=get_worktool_api_base,
         fetch_worktool_api=fetch_worktool_api,
         db_conn_factory=db_conn,
+    )
+
+
+@app.post("/api/v1/open/troubleshoot/search")
+async def open_troubleshoot_search(
+    body: TroubleshootSearchPayload,
+    x_open_api_key: Optional[str] = Header(None, alias="X-Open-API-Key"),
+) -> Dict[str, Any]:
+    _require_open_troubleshoot_access(x_open_api_key)
+    return await run_troubleshoot_search(
+        body,
+        enable_troubleshoot=ENABLE_TROUBLESHOOT,
+        get_worktool_api_base=get_worktool_api_base,
+        fetch_worktool_api=fetch_worktool_api,
+        db_conn_factory=db_conn,
+        allowed_robot_ids=sorted(OPEN_TROUBLESHOOT_ALLOWED_ROBOT_IDS),
     )
 
 
