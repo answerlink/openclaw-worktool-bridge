@@ -35,10 +35,16 @@ export default function InboxPage() {
   const [total, setTotal] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  const emitUnreadCount = (count: number) => {
+    window.dispatchEvent(new CustomEvent('inbox-unread-updated', { detail: { count } }));
+  };
+
   const loadUnread = async () => {
     try {
       const res = await api.inboxUnreadCount();
-      setUnreadCount(Number(res?.count || 0));
+      const next = Number(res?.count || 0);
+      setUnreadCount(next);
+      emitUnreadCount(next);
     } catch {
       // ignore badge refresh errors
     }

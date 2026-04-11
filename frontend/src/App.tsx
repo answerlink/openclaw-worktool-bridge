@@ -154,6 +154,18 @@ export default function App() {
   }, [authed, location.pathname]);
 
   useEffect(() => {
+    const onUnreadUpdate = (ev: Event) => {
+      const customEv = ev as CustomEvent<{ count?: number }>;
+      const next = Number(customEv?.detail?.count ?? 0);
+      setInboxUnreadCount(Number.isFinite(next) ? next : 0);
+    };
+    window.addEventListener('inbox-unread-updated', onUnreadUpdate as EventListener);
+    return () => {
+      window.removeEventListener('inbox-unread-updated', onUnreadUpdate as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!authed || location.pathname === '/login' || robotInitChecked) {
       return;
     }
