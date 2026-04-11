@@ -21,6 +21,11 @@ MySQL 和应用统一使用 `Asia/Shanghai`，便于日志和数据库对齐。
 - 短信服务配置
 - 默认测试 AI 引擎开关与参数
 - `DEMO_ROBOT_IDS`：演示机器人 ID 列表（逗号分隔）
+- `QA_CALLBACK_WORKER_CONCURRENCY` / `QA_CALLBACK_QUEUE_MAXSIZE`：回调异步处理能力
+- `ROBOT_SHOW_NAME_CACHE_TTL_SECONDS`：机器人昵称缓存时长
+- `CHAT_CONTEXT_ENABLED` / `CHAT_CONTEXT_MAX_MESSAGES` / `CHAT_CONTEXT_RETENTION_DAYS`：轻量上下文记忆策略
+
+完整变量说明请查看《环境变量参考》。
 
 ## 演示机器人只读模式
 
@@ -30,6 +35,8 @@ MySQL 和应用统一使用 `Asia/Shanghai`，便于日志和数据库对齐。
 - 禁止：修改回调地址、标签库、定时任务、消息转发、机器人规则/配置
 
 适合用于销售演示、培训账号、公共体验环境。
+
+注：管理员账号可按业务需要编辑演示机器人；普通用户仍按只读拦截。
 
 ## AI 可读与抓取
 

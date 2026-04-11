@@ -36,6 +36,7 @@
 
 - 黑名单命中后会被拦截
 - 当前控制台默认仅开放黑名单能力（不展示白名单操作）
+- 该模块可通过配置开关隐藏（默认开源版建议关闭）
 
 ## 企业定制开通
 
@@ -44,6 +45,7 @@
 - 查询企业授权列表
 - 新增/修改企业授权
 - 删除企业授权
+- 该模块可通过配置开关隐藏（默认开源版建议关闭）
 
 ## 系统提醒能力
 
@@ -63,6 +65,16 @@
 - 最小权限原则管理管理员账号
 - 对外开放前检查默认配置与示例密钥
 - 如启用演示机器人，建议在配置中明确只读机器人 ID 列表
+- 如果是管理员账号，可按业务需要对演示机器人执行配置修改；普通账号仍保持只读限制
+
+## 管理模块开关（推荐）
+
+- `ENABLE_ADMIN_IP_BLACKLIST`
+- `ENABLE_ADMIN_ENTERPRISE_AUTH`
+- `ENABLE_OPEN_TROUBLESHOOT_API`
+- `WORKTOOL_IPACL_*` 与 `WORKTOOL_WEWORK_AUTH_*` 路径配置
+
+建议把仅内部可用的 WorkTool 后台能力放到环境变量里，不直接写死在开源代码中。
 
 ## 数据维护
 
@@ -73,7 +85,8 @@
 - routing_rules
 - ai_providers
 - forward_rules
-- qa_message_logs
+- qa_monitor_logs
+- chat_context_logs
 - forward_logs
 - inbox_messages
 - inbox_deliveries

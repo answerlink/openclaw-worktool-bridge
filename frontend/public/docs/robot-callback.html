@@ -14,7 +14,7 @@
       <a class="brand" href="/docs/index.html">WorkTool Console 文档</a>
       <input id="doc-search" class="search" type="search" placeholder="搜索文档..." />
       <div id="search-results" class="search-results"></div>
-      <nav class="nav"><a class="nav-item" href="/docs/overview.html">概览</a><a class="nav-item" href="/docs/quickstart.html">快速开始</a><a class="nav-item" href="/docs/core-concepts.html">核心概念</a><a class="nav-item active" href="/docs/robot-callback.html">机器人与回调</a><a class="nav-item" href="/docs/rules.html">规则配置</a><a class="nav-item" href="/docs/ai-provider.html">AI回复引擎</a><a class="nav-item" href="/docs/forwarding.html">消息转发</a><a class="nav-item" href="/docs/monitoring.html">消息监控与排障</a><a class="nav-item" href="/docs/admin.html">管理员手册</a><a class="nav-item" href="/docs/deploy.html">部署运维</a><a class="nav-item" href="/docs/faq.html">常见问题</a></nav>
+      <nav class="nav"><details class="nav-group" data-group-key="usage" data-default-open="1" open><summary class="nav-group-title">使用指南</summary><div class="nav-sublist"><a class="nav-item" href="/docs/overview.html">概览</a><a class="nav-item" href="/docs/quickstart.html">快速开始</a><a class="nav-item" href="/docs/core-concepts.html">核心概念</a><a class="nav-item active" href="/docs/robot-callback.html">机器人与回调</a><a class="nav-item" href="/docs/rules.html">规则配置</a><a class="nav-item" href="/docs/ai-provider.html">AI回复引擎</a><a class="nav-item" href="/docs/forwarding.html">消息转发</a><a class="nav-item" href="/docs/monitoring.html">消息监控与排障</a><a class="nav-item" href="/docs/faq.html">常见问题</a></div></details><details class="nav-group" data-group-key="ops" data-default-open="0"><summary class="nav-group-title">部署与管理</summary><div class="nav-sublist"><a class="nav-item" href="/docs/admin.html">管理员手册</a><a class="nav-item" href="/docs/deploy.html">部署运维</a><a class="nav-item" href="/docs/env-reference.html">环境变量参考</a></div></details></nav>
     </aside>
     <main class="main">
       <article class="doc">
@@ -52,9 +52,33 @@
     </aside>
   </div>
   <script>
-    const DOC_ITEMS = [{"title":"概览","slug":"overview","description":"平台定位、能力与目标"},{"title":"快速开始","slug":"quickstart","description":"5分钟跑通链路"},{"title":"核心概念","slug":"core-concepts","description":"机器人、规则、引擎、回调"},{"title":"机器人与回调","slug":"robot-callback","description":"机器人添加与回调绑定"},{"title":"规则配置","slug":"rules","description":"匹配模式、优先级与模板"},{"title":"AI回复引擎","slug":"ai-provider","description":"引擎配置、测试与常见问题"},{"title":"消息转发","slug":"forwarding","description":"转发规则与日志排查"},{"title":"消息监控与排障","slug":"monitoring","description":"监控视图与常见异常"},{"title":"管理员手册","slug":"admin","description":"用户管理与安全建议"},{"title":"部署运维","slug":"deploy","description":"部署、时区、升级建议"},{"title":"常见问题","slug":"faq","description":"高频问题与处理方式"}];
+    const DOC_ITEMS = [{"title":"概览","slug":"overview","description":"平台定位、能力与目标"},{"title":"快速开始","slug":"quickstart","description":"5分钟跑通链路"},{"title":"核心概念","slug":"core-concepts","description":"机器人、规则、引擎、回调"},{"title":"机器人与回调","slug":"robot-callback","description":"机器人添加与回调绑定"},{"title":"规则配置","slug":"rules","description":"匹配模式、优先级与模板"},{"title":"AI回复引擎","slug":"ai-provider","description":"引擎配置、测试与常见问题"},{"title":"消息转发","slug":"forwarding","description":"转发规则与日志排查"},{"title":"消息监控与排障","slug":"monitoring","description":"监控视图与常见异常"},{"title":"常见问题","slug":"faq","description":"高频问题与处理方式"},{"title":"管理员手册","slug":"admin","description":"用户管理与安全建议"},{"title":"部署运维","slug":"deploy","description":"部署、时区、升级建议"},{"title":"环境变量参考","slug":"env-reference","description":".env.example 逐项说明与生产建议"}];
     const input = document.getElementById('doc-search');
     const resultEl = document.getElementById('search-results');
+    const navGroups = Array.from(document.querySelectorAll('.nav-group[data-group-key]'));
+    const navStateKey = 'worktool_docs_nav_group_state_v1';
+    let navState = {};
+    try {
+      navState = JSON.parse(localStorage.getItem(navStateKey) || '{}') || {};
+    } catch (_) {
+      navState = {};
+    }
+    navGroups.forEach((el) => {
+      const key = el.getAttribute('data-group-key') || '';
+      const defaultOpen = (el.getAttribute('data-default-open') || '') === '1';
+      const saved = navState[key];
+      if (typeof saved === 'boolean') {
+        el.open = saved;
+      } else {
+        el.open = defaultOpen;
+      }
+      el.addEventListener('toggle', () => {
+        navState[key] = !!el.open;
+        try {
+          localStorage.setItem(navStateKey, JSON.stringify(navState));
+        } catch (_) {}
+      });
+    });
     function renderResults(keyword) {
       const q = (keyword || '').trim().toLowerCase();
       if (!q) {

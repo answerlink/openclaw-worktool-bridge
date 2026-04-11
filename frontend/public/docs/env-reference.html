@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>环境变量参考 - WorkTool Console 文档</title>
+  <meta name="description" content=".env.example 逐项说明与生产建议" />
+  <link rel="canonical" href="/docs/env-reference.html" />
+  <link rel="stylesheet" href="/docs/assets/docs.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <a class="brand" href="/docs/index.html">WorkTool Console 文档</a>
+      <input id="doc-search" class="search" type="search" placeholder="搜索文档..." />
+      <div id="search-results" class="search-results"></div>
+      <nav class="nav"><details class="nav-group" data-group-key="usage" data-default-open="1" open><summary class="nav-group-title">使用指南</summary><div class="nav-sublist"><a class="nav-item" href="/docs/overview.html">概览</a><a class="nav-item" href="/docs/quickstart.html">快速开始</a><a class="nav-item" href="/docs/core-concepts.html">核心概念</a><a class="nav-item" href="/docs/robot-callback.html">机器人与回调</a><a class="nav-item" href="/docs/rules.html">规则配置</a><a class="nav-item" href="/docs/ai-provider.html">AI回复引擎</a><a class="nav-item" href="/docs/forwarding.html">消息转发</a><a class="nav-item" href="/docs/monitoring.html">消息监控与排障</a><a class="nav-item" href="/docs/faq.html">常见问题</a></div></details><details class="nav-group" data-group-key="ops" data-default-open="0"><summary class="nav-group-title">部署与管理</summary><div class="nav-sublist"><a class="nav-item" href="/docs/admin.html">管理员手册</a><a class="nav-item" href="/docs/deploy.html">部署运维</a><a class="nav-item active" href="/docs/env-reference.html">环境变量参考</a></div></details></nav>
+    </aside>
+    <main class="main">
+      <article class="doc">
+        <h1 id="环境变量参考">环境变量参考</h1><p>本页对应仓库根目录 <code>.env.example</code>。建议生产环境按需覆盖，不要把真实密钥提交到代码仓库。</p>
+<p>字段约定：</p>
+<ul>
+<li>必填：<code>是</code> 表示生产必须配置；<code>否</code> 表示可使用默认值或留空</li>
+<li>敏感：<code>是</code> 表示包含密钥/口令，禁止泄露</li>
+</ul>
+<h2 id="core">Core</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PYTHONUNBUFFERED</code></td>
+<td><code>1</code></td>
+<td>否</td>
+<td>否</td>
+<td>Python 日志实时输出。</td>
+</tr>
+<tr>
+<td><code>WEB_PORT</code></td>
+<td><code>8080</code></td>
+<td>否</td>
+<td>否</td>
+<td>对外 Web 端口。</td>
+</tr>
+</tbody></table>
+<h2 id="mysql容器">MySQL（容器）</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>MYSQL_ROOT_PASSWORD</code></td>
+<td><code>change_me_root</code></td>
+<td>是</td>
+<td>是</td>
+<td>MySQL root 密码。</td>
+</tr>
+<tr>
+<td><code>MYSQL_DATABASE</code></td>
+<td><code>worktool_bridge</code></td>
+<td>否</td>
+<td>否</td>
+<td>初始化数据库名。</td>
+</tr>
+<tr>
+<td><code>MYSQL_USER</code></td>
+<td><code>worktool</code></td>
+<td>否</td>
+<td>否</td>
+<td>业务账号用户名。</td>
+</tr>
+<tr>
+<td><code>MYSQL_PASSWORD</code></td>
+<td><code>change_me_app</code></td>
+<td>是</td>
+<td>是</td>
+<td>业务账号密码。</td>
+</tr>
+</tbody></table>
+<h2 id="app-mysql后端连接">App MySQL（后端连接）</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>APP_MYSQL_HOST</code></td>
+<td><code>mysql</code></td>
+<td>是</td>
+<td>否</td>
+<td>后端连接 MySQL 的地址。</td>
+</tr>
+<tr>
+<td><code>APP_MYSQL_PORT</code></td>
+<td><code>3306</code></td>
+<td>否</td>
+<td>否</td>
+<td>后端连接 MySQL 端口。</td>
+</tr>
+<tr>
+<td><code>APP_MYSQL_USER</code></td>
+<td><code>worktool</code></td>
+<td>是</td>
+<td>否</td>
+<td>后端数据库账号。</td>
+</tr>
+<tr>
+<td><code>APP_MYSQL_PASSWORD</code></td>
+<td><code>change_me_app</code></td>
+<td>是</td>
+<td>是</td>
+<td>后端数据库密码。</td>
+</tr>
+<tr>
+<td><code>APP_MYSQL_DATABASE</code></td>
+<td><code>worktool_bridge</code></td>
+<td>是</td>
+<td>否</td>
+<td>后端数据库名。</td>
+</tr>
+<tr>
+<td><code>APP_MYSQL_TIME_ZONE</code></td>
+<td><code>+08:00</code></td>
+<td>否</td>
+<td>否</td>
+<td>MySQL 会话时区。</td>
+</tr>
+</tbody></table>
+<h2 id="认证与平台功能">认证与平台功能</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AUTH_JWT_SECRET</code></td>
+<td><code>change_me_to_random_32_plus_chars</code></td>
+<td>是</td>
+<td>是</td>
+<td>JWT 签名密钥，需高强度随机。</td>
+</tr>
+<tr>
+<td><code>AUTH_JWT_EXPIRE_DAYS</code></td>
+<td><code>30</code></td>
+<td>否</td>
+<td>否</td>
+<td>登录态有效天数。</td>
+</tr>
+<tr>
+<td><code>AUTH_PBKDF2_ITERATIONS</code></td>
+<td><code>390000</code></td>
+<td>否</td>
+<td>否</td>
+<td>密码哈希迭代次数。</td>
+</tr>
+<tr>
+<td><code>AUTH_SMS_ENABLED</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否启用短信注册/找回。</td>
+</tr>
+<tr>
+<td><code>ENABLE_RUNTIME_WORKTOOL_SETTINGS</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否开放运行时修改 WorkTool 基础配置。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_API_BASE</code></td>
+<td><code>https://api.worktool.ymdyes.cn</code></td>
+<td>否</td>
+<td>否</td>
+<td>WorkTool API 基础地址。</td>
+</tr>
+<tr>
+<td><code>CALLBACK_PUBLIC_BASE_URL</code></td>
+<td>空</td>
+<td>否</td>
+<td>否</td>
+<td>平台公开回调域名前缀。</td>
+</tr>
+<tr>
+<td><code>ADMIN_PHONE_WHITELIST</code></td>
+<td>空</td>
+<td>视情况</td>
+<td>否</td>
+<td>管理员手机号白名单，逗号分隔。</td>
+</tr>
+<tr>
+<td><code>DEMO_ROBOT_IDS</code></td>
+<td>空</td>
+<td>否</td>
+<td>否</td>
+<td>演示机器人 ID 列表（逗号分隔）。</td>
+</tr>
+<tr>
+<td><code>ENABLE_ADMIN_IP_BLACKLIST</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否显示“黑名单管理”模块。</td>
+</tr>
+<tr>
+<td><code>ENABLE_ADMIN_ENTERPRISE_AUTH</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否显示“企业定制开通”模块。</td>
+</tr>
+<tr>
+<td><code>ENABLE_OPEN_TROUBLESHOOT_API</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否开启开放排查 API。</td>
+</tr>
+<tr>
+<td><code>OPEN_TROUBLESHOOT_API_KEY</code></td>
+<td>空</td>
+<td>开启时是</td>
+<td>是</td>
+<td>开放排查 API 的访问密钥。</td>
+</tr>
+<tr>
+<td><code>OPEN_TROUBLESHOOT_ALLOWED_ROBOT_IDS</code></td>
+<td>空</td>
+<td>否</td>
+<td>否</td>
+<td>开放排查 API 允许查询的机器人范围。</td>
+</tr>
+</tbody></table>
+<h2 id="worktool-扩展接口路径可选">WorkTool 扩展接口路径（可选）</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>WORKTOOL_IPACL_QUERY_PATH</code></td>
+<td>空</td>
+<td>黑名单功能开启时是</td>
+<td>否</td>
+<td>黑名单查询接口 path。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_IPACL_ADD_PATH</code></td>
+<td>空</td>
+<td>黑名单功能开启时是</td>
+<td>否</td>
+<td>黑名单新增接口 path。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_IPACL_DELETE_PATH</code></td>
+<td>空</td>
+<td>黑名单功能开启时是</td>
+<td>否</td>
+<td>黑名单删除接口 path。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_WEWORK_AUTH_LIST_PATH</code></td>
+<td>空</td>
+<td>企业授权功能开启时是</td>
+<td>否</td>
+<td>企业授权列表接口 path。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_WEWORK_AUTH_SAVE_PATH</code></td>
+<td>空</td>
+<td>企业授权功能开启时是</td>
+<td>否</td>
+<td>企业授权保存接口 path。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_WEWORK_AUTH_DELETE_PATH</code></td>
+<td>空</td>
+<td>企业授权功能开启时是</td>
+<td>否</td>
+<td>企业授权删除接口 path。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_DB_HOST</code></td>
+<td>空</td>
+<td>否</td>
+<td>否</td>
+<td>预留 WorkTool DB 连接地址。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_DB_PORT</code></td>
+<td><code>3306</code></td>
+<td>否</td>
+<td>否</td>
+<td>预留 WorkTool DB 端口。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_DB_USER</code></td>
+<td>空</td>
+<td>否</td>
+<td>否</td>
+<td>预留 WorkTool DB 用户名。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_DB_PASSWORD</code></td>
+<td>空</td>
+<td>否</td>
+<td>是</td>
+<td>预留 WorkTool DB 密码。</td>
+</tr>
+<tr>
+<td><code>WORKTOOL_DB_NAME</code></td>
+<td>空</td>
+<td>否</td>
+<td>否</td>
+<td>预留 WorkTool DB 库名。</td>
+</tr>
+</tbody></table>
+<h2 id="短信华瑞">短信（华瑞）</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SMS_HUARUI_API_URL</code></td>
+<td>空</td>
+<td>短信开启时是</td>
+<td>否</td>
+<td>短信服务地址。</td>
+</tr>
+<tr>
+<td><code>SMS_HUARUI_APPKEY</code></td>
+<td>空</td>
+<td>短信开启时是</td>
+<td>是</td>
+<td>短信 appkey。</td>
+</tr>
+<tr>
+<td><code>SMS_HUARUI_APPSECRET</code></td>
+<td>空</td>
+<td>短信开启时是</td>
+<td>是</td>
+<td>短信 appsecret。</td>
+</tr>
+<tr>
+<td><code>SMS_CODE_EXPIRE_MINUTES</code></td>
+<td><code>15</code></td>
+<td>否</td>
+<td>否</td>
+<td>短信验证码有效期（分钟）。</td>
+</tr>
+</tbody></table>
+<h2 id="默认测试引擎与回调并发">默认测试引擎与回调并发</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DEFAULT_TEST_PROVIDER_ENABLED</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否启用系统级测试 AI 引擎。</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TEST_PROVIDER_NAME</code></td>
+<td><code>AI模型(仅测试用)</code></td>
+<td>否</td>
+<td>否</td>
+<td>测试引擎名称。</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TEST_PROVIDER_BASE_URL</code></td>
+<td><code>https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions</code></td>
+<td>开启时是</td>
+<td>否</td>
+<td>测试引擎地址。</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TEST_PROVIDER_API_KEY</code></td>
+<td>空</td>
+<td>开启时是</td>
+<td>是</td>
+<td>测试引擎 token。</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TEST_PROVIDER_MODEL</code></td>
+<td><code>doubao-seed-2.0-lite</code></td>
+<td>否</td>
+<td>否</td>
+<td>测试引擎 model。</td>
+</tr>
+<tr>
+<td><code>QA_CALLBACK_WORKER_CONCURRENCY</code></td>
+<td><code>16</code></td>
+<td>否</td>
+<td>否</td>
+<td>QA 回调异步 worker 数。</td>
+</tr>
+<tr>
+<td><code>QA_CALLBACK_QUEUE_MAXSIZE</code></td>
+<td><code>2000</code></td>
+<td>否</td>
+<td>否</td>
+<td>QA 回调队列长度。</td>
+</tr>
+<tr>
+<td><code>ROBOT_SHOW_NAME_CACHE_TTL_SECONDS</code></td>
+<td><code>600</code></td>
+<td>否</td>
+<td>否</td>
+<td>机器人昵称缓存秒数。</td>
+</tr>
+</tbody></table>
+<h2 id="对话上下文记忆轻量">对话上下文记忆（轻量）</h2><table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>必填</th>
+<th>敏感</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>CHAT_CONTEXT_ENABLED</code></td>
+<td><code>true</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否启用群聊/私聊上下文记忆。</td>
+</tr>
+<tr>
+<td><code>CHAT_CONTEXT_MAX_MESSAGES</code></td>
+<td><code>20</code></td>
+<td>否</td>
+<td>否</td>
+<td>单会话最多保留消息数。</td>
+</tr>
+<tr>
+<td><code>CHAT_CONTEXT_RETENTION_DAYS</code></td>
+<td><code>7</code></td>
+<td>否</td>
+<td>否</td>
+<td>上下文数据保留天数。</td>
+</tr>
+</tbody></table>
+<h2 id="生产建议">生产建议</h2><ol>
+<li><code>AUTH_JWT_SECRET</code>、<code>MYSQL_PASSWORD</code>、<code>APP_MYSQL_PASSWORD</code>、各类 <code>*_KEY/*_SECRET</code> 必须替换成强随机值。</li>
+<li>开源场景建议默认关闭：<code>ENABLE_ADMIN_IP_BLACKLIST</code>、<code>ENABLE_ADMIN_ENTERPRISE_AUTH</code>、<code>ENABLE_OPEN_TROUBLESHOOT_API</code>。</li>
+<li>小流量先用：<code>QA_CALLBACK_WORKER_CONCURRENCY=8~16</code>；高峰再按监控调优。</li>
+<li>上下文记忆建议保持轻量：<code>CHAT_CONTEXT_MAX_MESSAGES=20</code>、<code>CHAT_CONTEXT_RETENTION_DAYS=7</code>。</li>
+</ol>
+
+      </article>
+      
+  <div class="pager">
+
+    <a class="pager-link" href="/docs/deploy.html">← 部署运维</a>
+    <span></span>
+  </div>
+    </main>
+    <aside class="toc-wrap">
+      <div class="toc-title">本页目录</div>
+      <nav class="toc"><a class="toc-item toc-1" href="#环境变量参考">环境变量参考</a><a class="toc-item toc-2" href="#core">Core</a><a class="toc-item toc-2" href="#mysql容器">MySQL（容器）</a><a class="toc-item toc-2" href="#app-mysql后端连接">App MySQL（后端连接）</a><a class="toc-item toc-2" href="#认证与平台功能">认证与平台功能</a><a class="toc-item toc-2" href="#worktool-扩展接口路径可选">WorkTool 扩展接口路径（可选）</a><a class="toc-item toc-2" href="#短信华瑞">短信（华瑞）</a><a class="toc-item toc-2" href="#默认测试引擎与回调并发">默认测试引擎与回调并发</a><a class="toc-item toc-2" href="#对话上下文记忆轻量">对话上下文记忆（轻量）</a><a class="toc-item toc-2" href="#生产建议">生产建议</a></nav>
+    </aside>
+  </div>
+  <script>
+    const DOC_ITEMS = [{"title":"概览","slug":"overview","description":"平台定位、能力与目标"},{"title":"快速开始","slug":"quickstart","description":"5分钟跑通链路"},{"title":"核心概念","slug":"core-concepts","description":"机器人、规则、引擎、回调"},{"title":"机器人与回调","slug":"robot-callback","description":"机器人添加与回调绑定"},{"title":"规则配置","slug":"rules","description":"匹配模式、优先级与模板"},{"title":"AI回复引擎","slug":"ai-provider","description":"引擎配置、测试与常见问题"},{"title":"消息转发","slug":"forwarding","description":"转发规则与日志排查"},{"title":"消息监控与排障","slug":"monitoring","description":"监控视图与常见异常"},{"title":"常见问题","slug":"faq","description":"高频问题与处理方式"},{"title":"管理员手册","slug":"admin","description":"用户管理与安全建议"},{"title":"部署运维","slug":"deploy","description":"部署、时区、升级建议"},{"title":"环境变量参考","slug":"env-reference","description":".env.example 逐项说明与生产建议"}];
+    const input = document.getElementById('doc-search');
+    const resultEl = document.getElementById('search-results');
+    const navGroups = Array.from(document.querySelectorAll('.nav-group[data-group-key]'));
+    const navStateKey = 'worktool_docs_nav_group_state_v1';
+    let navState = {};
+    try {
+      navState = JSON.parse(localStorage.getItem(navStateKey) || '{}') || {};
+    } catch (_) {
+      navState = {};
+    }
+    navGroups.forEach((el) => {
+      const key = el.getAttribute('data-group-key') || '';
+      const defaultOpen = (el.getAttribute('data-default-open') || '') === '1';
+      const saved = navState[key];
+      if (typeof saved === 'boolean') {
+        el.open = saved;
+      } else {
+        el.open = defaultOpen;
+      }
+      el.addEventListener('toggle', () => {
+        navState[key] = !!el.open;
+        try {
+          localStorage.setItem(navStateKey, JSON.stringify(navState));
+        } catch (_) {}
+      });
+    });
+    function renderResults(keyword) {
+      const q = (keyword || '').trim().toLowerCase();
+      if (!q) {
+        resultEl.innerHTML = '';
+        return;
+      }
+      const list = DOC_ITEMS
+        .filter((d) => (d.title + ' ' + (d.description || '')).toLowerCase().includes(q))
+        .slice(0, 8);
+      if (!list.length) {
+        resultEl.innerHTML = '<div class="result-empty">没有匹配结果</div>';
+        return;
+      }
+      resultEl.innerHTML = list
+        .map((d) => '<a class="result-item" href="/docs/' + d.slug + '.html"><div class="result-title">' + d.title + '</div><div class="result-desc">' + (d.description || '') + '</div></a>')
+        .join('');
+    }
+    input?.addEventListener('input', (e) => renderResults(e.target.value));
+  </script>
+</body>
+</html>

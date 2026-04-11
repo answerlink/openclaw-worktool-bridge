@@ -12,19 +12,35 @@ const outRoot = path.join(projectRoot, 'public', 'docs');
 const siteTitle = 'WorkTool Console 文档';
 const siteBase = '/docs';
 
-const pages = [
-  { slug: 'overview', file: '01-overview.md', title: '概览', description: '平台定位、能力与目标' },
-  { slug: 'quickstart', file: '02-quickstart.md', title: '快速开始', description: '5分钟跑通链路' },
-  { slug: 'core-concepts', file: '03-core-concepts.md', title: '核心概念', description: '机器人、规则、引擎、回调' },
-  { slug: 'robot-callback', file: '04-robot-callback.md', title: '机器人与回调', description: '机器人添加与回调绑定' },
-  { slug: 'rules', file: '05-rules.md', title: '规则配置', description: '匹配模式、优先级与模板' },
-  { slug: 'ai-provider', file: '06-ai-provider.md', title: 'AI回复引擎', description: '引擎配置、测试与常见问题' },
-  { slug: 'forwarding', file: '07-forwarding.md', title: '消息转发', description: '转发规则与日志排查' },
-  { slug: 'monitoring', file: '08-monitoring.md', title: '消息监控与排障', description: '监控视图与常见异常' },
-  { slug: 'admin', file: '09-admin.md', title: '管理员手册', description: '用户管理与安全建议' },
-  { slug: 'deploy', file: '10-deploy.md', title: '部署运维', description: '部署、时区、升级建议' },
-  { slug: 'faq', file: '11-faq.md', title: '常见问题', description: '高频问题与处理方式' },
+const groups = [
+  {
+    key: 'usage',
+    title: '使用指南',
+    defaultOpen: true,
+    pages: [
+      { slug: 'overview', file: '01-overview.md', title: '概览', description: '平台定位、能力与目标' },
+      { slug: 'quickstart', file: '02-quickstart.md', title: '快速开始', description: '5分钟跑通链路' },
+      { slug: 'core-concepts', file: '03-core-concepts.md', title: '核心概念', description: '机器人、规则、引擎、回调' },
+      { slug: 'robot-callback', file: '04-robot-callback.md', title: '机器人与回调', description: '机器人添加与回调绑定' },
+      { slug: 'rules', file: '05-rules.md', title: '规则配置', description: '匹配模式、优先级与模板' },
+      { slug: 'ai-provider', file: '06-ai-provider.md', title: 'AI回复引擎', description: '引擎配置、测试与常见问题' },
+      { slug: 'forwarding', file: '07-forwarding.md', title: '消息转发', description: '转发规则与日志排查' },
+      { slug: 'monitoring', file: '08-monitoring.md', title: '消息监控与排障', description: '监控视图与常见异常' },
+      { slug: 'faq', file: '11-faq.md', title: '常见问题', description: '高频问题与处理方式' },
+    ],
+  },
+  {
+    key: 'ops',
+    title: '部署与管理',
+    defaultOpen: false,
+    pages: [
+      { slug: 'admin', file: '09-admin.md', title: '管理员手册', description: '用户管理与安全建议' },
+      { slug: 'deploy', file: '10-deploy.md', title: '部署运维', description: '部署、时区、升级建议' },
+      { slug: 'env-reference', file: '12-env-reference.md', title: '环境变量参考', description: '.env.example 逐项说明与生产建议' },
+    ],
+  },
 ];
+const pages = groups.flatMap((g) => g.pages);
 
 function esc(s = '') {
   return String(s)
@@ -36,8 +52,14 @@ function esc(s = '') {
 }
 
 function navHtml(current) {
-  return pages
-    .map((p) => `<a class=\"nav-item${p.slug === current ? ' active' : ''}\" href=\"${siteBase}/${p.slug}.html\">${esc(p.title)}</a>`)
+  return groups
+    .map((g) => {
+      const openAttr = g.defaultOpen ? ' open' : '';
+      const items = g.pages
+        .map((p) => `<a class=\"nav-item${p.slug === current ? ' active' : ''}\" href=\"${siteBase}/${p.slug}.html\">${esc(p.title)}</a>`)
+        .join('');
+      return `<details class="nav-group" data-group-key="${esc(g.key)}" data-default-open="${g.defaultOpen ? '1' : '0'}"${openAttr}><summary class="nav-group-title">${esc(g.title)}</summary><div class="nav-sublist">${items}</div></details>`;
+    })
     .join('');
 }
 
@@ -97,6 +119,30 @@ function renderPage({ title, description, slug, articleHtml, pageIndex, headings
     const DOC_ITEMS = ${searchData};
     const input = document.getElementById('doc-search');
     const resultEl = document.getElementById('search-results');
+    const navGroups = Array.from(document.querySelectorAll('.nav-group[data-group-key]'));
+    const navStateKey = 'worktool_docs_nav_group_state_v1';
+    let navState = {};
+    try {
+      navState = JSON.parse(localStorage.getItem(navStateKey) || '{}') || {};
+    } catch (_) {
+      navState = {};
+    }
+    navGroups.forEach((el) => {
+      const key = el.getAttribute('data-group-key') || '';
+      const defaultOpen = (el.getAttribute('data-default-open') || '') === '1';
+      const saved = navState[key];
+      if (typeof saved === 'boolean') {
+        el.open = saved;
+      } else {
+        el.open = defaultOpen;
+      }
+      el.addEventListener('toggle', () => {
+        navState[key] = !!el.open;
+        try {
+          localStorage.setItem(navStateKey, JSON.stringify(navState));
+        } catch (_) {}
+      });
+    });
     function renderResults(keyword) {
       const q = (keyword || '').trim().toLowerCase();
       if (!q) {

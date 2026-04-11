@@ -65,6 +65,42 @@ body {
 .result-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .result-empty { font-size: 12px; color: var(--muted); padding: 8px; }
 .nav { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.nav-group {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.nav-group[open] {
+  border-color: #d1fae5;
+}
+.nav-group-title {
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f766e;
+  padding: 9px 10px;
+}
+.nav-group-title::-webkit-details-marker {
+  display: none;
+}
+.nav-group-title::after {
+  content: "▾";
+  float: right;
+  color: #6b7280;
+  transform: rotate(-90deg);
+  transition: transform .15s ease;
+}
+.nav-group[open] .nav-group-title::after {
+  transform: rotate(0deg);
+}
+.nav-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding: 8px;
+}
 .nav-item {
   text-decoration: none;
   color: var(--text);

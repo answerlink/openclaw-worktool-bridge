@@ -74,6 +74,9 @@ DEFAULT_TEST_PROVIDER_MODEL = os.getenv("DEFAULT_TEST_PROVIDER_MODEL", "doubao-s
 QA_CALLBACK_WORKER_CONCURRENCY = max(int(os.getenv("QA_CALLBACK_WORKER_CONCURRENCY", "8") or "8"), 1)
 QA_CALLBACK_QUEUE_MAXSIZE = max(int(os.getenv("QA_CALLBACK_QUEUE_MAXSIZE", "2000") or "2000"), 100)
 ROBOT_SHOW_NAME_CACHE_TTL_SECONDS = max(int(os.getenv("ROBOT_SHOW_NAME_CACHE_TTL_SECONDS", "600") or "600"), 60)
+CHAT_CONTEXT_ENABLED = os.getenv("CHAT_CONTEXT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+CHAT_CONTEXT_MAX_MESSAGES = max(int(os.getenv("CHAT_CONTEXT_MAX_MESSAGES", "20") or "20"), 1)
+CHAT_CONTEXT_RETENTION_DAYS = max(int(os.getenv("CHAT_CONTEXT_RETENTION_DAYS", "7") or "7"), 1)
 
 
 app = FastAPI(title="WorkTool Bot Console API", version=APP_VERSION)
@@ -535,6 +538,24 @@ def init_db() -> None:
             cur.execute("SHOW COLUMNS FROM qa_monitor_logs LIKE 'ai_decision_reply'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE qa_monitor_logs ADD COLUMN ai_decision_reply TINYINT(1) NULL AFTER provider_name")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_context_logs (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  robot_pk BIGINT NOT NULL,
+                  scene ENUM('group','private') NOT NULL,
+                  session_key VARCHAR(512) NOT NULL,
+                  role ENUM('user','assistant') NOT NULL,
+                  sender_name VARCHAR(255) NULL,
+                  content TEXT NOT NULL,
+                  message_id VARCHAR(255) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_ccl_session_time (robot_pk, scene, session_key(191), id),
+                  INDEX idx_ccl_created_at (created_at),
+                  CONSTRAINT fk_ccl_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS forward_rules (
@@ -2859,6 +2880,174 @@ def _pick_message_id(req: QARequest) -> str:
     return (req.messageId or req.msgId or "").strip()
 
 
+def _build_context_session_key(scene: str, req: QARequest) -> str:
+    if scene == "group":
+        g = (req.groupName or "").strip()
+        if g:
+            return f"group:{g}"
+    sender = (req.receivedName or "").strip()
+    if sender:
+        return f"private:{sender}"
+    return ""
+
+
+def _append_chat_context_message(
+    robot_pk: int,
+    scene: str,
+    session_key: str,
+    role: str,
+    content: str,
+    sender_name: Optional[str] = None,
+    message_id: Optional[str] = None,
+) -> None:
+    if not CHAT_CONTEXT_ENABLED:
+        return
+    normalized_scene = (scene or "").strip().lower()
+    if normalized_scene not in {"group", "private"}:
+        return
+    normalized_role = (role or "").strip().lower()
+    if normalized_role not in {"user", "assistant"}:
+        return
+    sk = (session_key or "").strip()
+    text = (content or "").strip()
+    if not sk or not text:
+        return
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO chat_context_logs(robot_pk,scene,session_key,role,sender_name,content,message_id)
+                VALUES(%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    int(robot_pk),
+                    normalized_scene,
+                    sk[:512],
+                    normalized_role,
+                    ((sender_name or "").strip()[:255] or None),
+                    text[:4000],
+                    ((message_id or "").strip()[:255] or None),
+                ),
+            )
+            max_keep = max(int(CHAT_CONTEXT_MAX_MESSAGES), 1)
+            # Keep only the most recent N records per session.
+            cur.execute(
+                """
+                DELETE FROM chat_context_logs
+                WHERE robot_pk=%s AND scene=%s AND session_key=%s
+                  AND id NOT IN (
+                    SELECT id FROM (
+                      SELECT id
+                      FROM chat_context_logs
+                      WHERE robot_pk=%s AND scene=%s AND session_key=%s
+                      ORDER BY id DESC
+                      LIMIT %s
+                    ) t
+                  )
+                """,
+                (int(robot_pk), normalized_scene, sk, int(robot_pk), normalized_scene, sk, max_keep),
+            )
+        conn.commit()
+    except Exception as e:
+        logger.warning(
+            "chat_context_append_failed robot_pk=%s scene=%s session=%s err=%s",
+            robot_pk,
+            normalized_scene,
+            _short_text(sk, 120),
+            str(e),
+        )
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        conn.close()
+
+
+def _load_chat_context_messages(robot_pk: int, scene: str, session_key: str, limit: Optional[int] = None) -> List[Dict[str, str]]:
+    if not CHAT_CONTEXT_ENABLED:
+        return []
+    normalized_scene = (scene or "").strip().lower()
+    if normalized_scene not in {"group", "private"}:
+        return []
+    sk = (session_key or "").strip()
+    if not sk:
+        return []
+    max_items = max(int(limit or CHAT_CONTEXT_MAX_MESSAGES), 1)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT role,content
+                FROM chat_context_logs
+                WHERE robot_pk=%s AND scene=%s AND session_key=%s
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (int(robot_pk), normalized_scene, sk, max_items),
+            )
+            rows = cur.fetchall() or []
+            rows.reverse()
+            result: List[Dict[str, str]] = []
+            for row in rows:
+                role = str(row.get("role") or "").strip().lower()
+                content = (row.get("content") or "").strip()
+                if role not in {"user", "assistant"} or not content:
+                    continue
+                result.append({"role": role, "content": content})
+            return result
+    except Exception as e:
+        logger.warning(
+            "chat_context_load_failed robot_pk=%s scene=%s session=%s err=%s",
+            robot_pk,
+            normalized_scene,
+            _short_text(sk, 120),
+            str(e),
+        )
+        return []
+    finally:
+        conn.close()
+
+
+async def _run_chat_context_cleanup_if_needed() -> None:
+    if not CHAT_CONTEXT_ENABLED:
+        return
+    key = "chat_context_cleanup_last_run_at"
+    now = datetime.utcnow()
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT `value` FROM app_settings WHERE `key`=%s LIMIT 1", (key,))
+            row = cur.fetchone() or {}
+            last_raw = str(row.get("value") or "").strip()
+            if last_raw:
+                last_dt = _parse_datetime_or_none(last_raw, raise_on_invalid=False)
+                if last_dt and (now - last_dt) < timedelta(hours=12):
+                    return
+            cur.execute(
+                "DELETE FROM chat_context_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)",
+                (int(CHAT_CONTEXT_RETENTION_DAYS),),
+            )
+            cur.execute(
+                """
+                INSERT INTO app_settings(`key`,`value`) VALUES(%s,%s)
+                ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=CURRENT_TIMESTAMP
+                """,
+                (key, now.replace(microsecond=0).isoformat()),
+            )
+        conn.commit()
+    except Exception as e:
+        logger.warning("chat_context_cleanup_failed err=%s", str(e))
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        conn.close()
+
+
 def _normalize_match_pattern(raw_pattern: str) -> str:
     pattern = (raw_pattern or "").strip()
     if not pattern:
@@ -3656,6 +3845,10 @@ async def _send_worktool_text(robot_id: str, scene: str, req: QARequest, text: s
 async def startup() -> None:
     global _qa_callback_queue, _qa_callback_worker_tasks
     init_db()
+    try:
+        await _run_chat_context_cleanup_if_needed()
+    except Exception:
+        pass
     _qa_callback_queue = asyncio.Queue(maxsize=QA_CALLBACK_QUEUE_MAXSIZE)
     _qa_callback_worker_tasks = [
         asyncio.create_task(_qa_callback_worker_loop(i + 1))
@@ -3887,6 +4080,10 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str,
         pass
     try:
         await _run_login_flap_notice_scan_for_user_if_needed(int(user["id"]))
+    except Exception:
+        pass
+    try:
+        await _run_chat_context_cleanup_if_needed()
     except Exception:
         pass
     return {
@@ -5285,8 +5482,18 @@ async def _process_qa_callback_task(
     match_target = _rule_match_target(scene, req)
     callback_message_id = _pick_message_id(req)
     ai_decision_reply: Optional[bool] = None
+    context_session_key = _build_context_session_key(scene, req)
 
     _insert_message_log(robot_pk, "inbound", scene, inbound_text, "received")
+    _append_chat_context_message(
+        robot_pk,
+        scene,
+        context_session_key,
+        "user",
+        inbound_text,
+        sender_name=(req.receivedName or "").strip(),
+        message_id=callback_message_id,
+    )
     try:
         await _run_forwarding_for_callback(robot, scene, req, inbound_text)
     except Exception as e:
@@ -5382,6 +5589,15 @@ async def _process_qa_callback_task(
             try:
                 await _send_worktool_text(robot_id, scene, req, default_reply)
                 _insert_message_log(robot_pk, "outbound", scene, default_reply, "success")
+                _append_chat_context_message(
+                    robot_pk,
+                    scene,
+                    context_session_key,
+                    "assistant",
+                    default_reply,
+                    sender_name=None,
+                    message_id=callback_message_id,
+                )
                 _update_qa_monitor_log(local_log_id, default_reply, "success", time.perf_counter() - started_at, ai_decision_reply=ai_decision_reply)
             except Exception as e:
                 logger.exception("qa_callback_default_reply_send_failed robot_id=%s scene=%s err=%s", robot_id, scene, str(e))
@@ -5427,6 +5643,9 @@ async def _process_qa_callback_task(
         )
         provider_prompt = inbound_text
         provider_payload_extra: Optional[Dict[str, Any]] = None
+        context_messages = _load_chat_context_messages(robot_pk, scene, context_session_key, CHAT_CONTEXT_MAX_MESSAGES)
+        if not context_messages:
+            context_messages = [{"role": "user", "content": inbound_text}]
         if asker_info_mode in {"system_prompt", "variables"}:
             current_asker_text = _build_provider_current_asker_text(req, scene)
             colleague_names = _load_group_colleagues_from_robot(robot)
@@ -5437,18 +5656,30 @@ async def _process_qa_callback_task(
                 provider_payload_extra = {
                     "messages": [
                         {"role": "system", "content": _build_provider_system_prompt(robot_display_name, colleague_names, current_asker_text)},
-                        {"role": "user", "content": inbound_text},
+                        *context_messages,
                     ]
                 }
             else:
                 provider_payload_extra = {
+                    "messages": context_messages,
                     "variables": {
                         "prompt_inject": _build_provider_prompt_inject(robot_display_name, colleague_names, current_asker_text),
                     }
                 }
+        else:
+            provider_payload_extra = {"messages": context_messages}
         reply_text = await _call_provider(selected_rule, provider_prompt, provider_payload_extra)
         await _send_worktool_text(robot_id, scene, req, reply_text)
         _insert_message_log(robot_pk, "outbound", scene, reply_text, "success")
+        _append_chat_context_message(
+            robot_pk,
+            scene,
+            context_session_key,
+            "assistant",
+            reply_text,
+            sender_name=None,
+            message_id=callback_message_id,
+        )
         _update_qa_monitor_log(
             local_log_id,
             reply_text,
@@ -5486,6 +5717,15 @@ async def _process_qa_callback_task(
             try:
                 await _send_worktool_text(robot_id, scene, req, default_reply)
                 _insert_message_log(robot_pk, "outbound", scene, default_reply, "success")
+                _append_chat_context_message(
+                    robot_pk,
+                    scene,
+                    context_session_key,
+                    "assistant",
+                    default_reply,
+                    sender_name=None,
+                    message_id=callback_message_id,
+                )
                 _update_qa_monitor_log(
                     local_log_id,
                     default_reply,
