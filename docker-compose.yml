@@ -14,7 +14,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-worktool}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me_app}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - ./mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
       interval: 10s
@@ -178,7 +178,3 @@ services:
 networks:
   worktool-net:
     driver: bridge
-
-volumes:
-  mysql_data:
-    name: worktool_mysql_data
