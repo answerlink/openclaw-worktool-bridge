@@ -64,6 +64,39 @@
 <li>登录 IP</li>
 <li>问答回调记录（含原始问题、是否@）</li>
 </ul>
+<h2 id="机器人排查开放-api给智能体">机器人排查开放 API（给智能体）</h2><p>用于让智能体直接查询排查结果，不需要走后台页面操作。</p>
+<ul>
+<li>地址：<code>POST /api/v1/open/troubleshoot/search</code></li>
+<li>请求头：<code>X-Open-API-Key: &lt;你的密钥&gt;</code></li>
+<li>Content-Type：<code>application/json</code></li>
+</ul>
+<p>请求体字段：</p>
+<ul>
+<li><code>robot_id</code>：机器人ID（建议优先传）</li>
+<li><code>message_id</code>：消息ID（可选；不传 robot_id 时可用它反查）</li>
+<li><code>keyword</code>：关键字（可选）</li>
+<li><code>start_time</code>：开始时间（可选）</li>
+<li><code>end_time</code>：结束时间（可选）</li>
+<li><code>limit</code>：每个分区返回数量，默认20，最大100</li>
+</ul>
+<p>示例：</p>
+<pre><code class="language-bash">curl -X POST &#39;https://console.worktool.ymdyes.cn/api/v1/open/troubleshoot/search&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -H &#39;X-Open-API-Key: your-open-api-key&#39; \
+  -d &#39;{
+    &quot;robot_id&quot;: &quot;worktool1&quot;,
+    &quot;message_id&quot;: &quot;&quot;,
+    &quot;keyword&quot;: &quot;&quot;,
+    &quot;start_time&quot;: &quot;&quot;,
+    &quot;end_time&quot;: &quot;&quot;,
+    &quot;limit&quot;: 20
+  }&#39;
+</code></pre>
+<p>安全建议：</p>
+<ul>
+<li>建议在配置中限制可查询机器人ID范围（白名单）</li>
+<li>密钥只用于服务端调用，不要放在前端页面代码里</li>
+</ul>
 <h2 id="常见异常">常见异常</h2><ul>
 <li>AI 请求失败：检查 URL、Token、Model</li>
 <li>回复为空：检查规则命中与 provider 返回结构</li>
@@ -81,7 +114,7 @@
     </main>
     <aside class="toc-wrap">
       <div class="toc-title">本页目录</div>
-      <nav class="toc"><a class="toc-item toc-1" href="#消息监控与排障">消息监控与排障</a><a class="toc-item toc-2" href="#消息监控">消息监控</a><a class="toc-item toc-2" href="#本地监控与第三方监控">本地监控与第三方监控</a><a class="toc-item toc-2" href="#指令任务查询">指令任务查询</a><a class="toc-item toc-2" href="#指令任务下发与执行状态联动">指令任务下发与执行状态联动</a><a class="toc-item toc-2" href="#机器人登录日志异常提醒">机器人登录日志异常提醒</a><a class="toc-item toc-2" href="#机器人排查">机器人排查</a><a class="toc-item toc-2" href="#常见异常">常见异常</a></nav>
+      <nav class="toc"><a class="toc-item toc-1" href="#消息监控与排障">消息监控与排障</a><a class="toc-item toc-2" href="#消息监控">消息监控</a><a class="toc-item toc-2" href="#本地监控与第三方监控">本地监控与第三方监控</a><a class="toc-item toc-2" href="#指令任务查询">指令任务查询</a><a class="toc-item toc-2" href="#指令任务下发与执行状态联动">指令任务下发与执行状态联动</a><a class="toc-item toc-2" href="#机器人登录日志异常提醒">机器人登录日志异常提醒</a><a class="toc-item toc-2" href="#机器人排查">机器人排查</a><a class="toc-item toc-2" href="#机器人排查开放-api给智能体">机器人排查开放 API（给智能体）</a><a class="toc-item toc-2" href="#常见异常">常见异常</a></nav>
     </aside>
   </div>
   <script>
