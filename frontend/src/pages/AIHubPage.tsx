@@ -36,7 +36,9 @@ export default function AIHubPage() {
     delete values.base_url_preset;
     delete values.base_url_openai;
     delete values.base_url_openclaw;
+    delete values.include_asker_info;
     values.auth_scheme = values.provider_type === 'openclaw' ? 'x-openclaw-token' : 'bearer';
+    values.asker_info_mode = values.asker_info_mode || 'off';
     if (!values.api_token) {
       values.api_token = '';
     }
@@ -150,6 +152,7 @@ export default function AIHubPage() {
         setUseCustomOpenaiUrl(false);
         form.setFieldsValue({
           enabled: true,
+          asker_info_mode: 'off',
           provider_type: 'openai',
           base_url_preset: OPENAI_BASE_OPTIONS[0].value,
           base_url_openai: OPENAI_BASE_OPTIONS[0].value,
@@ -199,6 +202,7 @@ export default function AIHubPage() {
                         model: row.model,
                         provider_type: nextType,
                         extra_json: row.extra_json || '',
+                        asker_info_mode: row.asker_info_mode || 'off',
                         enabled: row.enabled
                       });
                       setOpen(true);
@@ -370,6 +374,24 @@ export default function AIHubPage() {
               >
                 <Input.TextArea rows={5} />
               </Form.Item>
+              <Form.Item
+                name="asker_info_mode"
+                label="提问人信息注入模式"
+                tooltip="默认关闭；开启后不会改 user content，只会注入 system_prompt 或 variables.prompt_inject。"
+                initialValue="off"
+              >
+                <Select
+                  options={[
+                    { label: '关闭（默认）', value: 'off' },
+                    { label: '覆盖 system_prompt', value: 'system_prompt' },
+                    { label: '额外字段 variables.prompt_inject', value: 'variables' },
+                  ]}
+                />
+              </Form.Item>
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 8 }}>
+                选择“额外字段”时，会发送 <code>variables.prompt_inject</code>。请在第三方流程中把该值拼接到 system_prompt。
+                {' '}示例：<code>{`{"variables":{"prompt_inject":"..."}}`}</code>
+              </Typography.Text>
             </>
           ) : null}
           <Form.Item name="enabled" valuePropName="checked" label="启用">

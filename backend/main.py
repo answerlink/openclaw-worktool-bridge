@@ -73,6 +73,7 @@ DEFAULT_TEST_PROVIDER_API_KEY = os.getenv("DEFAULT_TEST_PROVIDER_API_KEY", "").s
 DEFAULT_TEST_PROVIDER_MODEL = os.getenv("DEFAULT_TEST_PROVIDER_MODEL", "doubao-seed-2.0-lite").strip()
 QA_CALLBACK_WORKER_CONCURRENCY = max(int(os.getenv("QA_CALLBACK_WORKER_CONCURRENCY", "8") or "8"), 1)
 QA_CALLBACK_QUEUE_MAXSIZE = max(int(os.getenv("QA_CALLBACK_QUEUE_MAXSIZE", "2000") or "2000"), 100)
+ROBOT_SHOW_NAME_CACHE_TTL_SECONDS = max(int(os.getenv("ROBOT_SHOW_NAME_CACHE_TTL_SECONDS", "600") or "600"), 60)
 
 
 app = FastAPI(title="WorkTool Bot Console API", version=APP_VERSION)
@@ -89,6 +90,8 @@ logger = logging.getLogger("backend")
 _expiry_notice_scan_lock = asyncio.Lock()
 _qa_callback_queue: Optional[asyncio.Queue] = None
 _qa_callback_worker_tasks: List[asyncio.Task] = []
+_robot_show_name_cache: Dict[str, Dict[str, Any]] = {}
+_robot_show_name_cache_lock = asyncio.Lock()
 
 
 def now_iso() -> str:
@@ -236,6 +239,8 @@ def init_db() -> None:
                   provider_type ENUM('openai','openclaw') NOT NULL DEFAULT 'openai',
                   auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                   extra_json JSON NULL,
+                  include_asker_info TINYINT(1) NOT NULL DEFAULT 0,
+                  asker_info_mode ENUM('off','system_prompt','variables') NOT NULL DEFAULT 'off',
                   enabled TINYINT(1) NOT NULL DEFAULT 1,
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -279,6 +284,8 @@ def init_db() -> None:
                       provider_type ENUM('openai','openclaw') NOT NULL DEFAULT 'openai',
                       auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                       extra_json JSON NULL,
+                      include_asker_info TINYINT(1) NOT NULL DEFAULT 0,
+                      asker_info_mode ENUM('off','system_prompt','variables') NOT NULL DEFAULT 'off',
                       enabled TINYINT(1) NOT NULL DEFAULT 1,
                       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -289,11 +296,11 @@ def init_db() -> None:
                 )
                 cur.execute(
                     """
-                    INSERT INTO ai_providers_new(id,created_by,name,base_url,api_token,model,provider_type,auth_scheme,extra_json,enabled,created_at,updated_at)
+                    INSERT INTO ai_providers_new(id,created_by,name,base_url,api_token,model,provider_type,auth_scheme,extra_json,include_asker_info,asker_info_mode,enabled,created_at,updated_at)
                     SELECT id,
                            COALESCE((SELECT MIN(id) FROM users), 1) AS created_by,
                            CASE WHEN cnt > 1 THEN CONCAT(name, '_', id) ELSE name END AS name,
-                           base_url,api_token,model,provider_type,auth_scheme,extra_json,enabled,created_at,updated_at
+                           base_url,api_token,model,provider_type,auth_scheme,extra_json,0,'off',enabled,created_at,updated_at
                     FROM (
                       SELECT p.*,
                              COUNT(*) OVER(PARTITION BY p.name) AS cnt
@@ -388,6 +395,17 @@ def init_db() -> None:
                 cur.execute("ALTER TABLE ai_providers ADD INDEX idx_provider_is_system (is_system)")
             except Exception:
                 pass
+            cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'include_asker_info'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE ai_providers ADD COLUMN include_asker_info TINYINT(1) NOT NULL DEFAULT 0 AFTER extra_json")
+            cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'asker_info_mode'")
+            if not cur.fetchone():
+                cur.execute(
+                    "ALTER TABLE ai_providers ADD COLUMN asker_info_mode ENUM('off','system_prompt','variables') NOT NULL DEFAULT 'off' AFTER include_asker_info"
+                )
+                cur.execute(
+                    "UPDATE ai_providers SET asker_info_mode=CASE WHEN include_asker_info=1 THEN 'variables' ELSE 'off' END"
+                )
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS default_replies (
@@ -1108,6 +1126,8 @@ class ProviderCreate(BaseModel):
     provider_type: Literal["openai", "openclaw"] = "openai"
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
+    asker_info_mode: Literal["off", "system_prompt", "variables"] = "off"
+    include_asker_info: Optional[bool] = None
     enabled: bool = True
 
 
@@ -1119,6 +1139,8 @@ class ProviderUpdate(BaseModel):
     provider_type: Optional[Literal["openai", "openclaw"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
+    asker_info_mode: Optional[Literal["off", "system_prompt", "variables"]] = None
+    include_asker_info: Optional[bool] = None
     enabled: Optional[bool] = None
 
 
@@ -1387,7 +1409,9 @@ def _is_demo_robot_id(robot_id: str) -> bool:
     return bool(rid) and rid in DEMO_ROBOT_IDS
 
 
-def _reject_demo_robot_write(robot_id: str, scope: str = "当前配置") -> None:
+def _reject_demo_robot_write(robot_id: str, scope: str = "当前配置", user: Optional[Dict[str, Any]] = None) -> None:
+    if user and _is_admin_phone(str(user.get("phone") or "")):
+        return
     if _is_demo_robot_id(robot_id):
         raise HTTPException(
             status_code=403,
@@ -1447,6 +1471,18 @@ def _resolve_auth_scheme(provider_type: str, auth_scheme: Optional[str]) -> str:
     if auth_scheme:
         return auth_scheme
     return "x-openclaw-token" if provider_type == "openclaw" else "bearer"
+
+
+def _resolve_asker_info_mode(
+    asker_info_mode: Optional[str],
+    include_asker_info: Optional[bool],
+) -> str:
+    mode = str(asker_info_mode or "").strip().lower()
+    if mode in {"off", "system_prompt", "variables"}:
+        return mode
+    if include_asker_info is True:
+        return "variables"
+    return "off"
 
 
 def _normalize_group_reply_mode(
@@ -1905,6 +1941,31 @@ async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any
                 )
                 raise HTTPException(status_code=502, detail="worktool response is not valid json")
             return data if isinstance(data, dict) else {"data": data}
+
+
+async def _get_robot_display_name_cached(robot_id: str) -> str:
+    rid = (robot_id or "").strip()
+    if not rid:
+        return ""
+    now_ts = time.time()
+    async with _robot_show_name_cache_lock:
+        cache = _robot_show_name_cache.get(rid)
+        if isinstance(cache, dict) and float(cache.get("expire_at") or 0) > now_ts:
+            return str(cache.get("show_name") or "")
+    display_name = ""
+    try:
+        detail = await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": rid})
+        data = detail.get("data") or {}
+        if isinstance(data, dict):
+            display_name = str(data.get("name") or "").strip() or str(data.get("showName") or "").strip()
+    except Exception as e:
+        logger.warning("robot_show_name_fetch_failed robot_id=%s err=%s", rid, str(e))
+    async with _robot_show_name_cache_lock:
+        _robot_show_name_cache[rid] = {
+            "show_name": display_name,
+            "expire_at": now_ts + ROBOT_SHOW_NAME_CACHE_TTL_SECONDS,
+        }
+    return display_name
 
 
 async def post_worktool_api(path: str, params: Optional[Dict[str, Any]] = None, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -2751,6 +2812,29 @@ def _pick_inbound_text(req: QARequest) -> str:
     return (req.rawSpoken or req.spoken or "").strip()
 
 
+def _build_provider_current_asker_text(req: QARequest, scene: str) -> str:
+    sender = (req.receivedName or "").strip() or "未知用户"
+    if scene == "group":
+        group_name = (req.groupName or "").strip() or "未知群"
+        return f"当前提问的是群[{group_name}]中的[{sender}]"
+    return f"当前提问的是[{sender}]"
+
+
+def _build_provider_system_prompt(robot_display_name: str, colleague_names: List[str], current_asker_text: str) -> str:
+    colleagues = [str(x or "").strip() for x in colleague_names if str(x or "").strip()]
+    robot_name = str(robot_display_name or "").strip() or "机器人"
+    lines: List[str] = [f"你是[{robot_name}]"]
+    if colleagues:
+        colleague_text = "，".join(colleagues)
+        lines.append(f"这些人是你的同事：[{colleague_text}]")
+    lines.append(current_asker_text)
+    return "\n".join(lines)
+
+
+def _build_provider_prompt_inject(robot_display_name: str, colleague_names: List[str], current_asker_text: str) -> str:
+    return f"---\n{_build_provider_system_prompt(robot_display_name, colleague_names, current_asker_text)}\n---"
+
+
 def _short_text(s: str, n: int = 120) -> str:
     x = (s or "").replace("\n", "\\n").strip()
     return x if len(x) <= n else f"{x[:n]}..."
@@ -3325,7 +3409,7 @@ def _load_enabled_rules(robot_pk: int, scene: str) -> List[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT r.id,r.pattern_match_type,r.pattern,r.content_match_type,r.content_pattern,r.priority,r.provider_id,p.name AS provider_name,p.base_url,p.api_token,p.model,p.provider_type,p.auth_scheme,p.extra_json
+                SELECT r.id,r.pattern_match_type,r.pattern,r.content_match_type,r.content_pattern,r.priority,r.provider_id,p.name AS provider_name,p.base_url,p.api_token,p.model,p.provider_type,p.auth_scheme,p.extra_json,p.include_asker_info,p.asker_info_mode
                 FROM routing_rules r
                 JOIN ai_providers p ON p.id=r.provider_id
                 WHERE r.robot_pk=%s AND r.scene=%s AND r.enabled=1 AND p.enabled=1
@@ -3362,7 +3446,7 @@ def _extract_provider_text(data: Any) -> str:
     return ""
 
 
-async def _call_provider(rule: Dict[str, Any], prompt: str) -> str:
+async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optional[Dict[str, Any]] = None) -> str:
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     auth_scheme = str(rule.get("auth_scheme") or "bearer")
     api_token = str(rule.get("api_token") or "")
@@ -3391,6 +3475,14 @@ async def _call_provider(rule: Dict[str, Any], prompt: str) -> str:
         req_body = extra_json.get("request_body")
         if isinstance(req_body, dict):
             payload.update(req_body)
+    if isinstance(payload_extra, dict):
+        for k, v in payload_extra.items():
+            if k == "variables" and isinstance(v, dict) and isinstance(payload.get("variables"), dict):
+                merged_vars = dict(payload.get("variables") or {})
+                merged_vars.update(v)
+                payload["variables"] = merged_vars
+                continue
+            payload[k] = v
 
     url = str(rule.get("base_url") or "").strip()
     if not url:
@@ -4222,7 +4314,7 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
 @app.put("/api/v1/robots/{robot_id}")
 async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "机器人配置")
+    _reject_demo_robot_write(robot_id, "机器人配置", user=user)
     updates: List[str] = []
     params: List[Any] = []
     if body.name is not None:
@@ -4289,15 +4381,18 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
 @app.delete("/api/v1/robots/{robot_id}")
 async def delete_robot(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "机器人配置")
+    is_demo = _is_demo_robot_id(robot_id)
     conn = db_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM user_robots WHERE user_id=%s AND robot_pk=%s", (int(user["id"]), int(robot["id"])))
-            cur.execute("SELECT COUNT(1) AS c FROM user_robots WHERE robot_pk=%s", (int(robot["id"]),))
-            remain = int((cur.fetchone() or {}).get("c") or 0)
-            if remain == 0:
-                cur.execute("DELETE FROM robots WHERE id=%s", (int(robot["id"]),))
+            # Demo robots are shared experience entries: users may unbind,
+            # but we should not delete the robot row/config when last user leaves.
+            if not is_demo:
+                cur.execute("SELECT COUNT(1) AS c FROM user_robots WHERE robot_pk=%s", (int(robot["id"]),))
+                remain = int((cur.fetchone() or {}).get("c") or 0)
+                if remain == 0:
+                    cur.execute("DELETE FROM robots WHERE id=%s", (int(robot["id"]),))
         conn.commit()
     finally:
         conn.close()
@@ -4329,6 +4424,11 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
                 is_system = bool(row.get("is_system"))
                 can_manage = (not is_system) and int(row.get("created_by") or 0) == int(user["id"])
                 row["enabled"] = bool(row["enabled"])
+                row["asker_info_mode"] = _resolve_asker_info_mode(
+                    row.get("asker_info_mode"),
+                    bool(row.get("include_asker_info")),
+                )
+                row["include_asker_info"] = bool(row.get("include_asker_info"))
                 row["is_system"] = is_system
                 row["can_manage"] = can_manage
                 row["api_token_masked"] = mask_token(str(row["api_token"]))
@@ -4343,14 +4443,15 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
 @app.post("/api/v1/providers")
 async def create_provider(body: ProviderCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     extra = _normalize_extra_json(body.extra_json)
+    asker_info_mode = _resolve_asker_info_mode(body.asker_info_mode, body.include_asker_info)
 
     conn = db_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO ai_providers(created_by,name,base_url,api_token,model,provider_type,auth_scheme,extra_json,enabled)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO ai_providers(created_by,name,base_url,api_token,model,provider_type,auth_scheme,extra_json,include_asker_info,asker_info_mode,enabled)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     int(user["id"]),
@@ -4361,6 +4462,8 @@ async def create_provider(body: ProviderCreate, user: Dict[str, Any] = Depends(g
                     body.provider_type,
                     _resolve_auth_scheme(body.provider_type, body.auth_scheme),
                     extra,
+                    0 if asker_info_mode == "off" else 1,
+                    asker_info_mode,
                     1 if body.enabled else 0,
                 ),
             )
@@ -4481,6 +4584,18 @@ async def update_provider(provider_id: int, body: ProviderUpdate, user: Dict[str
     if body.extra_json is not None:
         updates.append("extra_json=%s")
         params.append(_normalize_extra_json(body.extra_json))
+    if body.asker_info_mode is not None:
+        mode = _resolve_asker_info_mode(body.asker_info_mode, body.include_asker_info)
+        updates.append("asker_info_mode=%s")
+        params.append(mode)
+        updates.append("include_asker_info=%s")
+        params.append(0 if mode == "off" else 1)
+    elif body.include_asker_info is not None:
+        mode = _resolve_asker_info_mode(None, body.include_asker_info)
+        updates.append("asker_info_mode=%s")
+        params.append(mode)
+        updates.append("include_asker_info=%s")
+        params.append(1 if body.include_asker_info else 0)
     if body.enabled is not None:
         updates.append("enabled=%s")
         params.append(1 if body.enabled else 0)
@@ -4556,7 +4671,7 @@ async def list_rules(robot_id: str, scene: Optional[str] = None, user: Dict[str,
 @app.post("/api/v1/rules")
 async def create_rule(body: RuleCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), body.robot_id)
-    _reject_demo_robot_write(body.robot_id, "机器人配置")
+    _reject_demo_robot_write(body.robot_id, "机器人配置", user=user)
     if not _provider_accessible_by_user(body.provider_id, int(user["id"])):
         raise HTTPException(status_code=403, detail="无权使用该Provider")
     pattern_match_type = body.pattern_match_type
@@ -4614,7 +4729,7 @@ async def update_rule(rule_id: int, body: RuleUpdate, user: Dict[str, Any] = Dep
             if not row:
                 raise HTTPException(status_code=403, detail="无权修改该规则")
             robot_row = _get_robot_by_pk_or_404(int(row["robot_pk"]))
-            _reject_demo_robot_write(str(robot_row.get("robot_id") or ""), "机器人配置")
+            _reject_demo_robot_write(str(robot_row.get("robot_id") or ""), "机器人配置", user=user)
 
             updates: List[str] = []
             params: List[Any] = []
@@ -4695,7 +4810,7 @@ async def delete_rule(rule_id: int, user: Dict[str, Any] = Depends(get_current_u
             if not row:
                 raise HTTPException(status_code=403, detail="无权删除该规则")
             robot_row = _get_robot_by_pk_or_404(int(row["robot_pk"]))
-            _reject_demo_robot_write(str(robot_row.get("robot_id") or ""), "机器人配置")
+            _reject_demo_robot_write(str(robot_row.get("robot_id") or ""), "机器人配置", user=user)
     finally:
         conn.close()
 
@@ -4719,7 +4834,7 @@ async def delete_rule(rule_id: int, user: Dict[str, Any] = Depends(get_current_u
 @app.put("/api/v1/robots/{robot_id}/rules/reorder")
 async def reorder_rules(robot_id: str, scene: str, body: ReorderPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "机器人配置")
+    _reject_demo_robot_write(robot_id, "机器人配置", user=user)
     if scene not in {"group", "private"}:
         raise HTTPException(status_code=400, detail="scene must be group/private")
     conn = db_conn()
@@ -4796,7 +4911,7 @@ async def list_forward_rules(
 async def create_forward_rule(body: ForwardRuleCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     uid = int(user["id"])
     source_robot = _require_robot_access(uid, body.source_robot_id)
-    _reject_demo_robot_write(str(source_robot.get("robot_id") or body.source_robot_id), "消息转发规则")
+    _reject_demo_robot_write(str(source_robot.get("robot_id") or body.source_robot_id), "消息转发规则", user=user)
     source_match_type = body.source_match_type
     source_pattern = (body.source_pattern or "").strip()
     if source_match_type != "all" and not source_pattern:
@@ -4860,7 +4975,7 @@ async def update_forward_rule(rule_id: int, body: ForwardRuleUpdate, user: Dict[
             if not row:
                 raise HTTPException(status_code=404, detail="转发规则不存在")
             current_source_robot_row = _get_robot_by_pk_or_404(int(row["source_robot_pk"]))
-            _reject_demo_robot_write(str(current_source_robot_row.get("robot_id") or ""), "消息转发规则")
+            _reject_demo_robot_write(str(current_source_robot_row.get("robot_id") or ""), "消息转发规则", user=user)
 
             source_robot_pk = int(row["source_robot_pk"])
             if body.source_robot_id is not None:
@@ -4964,7 +5079,7 @@ async def delete_forward_rule(rule_id: int, user: Dict[str, Any] = Depends(get_c
             if not row:
                 raise HTTPException(status_code=404, detail="转发规则不存在")
             source_robot_row = _get_robot_by_pk_or_404(int(row["source_robot_pk"]))
-            _reject_demo_robot_write(str(source_robot_row.get("robot_id") or ""), "消息转发规则")
+            _reject_demo_robot_write(str(source_robot_row.get("robot_id") or ""), "消息转发规则", user=user)
             cur.execute("DELETE FROM forward_rules WHERE id=%s AND created_by=%s", (rule_id, uid))
         conn.commit()
     finally:
@@ -5306,7 +5421,32 @@ async def _process_qa_callback_task(
             )
             return
 
-        reply_text = await _call_provider(selected_rule, inbound_text)
+        asker_info_mode = _resolve_asker_info_mode(
+            selected_rule.get("asker_info_mode"),
+            bool(selected_rule.get("include_asker_info")),
+        )
+        provider_prompt = inbound_text
+        provider_payload_extra: Optional[Dict[str, Any]] = None
+        if asker_info_mode in {"system_prompt", "variables"}:
+            current_asker_text = _build_provider_current_asker_text(req, scene)
+            colleague_names = _load_group_colleagues_from_robot(robot)
+            robot_display_name = await _get_robot_display_name_cached(robot_id)
+            if not robot_display_name:
+                robot_display_name = str(robot.get("name") or robot.get("robot_id") or "机器人").strip()
+            if asker_info_mode == "system_prompt":
+                provider_payload_extra = {
+                    "messages": [
+                        {"role": "system", "content": _build_provider_system_prompt(robot_display_name, colleague_names, current_asker_text)},
+                        {"role": "user", "content": inbound_text},
+                    ]
+                }
+            else:
+                provider_payload_extra = {
+                    "variables": {
+                        "prompt_inject": _build_provider_prompt_inject(robot_display_name, colleague_names, current_asker_text),
+                    }
+                }
+        reply_text = await _call_provider(selected_rule, provider_prompt, provider_payload_extra)
         await _send_worktool_text(robot_id, scene, req, reply_text)
         _insert_message_log(robot_pk, "outbound", scene, reply_text, "success")
         _update_qa_monitor_log(
@@ -5647,7 +5787,7 @@ async def create_group_tag(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "标签库")
+    _reject_demo_robot_write(robot_id, "标签库", user=user)
     name = _normalize_group_tag_name(body.name)
     conn = db_conn()
     try:
@@ -5682,7 +5822,7 @@ async def update_group_tag(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "标签库")
+    _reject_demo_robot_write(robot_id, "标签库", user=user)
     name = _normalize_group_tag_name(body.name)
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     conn = db_conn()
@@ -5724,7 +5864,7 @@ async def update_group_tag(
 @app.delete("/api/v1/group-tags/{tag_id}")
 async def delete_group_tag(tag_id: int, robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "标签库")
+    _reject_demo_robot_write(robot_id, "标签库", user=user)
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     conn = db_conn()
     try:
@@ -5794,7 +5934,7 @@ async def create_group_tag_items(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "标签库")
+    _reject_demo_robot_write(robot_id, "标签库", user=user)
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     values = _normalize_group_tag_values(body.values or [])
     match_type = (body.match_type or "exact").strip().lower()
@@ -5829,7 +5969,7 @@ async def delete_group_tag_item(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _reject_demo_robot_write(robot_id, "标签库")
+    _reject_demo_robot_write(robot_id, "标签库", user=user)
     _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
     conn = db_conn()
     try:
@@ -5993,7 +6133,7 @@ async def list_scheduled_tasks(robot_id: str, user: Dict[str, Any] = Depends(get
 @app.post("/api/v1/scheduled-tasks")
 async def create_scheduled_task(body: ScheduledTaskCreateRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), body.robot_id)
-    _reject_demo_robot_write(body.robot_id, "定时任务")
+    _reject_demo_robot_write(body.robot_id, "定时任务", user=user)
     name = str(body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name 不能为空")
@@ -6049,7 +6189,7 @@ async def create_scheduled_task(body: ScheduledTaskCreateRequest, user: Dict[str
 @app.put("/api/v1/scheduled-tasks/{task_id}")
 async def update_scheduled_task(task_id: int, body: ScheduledTaskUpdateRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     current = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
-    _reject_demo_robot_write(str(current.get("robot_id") or ""), "定时任务")
+    _reject_demo_robot_write(str(current.get("robot_id") or ""), "定时任务", user=user)
     next_schedule_type = body.schedule_type or str(current.get("schedule_type") or "once")
     next_run_at_raw = body.run_at if body.run_at is not None else str(current.get("run_at") or "")
     next_daily_time = body.daily_time if body.daily_time is not None else str(current.get("daily_time") or "")
@@ -6112,7 +6252,7 @@ async def update_scheduled_task(task_id: int, body: ScheduledTaskUpdateRequest, 
 @app.delete("/api/v1/scheduled-tasks/{task_id}")
 async def delete_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
-    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务", user=user)
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -6126,7 +6266,7 @@ async def delete_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get
 @app.post("/api/v1/scheduled-tasks/{task_id}/enable")
 async def enable_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
-    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务", user=user)
     schedule = _normalize_scheduled_task_fields(
         str(row.get("schedule_type") or "once"),
         run_at=str(row.get("run_at") or ""),
@@ -6159,7 +6299,7 @@ async def enable_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get
 @app.post("/api/v1/scheduled-tasks/{task_id}/pause")
 async def pause_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
-    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务", user=user)
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -6181,7 +6321,7 @@ async def pause_scheduled_task(task_id: int, user: Dict[str, Any] = Depends(get_
 @app.post("/api/v1/scheduled-tasks/{task_id}/run-now")
 async def run_scheduled_task_now(task_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     row = _get_scheduled_task_or_404(int(task_id), int(user["id"]))
-    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务")
+    _reject_demo_robot_write(str(row.get("robot_id") or ""), "定时任务", user=user)
     planned = datetime.now().replace(microsecond=0)
     idem = f"task:{int(task_id)}:{planned.strftime('%Y%m%d%H%M%S')}:manual"
     conn = db_conn()
@@ -6620,7 +6760,7 @@ async def get_robot_info_version(robot_id: str, user: Dict[str, Any] = Depends(g
 async def test_robot_message_callback(body: MessageCallbackPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
-    _reject_demo_robot_write(rid, "回调地址")
+    _reject_demo_robot_write(rid, "回调地址", user=user)
     callback_url = (body.callback_url or "").strip()
     if not callback_url:
         raise HTTPException(status_code=400, detail="callback_url required")
@@ -6669,7 +6809,7 @@ async def test_robot_callback(body: CallbackTestPayload, user: Dict[str, Any] = 
 async def bind_robot_message_callback(body: MessageCallbackPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
-    _reject_demo_robot_write(rid, "回调地址")
+    _reject_demo_robot_write(rid, "回调地址", user=user)
     res = await bind_message_callback(rid, (body.callback_url or "").strip(), int(body.reply_all))
     return {"ok": True, "result": res}
 
@@ -6678,7 +6818,7 @@ async def bind_robot_message_callback(body: MessageCallbackPayload, user: Dict[s
 async def bind_robot_callback(body: RobotCallbackBindPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
-    _reject_demo_robot_write(rid, "回调地址")
+    _reject_demo_robot_write(rid, "回调地址", user=user)
     res = await bind_callback_by_type(rid, (body.callback_url or "").strip(), int(body.type))
     return {"ok": True, "type": body.type, "result": res}
 
@@ -6687,7 +6827,7 @@ async def bind_robot_callback(body: RobotCallbackBindPayload, user: Dict[str, An
 async def delete_robot_callback(body: RobotCallbackDeletePayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     rid = (body.robot_id or "").strip()
     _require_robot_access(int(user["id"]), rid)
-    _reject_demo_robot_write(rid, "回调地址")
+    _reject_demo_robot_write(rid, "回调地址", user=user)
     result = await delete_callback_by_type(rid, int(body.type))
     return {"ok": True, "robot_id": rid, "type": int(body.type), "result": result}
 
