@@ -35,6 +35,22 @@ const roomTypeMap: Record<number, string> = {
 const COLUMN_PREF_KEY = 'message_monitor_visible_columns_v1';
 const DEFAULT_VISIBLE_COLUMNS = [
   'startTime',
+  'groupName',
+  'receivedName',
+  'roomType',
+  'textType',
+  'atMe',
+  'rawSpoken',
+  'question',
+  'answer',
+  'providerName',
+  'aiDecisionReply',
+  'timeCost',
+  'messageId',
+  'url',
+];
+const LEGACY_DEFAULT_VISIBLE_COLUMNS = [
+  'startTime',
   'robotId',
   'groupName',
   'receivedName',
@@ -69,7 +85,15 @@ export default function MessageLogPage() {
       if (!raw) return DEFAULT_VISIBLE_COLUMNS;
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter((x) => typeof x === 'string');
+        const normalized = parsed.filter((x) => typeof x === 'string');
+        // Migrate old default preference once: hide robotId by default.
+        if (
+          normalized.length === LEGACY_DEFAULT_VISIBLE_COLUMNS.length &&
+          normalized.every((x: string, i: number) => x === LEGACY_DEFAULT_VISIBLE_COLUMNS[i])
+        ) {
+          return DEFAULT_VISIBLE_COLUMNS;
+        }
+        return normalized;
       }
     } catch {
       // ignore
@@ -235,7 +259,20 @@ export default function MessageLogPage() {
         render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={260} />
       },
       { key: 'question', title: '问题', dataIndex: 'question', width: 280, render: (v: string) => <HoverPreviewText value={v} maxWidth={260} /> },
-      { key: 'answer', title: '回答', dataIndex: 'answer', width: 280, render: (v: string) => <HoverPreviewText value={v} maxWidth={260} /> },
+      {
+        key: 'answer',
+        title: (
+          <Space size={4}>
+            <span>回答</span>
+            <Tooltip title="仅本平台处理回复消息时可显示回答，第三方消息回调时无法显示回答。">
+              <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+            </Tooltip>
+          </Space>
+        ),
+        dataIndex: 'answer',
+        width: 280,
+        render: (v: string) => <HoverPreviewText value={v} maxWidth={260} />
+      },
       {
         key: 'providerName',
         title: 'AI回复引擎',
@@ -370,7 +407,7 @@ export default function MessageLogPage() {
         description={
           source === 'local'
             ? '检测到该机器人消息回调由本平台处理，列表中的“回答”会显示本平台实际AI回复结果。'
-            : '该机器人消息回调未走本平台处理，系统将展示 WorkTool 原始回调记录。'
+            : '该机器人消息回调未走本平台处理，系统将展示 WorkTool 原始回调记录；该类消息不会计入本平台本地统计。'
         }
       />
 

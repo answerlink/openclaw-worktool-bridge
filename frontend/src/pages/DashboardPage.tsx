@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Row, Statistic, Typography } from 'antd';
+import { Alert, Card, Col, Row, Space, Statistic, Tag, Typography } from 'antd';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { api } from '../api';
 
@@ -30,8 +30,21 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Typography.Title level={5}>运营概览</Typography.Title>
-      <Row gutter={[16, 16]}>
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Space size={8} wrap>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            运营概览
+          </Typography.Title>
+          <Tag color="blue">当前统计来源：本平台消息处理库</Tag>
+        </Space>
+        <Alert
+          type="info"
+          showIcon
+          message="若机器人绑定第三方消息回调，该机器人消息不会计入本页统计。"
+          description="本页仅统计由本平台回调链路处理并入库的数据。"
+        />
+      </Space>
+      <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
         {stats.map((item) => (
           <Col span={6} key={item.title}>
             <Card>

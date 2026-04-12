@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { api } from '../api';
 import type { ForwardLog, ForwardRule, Robot } from '../types';
-import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 import HoverPreviewText from '../components/HoverPreviewText';
 
 function modeOptions() {
@@ -30,7 +30,7 @@ export default function ForwardPage() {
   const [form] = Form.useForm();
 
   const robotOptions = useMemo(
-    () => robots.map((r) => ({ label: r.name ? `${r.name} (${r.robot_id})` : r.robot_id, value: r.robot_id })),
+    () => robots.map((r) => ({ label: r.name ? `${r.name} (${maskRobotIdForDisplay(r.robot_id)})` : maskRobotIdForDisplay(r.robot_id), value: r.robot_id })),
     [robots]
   );
 
