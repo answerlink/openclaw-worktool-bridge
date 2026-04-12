@@ -4,6 +4,7 @@ import { ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 interface GroupRow {
   group_name: string;
@@ -162,8 +163,8 @@ export default function GroupListPage() {
         }}
         scroll={{ x: 1300 }}
         columns={[
-          { title: '群名', dataIndex: 'group_name', width: 220, ellipsis: true },
-          { title: '群主', dataIndex: 'master_name', width: 160, ellipsis: true, render: (v: string) => v || '-' },
+          { title: '群名', dataIndex: 'group_name', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} /> },
+          { title: '群主', dataIndex: 'master_name', width: 160, render: (v: string) => <HoverPreviewText value={v} maxWidth={140} /> },
           { title: '成员数', dataIndex: 'members_num', width: 90, render: (v: number | null) => v ?? '-' },
           { title: '消息数', dataIndex: 'msg_num', width: 90, render: (v: number | null) => v ?? '-' },
           { title: '最近消息时间', dataIndex: 'msg_insert_time', width: 170, render: (v: string) => v || '-' },
@@ -175,7 +176,7 @@ export default function GroupListPage() {
             width: 90,
             render: (v: number | null) => (v === null || v === undefined ? '-' : <Tag>{String(v)}</Tag>),
           },
-          { title: '群公告', dataIndex: 'group_announcement', ellipsis: true },
+          { title: '群公告', dataIndex: 'group_announcement', render: (v: string) => <HoverPreviewText value={v} maxWidth={360} popupWidth={780} /> },
         ]}
       />
     </Card>

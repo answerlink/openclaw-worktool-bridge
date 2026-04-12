@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 type AdminStatus = 'all' | 'draft' | 'published' | 'offline';
 
@@ -153,7 +154,7 @@ export default function InboxAdminPage() {
   const columns = useMemo(
     () => [
       { title: 'ID', dataIndex: 'id', width: 80 },
-      { title: '标题', dataIndex: 'title', ellipsis: true },
+      { title: '标题', dataIndex: 'title', render: (v: string) => <HoverPreviewText value={v} maxWidth={360} popupWidth={760} /> },
       {
         title: '级别',
         dataIndex: 'level',

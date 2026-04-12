@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, Descriptions, Input, InputNumber, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 type ResultData = {
   input: Record<string, any>;
@@ -122,7 +123,7 @@ export default function TroubleshootPage() {
             dataSource={callbackRows}
             columns={[
               { title: '回调类型', dataIndex: '回调类型' },
-              { title: '回调地址', dataIndex: '回调地址', ellipsis: true },
+              { title: '回调地址', dataIndex: '回调地址', render: (v: string) => <HoverPreviewText value={v} maxWidth={560} popupWidth={760} /> },
               { title: '类型编号', dataIndex: '类型编号', width: 100 }
             ]}
           />
@@ -154,9 +155,9 @@ export default function TroubleshootPage() {
             scroll={{ x: 1200 }}
             columns={[
               { title: '时间', dataIndex: '时间', width: 180 },
-              { title: '消息ID', dataIndex: '消息ID', width: 220, ellipsis: true },
-              { title: '接收对象', dataIndex: '接收对象', width: 220, ellipsis: true },
-              { title: '发送内容', dataIndex: '发送内容', ellipsis: true },
+              { title: '消息ID', dataIndex: '消息ID', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
+              { title: '接收对象', dataIndex: '接收对象', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} /> },
+              { title: '发送内容', dataIndex: '发送内容', render: (v: string) => <HoverPreviewText value={v} maxWidth={520} popupWidth={780} /> },
               { title: '消息类型', dataIndex: '消息类型', width: 100 },
               { title: '状态', dataIndex: '状态', width: 100 }
             ]}
@@ -172,10 +173,10 @@ export default function TroubleshootPage() {
             pagination={false}
             columns={[
               { title: '时间', dataIndex: '时间', width: 180 },
-              { title: '消息ID', dataIndex: '消息ID', width: 220, ellipsis: true },
+              { title: '消息ID', dataIndex: '消息ID', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
               { title: '执行结果', dataIndex: '执行结果', width: 100 },
               { title: '执行耗时(秒)', dataIndex: '执行耗时(秒)', width: 120 },
-              { title: '失败原因', dataIndex: '失败原因', ellipsis: true }
+              { title: '失败原因', dataIndex: '失败原因', render: (v: string) => <HoverPreviewText value={v} maxWidth={520} /> }
             ]}
           />
         </Card>
@@ -193,13 +194,13 @@ export default function TroubleshootPage() {
               { title: '登录IP', dataIndex: '登录IP', width: 140 },
               { title: 'App版本', dataIndex: 'App版本', width: 120 },
               { title: 'Android版本', dataIndex: 'Android版本', width: 120 },
-              { title: '手机型号', dataIndex: '手机型号', width: 220, ellipsis: true },
+              { title: '手机型号', dataIndex: '手机型号', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} /> },
               { title: 'WorkVersion', dataIndex: 'WorkVersion', width: 120 },
               { title: '设备Root', dataIndex: '设备Root', width: 90 },
               { title: 'Hook', dataIndex: 'Hook', width: 90 },
               { title: 'App名称', dataIndex: 'App名称', width: 140 },
               { title: 'Blue', dataIndex: 'Blue', width: 80 },
-              { title: '原始日志', dataIndex: '原始日志', ellipsis: true }
+              { title: '原始日志', dataIndex: '原始日志', render: (v: string) => <HoverPreviewText value={v} maxWidth={520} popupWidth={820} /> }
             ]}
           />
         </Card>
@@ -215,12 +216,12 @@ export default function TroubleshootPage() {
             columns={[
               { title: '时间', dataIndex: '时间', width: 180 },
               { title: '提问者', dataIndex: '提问者', width: 120 },
-              { title: '会话', dataIndex: '会话', width: 180, ellipsis: true },
+              { title: '会话', dataIndex: '会话', width: 180, render: (v: string) => <HoverPreviewText value={v} maxWidth={160} /> },
               { title: '是否@', dataIndex: '是否@', width: 90, render: (v: any) => (v === true ? '是' : v === false ? '否' : '-') },
-              { title: '问题', dataIndex: '问题', width: 300, ellipsis: true },
-              { title: '原始问题', dataIndex: '原始问题', width: 300, ellipsis: true },
-              { title: '回答', dataIndex: '回答', width: 300, ellipsis: true },
-              { title: '消息ID', dataIndex: '消息ID', width: 220, ellipsis: true }
+              { title: '问题', dataIndex: '问题', width: 300, render: (v: string) => <HoverPreviewText value={v} maxWidth={280} popupWidth={820} /> },
+              { title: '原始问题', dataIndex: '原始问题', width: 300, render: (v: string) => <HoverPreviewText value={v} maxWidth={280} popupWidth={820} /> },
+              { title: '回答', dataIndex: '回答', width: 300, render: (v: string) => <HoverPreviewText value={v} maxWidth={280} popupWidth={820} /> },
+              { title: '消息ID', dataIndex: '消息ID', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> }
             ]}
           />
         </Card>
@@ -236,8 +237,8 @@ export default function TroubleshootPage() {
               { title: '时间', dataIndex: '时间', width: 180 },
               { title: '方向', dataIndex: '方向', width: 80 },
               { title: '场景', dataIndex: '场景', width: 80 },
-              { title: '会话', dataIndex: '会话', width: 180, ellipsis: true },
-              { title: '消息', dataIndex: '消息', ellipsis: true },
+              { title: '会话', dataIndex: '会话', width: 180, render: (v: string) => <HoverPreviewText value={v} maxWidth={160} /> },
+              { title: '消息', dataIndex: '消息', render: (v: string) => <HoverPreviewText value={v} maxWidth={560} popupWidth={820} /> },
               { title: '状态', dataIndex: '状态', width: 100 }
             ]}
           />

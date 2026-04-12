@@ -4,6 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 interface GroupTagRow {
   id: number;
@@ -312,7 +313,7 @@ export default function GroupTagLibraryPage() {
                 onChange: (keys) => setSelectedTagId(Number(keys?.[0] || 0) || null),
               }}
               columns={[
-                { title: '标签名', dataIndex: 'name', width: 150, ellipsis: true },
+                { title: '标签名', dataIndex: 'name', width: 150, render: (v: string) => <HoverPreviewText value={v} maxWidth={130} /> },
                 { title: '群数量', dataIndex: 'item_count', width: 72 },
                 {
                   title: '操作',
@@ -385,7 +386,7 @@ export default function GroupTagLibraryPage() {
                     width: 160,
                     render: (v: 'exact' | 'regex') => (v === 'exact' ? <Tag color="blue">精准匹配</Tag> : <Tag color="purple">模糊/正则</Tag>),
                   },
-                  { title: '群名/规则', dataIndex: 'value', ellipsis: true },
+                  { title: '群名/规则', dataIndex: 'value', render: (v: string) => <HoverPreviewText value={v} maxWidth={560} popupWidth={760} /> },
                   {
                     title: '操作',
                     width: 100,

@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Swi
 import { api } from '../api';
 import type { ForwardLog, ForwardRule, Robot } from '../types';
 import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 function modeOptions() {
   return [
@@ -257,27 +258,35 @@ export default function ForwardPage() {
             {
               title: '来源对象匹配',
               width: 170,
-              ellipsis: true,
-              render: (_, row: ForwardRule) => row.source_match_type === 'all' ? '全部来源对象' : `${row.source_match_type === 'exact' ? '精准' : '模糊'}：${row.source_pattern || '-'}`,
+              render: (_, row: ForwardRule) => (
+                <HoverPreviewText
+                  value={row.source_match_type === 'all' ? '全部来源对象' : `${row.source_match_type === 'exact' ? '精准' : '模糊'}：${row.source_pattern || '-'}`}
+                  maxWidth={150}
+                />
+              ),
             },
-            { title: '目标群名/昵称/备注名', dataIndex: 'target_name', width: 160, ellipsis: true },
+            { title: '目标群名/昵称/备注名', dataIndex: 'target_name', width: 160, render: (v: string) => <HoverPreviewText value={v} maxWidth={140} /> },
             {
               title: '发送机器人',
               width: 140,
-              ellipsis: true,
-              render: (_, row: ForwardRule) => row.use_other_robot ? (row.send_robot_id || '-') : `${row.source_robot_id}（同来源）`,
+              render: (_, row: ForwardRule) => (
+                <HoverPreviewText value={row.use_other_robot ? (row.send_robot_id || '-') : `${row.source_robot_id}（同来源）`} maxWidth={120} />
+              ),
             },
             {
               title: '前缀',
               width: 180,
-              ellipsis: true,
-              render: (_, row: ForwardRule) => row.prefix_enabled ? (row.prefix_template || '默认前缀') : '关闭（原文转发）',
+              render: (_, row: ForwardRule) => <HoverPreviewText value={row.prefix_enabled ? (row.prefix_template || '默认前缀') : '关闭（原文转发）'} maxWidth={160} />,
             },
             {
               title: '关键词过滤',
               width: 170,
-              ellipsis: true,
-              render: (_, row: ForwardRule) => row.keyword_match_type === 'all' ? '全部消息' : `${row.keyword_match_type === 'exact' ? '精准' : '模糊'}：${row.keyword_pattern || '-'}`,
+              render: (_, row: ForwardRule) => (
+                <HoverPreviewText
+                  value={row.keyword_match_type === 'all' ? '全部消息' : `${row.keyword_match_type === 'exact' ? '精准' : '模糊'}：${row.keyword_pattern || '-'}`}
+                  maxWidth={150}
+                />
+              ),
             },
             {
               title: '操作',
@@ -319,14 +328,14 @@ export default function ForwardPage() {
             { title: '来源机器人', dataIndex: 'source_robot_id', width: 130 },
             { title: '发送机器人', dataIndex: 'send_robot_id', width: 130 },
             { title: '来源场景', dataIndex: 'source_scene', width: 90, render: (v: string) => (v === 'group' ? '群聊' : '私聊') },
-            { title: '来源对象', dataIndex: 'source_name', width: 160, ellipsis: true },
-            { title: '提问者', dataIndex: 'sender_name', width: 120, ellipsis: true },
-            { title: '目标', dataIndex: 'target_name', width: 160, ellipsis: true },
+            { title: '来源对象', dataIndex: 'source_name', width: 160, render: (v: string) => <HoverPreviewText value={v} maxWidth={140} /> },
+            { title: '提问者', dataIndex: 'sender_name', width: 120, render: (v: string) => <HoverPreviewText value={v} maxWidth={100} /> },
+            { title: '目标', dataIndex: 'target_name', width: 160, render: (v: string) => <HoverPreviewText value={v} maxWidth={140} /> },
             { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => <Tag color={v === 'success' ? 'blue' : v === 'failed' ? 'red' : 'default'}>{v}</Tag> },
             { title: '耗时(秒)', dataIndex: 'time_cost', width: 100, render: (v: number) => (v ?? 0).toFixed(3) },
-            { title: '原消息', dataIndex: 'question_text', width: 220, ellipsis: true },
-            { title: '转发内容', dataIndex: 'forwarded_text', width: 260, ellipsis: true },
-            { title: '失败原因', dataIndex: 'error_reason', width: 260, ellipsis: true },
+            { title: '原消息', dataIndex: 'question_text', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} popupWidth={780} /> },
+            { title: '转发内容', dataIndex: 'forwarded_text', width: 260, render: (v: string) => <HoverPreviewText value={v} maxWidth={240} popupWidth={780} /> },
+            { title: '失败原因', dataIndex: 'error_reason', width: 260, render: (v: string) => <HoverPreviewText value={v} maxWidth={240} popupWidth={780} /> },
           ]}
         />
       </Card>

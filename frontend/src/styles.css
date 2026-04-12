@@ -168,3 +168,25 @@ html, body, #root {
   border-radius: 16px;
   box-shadow: 0 18px 46px rgba(15, 23, 42, 0.12);
 }
+
+.wt-hover-preview-trigger {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  cursor: pointer;
+}
+
+.wt-hover-preview-popover .ant-popover-inner {
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+
+.wt-hover-preview-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  line-height: 1.6;
+  font-size: 13px;
+}

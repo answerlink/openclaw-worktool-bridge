@@ -4,6 +4,7 @@ import { QuestionCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-de
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 interface QaLogItem {
   robotId: string;
@@ -191,8 +192,9 @@ export default function MessageLogPage() {
         title: '群名',
         dataIndex: 'groupName',
         width: 180,
-        ellipsis: true,
-        render: (v: string, row: QaLogItem) => (row.roomType === 2 || row.roomType === 4 ? '-' : (v || '-'))
+        render: (v: string, row: QaLogItem) => (
+          row.roomType === 2 || row.roomType === 4 ? '-' : <HoverPreviewText value={v} maxWidth={160} />
+        )
       },
       { key: 'receivedName', title: '提问者', dataIndex: 'receivedName', width: 120 },
       {
@@ -230,11 +232,10 @@ export default function MessageLogPage() {
         title: '原始问题',
         dataIndex: 'rawSpoken',
         width: 280,
-        ellipsis: true,
-        render: (v: string | undefined) => (v && String(v).trim() ? v : '-')
+        render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={260} />
       },
-      { key: 'question', title: '问题', dataIndex: 'question', width: 280, ellipsis: true },
-      { key: 'answer', title: '回答', dataIndex: 'answer', width: 280, ellipsis: true },
+      { key: 'question', title: '问题', dataIndex: 'question', width: 280, render: (v: string) => <HoverPreviewText value={v} maxWidth={260} /> },
+      { key: 'answer', title: '回答', dataIndex: 'answer', width: 280, render: (v: string) => <HoverPreviewText value={v} maxWidth={260} /> },
       {
         key: 'providerName',
         title: 'AI回复引擎',
@@ -256,17 +257,13 @@ export default function MessageLogPage() {
         width: 100,
         render: (v: number) => (v ?? 0).toFixed(3)
       },
-      { key: 'messageId', title: 'messageId', dataIndex: 'messageId', width: 220, ellipsis: true },
+      { key: 'messageId', title: 'messageId', dataIndex: 'messageId', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
       {
         key: 'url',
         title: '回调地址',
         dataIndex: 'url',
         width: 260,
-        render: (v: string) => (
-          <Typography.Text ellipsis={{ tooltip: v }} style={{ maxWidth: 240 }}>
-            {v}
-          </Typography.Text>
-        )
+        render: (v: string) => <HoverPreviewText value={v} maxWidth={240} popupWidth={760} />
       }
     ],
     [detectedNickname]

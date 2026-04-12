@@ -4,6 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 type TaskStatus = 'pending' | 'success' | 'failed';
 
@@ -294,19 +295,18 @@ export default function CommandTaskPage() {
       },
       { title: '发起时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
       { title: '执行时间', dataIndex: 'runTime', key: 'runTime', width: 180, render: (v: string) => v || '-' },
-      { title: '消息ID', dataIndex: 'messageId', key: 'messageId', width: 220, ellipsis: true },
-      { title: '接收对象', dataIndex: 'targetsText', key: 'targetsText', width: 180, ellipsis: true },
+      { title: '消息ID', dataIndex: 'messageId', key: 'messageId', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
+      { title: '接收对象', dataIndex: 'targetsText', key: 'targetsText', width: 180, render: (v: string) => <HoverPreviewText value={v} maxWidth={160} /> },
       {
         title: '指令内容',
         dataIndex: 'content',
         key: 'content',
-        ellipsis: { showTitle: false },
-        render: (v: string) => <Typography.Text ellipsis={{ tooltip: v }} style={{ maxWidth: 500 }}>{v}</Typography.Text>,
+        render: (v: string) => <HoverPreviewText value={v} maxWidth={500} popupWidth={780} />,
       },
       { title: '耗时(秒)', dataIndex: 'timeCost', key: 'timeCost', width: 100, render: (v?: number) => (v == null ? '-' : Number(v).toFixed(3)) },
-      { title: '失败原因', dataIndex: 'errorReason', key: 'errorReason', width: 220, ellipsis: true, render: (v?: string) => v || '-' },
+      { title: '失败原因', dataIndex: 'errorReason', key: 'errorReason', width: 220, render: (v?: string) => <HoverPreviewText value={v} maxWidth={200} /> },
       { title: '类型', dataIndex: 'type', key: 'type', width: 90, render: (v?: number) => (v == null ? '-' : v) },
-      { title: '来源IP', dataIndex: 'ip', key: 'ip', width: 140, ellipsis: true, render: (v?: string) => v || '-' },
+      { title: '来源IP', dataIndex: 'ip', key: 'ip', width: 140, render: (v?: string) => <HoverPreviewText value={v} maxWidth={120} /> },
     ],
     []
   );

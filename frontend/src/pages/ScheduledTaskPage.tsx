@@ -24,6 +24,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 interface TaskRow {
   id: number;
@@ -504,7 +505,7 @@ export default function ScheduledTaskPage() {
         dataSource={rows}
         size="small"
         columns={[
-          { title: '任务名称', dataIndex: 'name', width: 220, ellipsis: true },
+          { title: '任务名称', dataIndex: 'name', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} /> },
           { title: '执行内容', dataIndex: 'action', width: 180, render: (v: string) => actionLabel(v) },
           { title: '执行计划', width: 270, render: (_, row: TaskRow) => scheduleLabel(row) },
           { title: '下次执行', dataIndex: 'next_run_at', width: 170, render: (v: string) => v || '-' },
@@ -752,7 +753,7 @@ export default function ScheduledTaskPage() {
             { title: '状态', dataIndex: 'status', width: 120, render: (v: string) => statusTag(v) },
             { title: '开始时间', dataIndex: 'started_at', width: 170, render: (v: string) => v || '-' },
             { title: '结束时间', dataIndex: 'finished_at', width: 170, render: (v: string) => v || '-' },
-            { title: '错误信息', dataIndex: 'error_text', ellipsis: true, render: (v: string) => v || '-' },
+            { title: '错误信息', dataIndex: 'error_text', render: (v: string) => <HoverPreviewText value={v} maxWidth={280} popupWidth={760} /> },
           ]}
           pagination={false}
         />
