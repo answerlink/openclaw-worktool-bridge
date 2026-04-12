@@ -36,6 +36,18 @@ function renderRuleMatcher(mode: 'all' | 'exact' | 'regex' | undefined, pattern?
   return `${matchModeLabel(m)}：${(pattern || '').trim() || '-'}`;
 }
 
+const DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE = `你是群聊回复门控器。请判断最后一条消息是否应由机器人在群聊公开回复。
+规则：如果最后一条是在问机器人问题，或者是售前售后咨询/功能答疑/问题排查，则返回 YES；
+如果更像成员间闲聊、互相对话、与机器人无关，则返回 NO。
+只允许输出 YES 或 NO，不要输出其他任何文字。
+
+群名：{group_name}
+发送者：{sender_name}
+最后一条消息：{last_message}
+近期上下文：
+{recent_context}
+`;
+
 export default function RobotPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<Robot[]>([]);
@@ -176,6 +188,7 @@ export default function RobotPage() {
       group_reply_only_when_mentioned: false,
       group_reply_mode: 'always',
       group_decision_provider_id: undefined,
+      group_decision_prompt_template: DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE,
       group_colleagues_text: ''
     });
     setRobotOpen(true);
@@ -197,6 +210,7 @@ export default function RobotPage() {
         group_reply_only_when_mentioned: !!res?.group_reply_only_when_mentioned,
         group_reply_mode: groupReplyMode,
         group_decision_provider_id: res?.group_decision_provider_id ?? undefined,
+        group_decision_prompt_template: String(res?.group_decision_prompt_template || '').trim() || DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE,
         group_colleagues_text: Array.isArray(res?.group_colleagues) ? res.group_colleagues.join('\n') : ''
       });
       setRobotOpen(true);
@@ -223,6 +237,7 @@ export default function RobotPage() {
     if (values.group_reply_mode !== 'ai_decide') {
       values.group_decision_provider_id = null;
     }
+    values.group_decision_prompt_template = String(values.group_decision_prompt_template || '').trim() || null;
     values.group_colleagues = splitLines(String(values.group_colleagues_text || ''));
     delete values.group_colleagues_text;
     try {
@@ -584,24 +599,50 @@ export default function RobotPage() {
               const mode = getFieldValue('group_reply_mode');
               if (mode !== 'ai_decide') return null;
               return (
-                <Form.Item
-                  name="group_decision_provider_id"
-                  label={helpLabel(
-                    '群聊判定引擎',
-                    <Space direction="vertical" size={4}>
-                      <div>用途：仅用于判断“这条群消息要不要回复”。</div>
-                      <div>建议：选择一个低成本、低延迟的模型。</div>
-                    </Space>
-                  )}
-                  rules={[{ required: true, message: '请选择群聊判定引擎' }]}
-                >
-                  <Select
-                    options={providerOptions}
-                    placeholder="选择AI回复引擎（可在“AI回复引擎”页面先创建）"
-                    showSearch
-                    optionFilterProp="label"
-                  />
-                </Form.Item>
+                <>
+                  <Form.Item
+                    name="group_decision_provider_id"
+                    label={helpLabel(
+                      '群聊判定引擎',
+                      <Space direction="vertical" size={4}>
+                        <div>用途：仅用于判断“这条群消息要不要回复”。</div>
+                        <div>建议：选择一个低成本、低延迟的模型。</div>
+                      </Space>
+                    )}
+                    rules={[{ required: true, message: '请选择群聊判定引擎' }]}
+                  >
+                    <Select
+                      options={providerOptions}
+                      placeholder="选择AI回复引擎（可在“AI回复引擎”页面先创建）"
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="group_decision_prompt_template"
+                    label={helpLabel(
+                      '群聊判定提示词模板',
+                      <Space direction="vertical" size={4}>
+                        <div>用于控制“AI判断群回复”的提示词。</div>
+                        <div>支持变量：{'{group_name}'} {'{sender_name}'} {'{last_message}'} {'{recent_context}'}</div>
+                        <div>保留花括号变量即可动态替换。</div>
+                      </Space>
+                    )}
+                  >
+                    <Input.TextArea rows={9} placeholder={DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE} />
+                  </Form.Item>
+                  <Space style={{ marginTop: -8, marginBottom: 12 }}>
+                    <Button
+                      size="small"
+                      onClick={() => robotForm.setFieldsValue({ group_decision_prompt_template: DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE })}
+                    >
+                      一键重置成默认值
+                    </Button>
+                    <Typography.Text type="secondary">
+                      支持变量：{'{group_name}'} {'{sender_name}'} {'{last_message}'} {'{recent_context}'}
+                    </Typography.Text>
+                  </Space>
+                </>
               );
             }}
           </Form.Item>

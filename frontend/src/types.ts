@@ -6,6 +6,7 @@ export interface Robot {
   group_reply_only_when_mentioned: boolean;
   group_reply_mode?: 'always' | 'mention_only' | 'ai_decide';
   group_decision_provider_id?: number | null;
+  group_decision_prompt_template?: string | null;
   group_colleagues?: string[];
   created_at: string;
   updated_at: string;

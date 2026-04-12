@@ -77,6 +77,17 @@ ROBOT_SHOW_NAME_CACHE_TTL_SECONDS = max(int(os.getenv("ROBOT_SHOW_NAME_CACHE_TTL
 CHAT_CONTEXT_ENABLED = os.getenv("CHAT_CONTEXT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_CONTEXT_MAX_MESSAGES = max(int(os.getenv("CHAT_CONTEXT_MAX_MESSAGES", "20") or "20"), 1)
 CHAT_CONTEXT_RETENTION_DAYS = max(int(os.getenv("CHAT_CONTEXT_RETENTION_DAYS", "7") or "7"), 1)
+GROUP_DECISION_PROMPT_TEMPLATE_DEFAULT = (
+    "你是群聊回复门控器。请判断最后一条消息是否应由机器人在群聊公开回复。\n"
+    "规则：如果最后一条是在问机器人问题，或者是售前售后咨询/功能答疑/问题排查，则返回 YES；\n"
+    "如果更像成员间闲聊、互相对话、与机器人无关，则返回 NO。\n"
+    "只允许输出 YES 或 NO，不要输出其他任何文字。\n\n"
+    "群名：{group_name}\n"
+    "发送者：{sender_name}\n"
+    "最后一条消息：{last_message}\n"
+    "近期上下文：\n"
+    "{recent_context}\n"
+)
 
 
 app = FastAPI(title="WorkTool Bot Console API", version=APP_VERSION)
@@ -206,6 +217,7 @@ def init_db() -> None:
                   group_reply_only_when_mentioned TINYINT(1) NOT NULL DEFAULT 0,
                   group_reply_mode ENUM('always','mention_only','ai_decide') NOT NULL DEFAULT 'always',
                   group_decision_provider_id BIGINT NULL,
+                  group_decision_prompt_template TEXT NULL,
                   group_colleagues_json JSON NULL,
                   version INT NOT NULL DEFAULT 0,
                   created_by BIGINT NOT NULL,
@@ -384,6 +396,9 @@ def init_db() -> None:
             cur.execute("SHOW COLUMNS FROM robots LIKE 'group_colleagues_json'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE robots ADD COLUMN group_colleagues_json JSON NULL AFTER group_decision_provider_id")
+            cur.execute("SHOW COLUMNS FROM robots LIKE 'group_decision_prompt_template'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE robots ADD COLUMN group_decision_prompt_template TEXT NULL AFTER group_decision_provider_id")
             cur.execute("SHOW COLUMNS FROM routing_rules LIKE 'pattern_match_type'")
             if not cur.fetchone():
                 cur.execute(
@@ -1122,6 +1137,7 @@ class RobotCreate(BaseModel):
     group_reply_only_when_mentioned: bool = False
     group_reply_mode: Literal["always", "mention_only", "ai_decide"] = "always"
     group_decision_provider_id: Optional[int] = None
+    group_decision_prompt_template: Optional[str] = None
     group_colleagues: List[str] = Field(default_factory=list)
     group_default_reply: Optional[str] = None
     private_default_reply: Optional[str] = None
@@ -1134,6 +1150,7 @@ class RobotUpdate(BaseModel):
     group_reply_only_when_mentioned: Optional[bool] = None
     group_reply_mode: Optional[Literal["always", "mention_only", "ai_decide"]] = None
     group_decision_provider_id: Optional[int] = None
+    group_decision_prompt_template: Optional[str] = None
     group_colleagues: Optional[List[str]] = None
     group_default_reply: Optional[str] = None
     private_default_reply: Optional[str] = None
@@ -1539,6 +1556,15 @@ def _normalize_group_colleagues(values: Optional[List[str]]) -> List[str]:
     return result
 
 
+def _normalize_group_decision_prompt_template(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    return s[:12000]
+
+
 def _load_group_colleagues_from_robot(robot: Dict[str, Any]) -> List[str]:
     raw = robot.get("group_colleagues_json")
     if isinstance(raw, list):
@@ -1551,6 +1577,13 @@ def _load_group_colleagues_from_robot(robot: Dict[str, Any]) -> List[str]:
         except Exception:
             return []
     return []
+
+
+def _render_group_decision_prompt_template(template: str, values: Dict[str, str]) -> str:
+    prompt = str(template or "")
+    for key, val in values.items():
+        prompt = prompt.replace(f"{{{key}}}", str(val or ""))
+    return prompt
 
 
 def _normalize_extra_json(extra_json: Optional[str]) -> Optional[str]:
@@ -3543,16 +3576,16 @@ async def _should_reply_group_by_ai_decision(
             history_lines.append(f"AI：{answer}")
     history_text = "\n".join(history_lines[-12:]) or "（无）"
     current_sender = (req.receivedName or "").strip() or "未知用户"
-    prompt = (
-        "你是群聊回复门控器。请判断最后一条消息是否应由机器人在群聊公开回复。\n"
-        "规则：如果最后一条是在问机器人问题，或者是售前售后咨询/功能答疑/问题排查，则返回 YES；\n"
-        "如果更像成员间闲聊、互相对话、与机器人无关，则返回 NO。\n"
-        "只允许输出 YES 或 NO，不要输出其他任何文字。\n\n"
-        f"群名：{(req.groupName or '').strip()}\n"
-        f"发送者：{current_sender}\n"
-        f"最后一条消息：{(inbound_text or '').strip()}\n"
-        f"近期上下文：\n{history_text}\n"
-    )
+    template = str(robot.get("group_decision_prompt_template") or "").strip() or GROUP_DECISION_PROMPT_TEMPLATE_DEFAULT
+    prompt = _render_group_decision_prompt_template(
+        template,
+        {
+            "group_name": (req.groupName or "").strip(),
+            "sender_name": current_sender,
+            "last_message": (inbound_text or "").strip(),
+            "recent_context": history_text,
+        },
+    )[:12000]
     decision_rule = {
         "id": -1,
         "provider_id": int(provider["id"]),
@@ -4434,6 +4467,7 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
         raise HTTPException(status_code=400, detail="robot_id required")
     group_reply_mode = _normalize_group_reply_mode(body.group_reply_mode, body.group_reply_only_when_mentioned)
     decision_provider_id = body.group_decision_provider_id
+    decision_prompt_template = _normalize_group_decision_prompt_template(body.group_decision_prompt_template)
     group_colleagues = _normalize_group_colleagues(body.group_colleagues)
     if group_reply_mode == "ai_decide" and decision_provider_id is None:
         raise HTTPException(status_code=400, detail="group_decision_provider_id required when group_reply_mode=ai_decide")
@@ -4460,9 +4494,9 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
                     """
                     INSERT INTO robots(
                       robot_id,name,private_chat_enabled,group_chat_enabled,group_reply_only_when_mentioned,
-                      group_reply_mode,group_decision_provider_id,group_colleagues_json,created_by
+                      group_reply_mode,group_decision_provider_id,group_decision_prompt_template,group_colleagues_json,created_by
                     )
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         rid,
@@ -4472,6 +4506,7 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
                         1 if group_reply_mode == "mention_only" else 0,
                         group_reply_mode,
                         int(decision_provider_id) if decision_provider_id is not None else None,
+                        decision_prompt_template,
                         json.dumps(group_colleagues, ensure_ascii=False),
                         int(user["id"]),
                     ),
@@ -4521,6 +4556,7 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
     has_group_reply_mode = "group_reply_mode" in body.model_fields_set
     has_group_reply_only_when_mentioned = "group_reply_only_when_mentioned" in body.model_fields_set
     has_group_decision_provider_id = "group_decision_provider_id" in body.model_fields_set
+    has_group_decision_prompt_template = "group_decision_prompt_template" in body.model_fields_set
 
     resolved_group_reply_mode: Optional[str] = None
     if has_group_reply_mode or has_group_reply_only_when_mentioned:
@@ -4537,6 +4573,9 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
             raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
         updates.append("group_decision_provider_id=%s")
         params.append(int(body.group_decision_provider_id) if body.group_decision_provider_id is not None else None)
+    if has_group_decision_prompt_template:
+        updates.append("group_decision_prompt_template=%s")
+        params.append(_normalize_group_decision_prompt_template(body.group_decision_prompt_template))
     if "group_colleagues" in body.model_fields_set:
         updates.append("group_colleagues_json=%s")
         params.append(json.dumps(_normalize_group_colleagues(body.group_colleagues), ensure_ascii=False))
