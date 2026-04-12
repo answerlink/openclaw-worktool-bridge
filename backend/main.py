@@ -3543,16 +3543,11 @@ async def _should_reply_group_by_ai_decision(
             history_lines.append(f"AI：{answer}")
     history_text = "\n".join(history_lines[-12:]) or "（无）"
     current_sender = (req.receivedName or "").strip() or "未知用户"
-    colleague_names = _load_group_colleagues_from_robot(robot)
-    colleague_text = "、".join(colleague_names) if colleague_names else "（无）"
     prompt = (
         "你是群聊回复门控器。请判断最后一条消息是否应由机器人在群聊公开回复。\n"
-        "规则补充：如果最后一条发送者属于“我的同事”名单且未@机器人，必须返回 NO；"
-        "如果发送者是同事且@机器人，按正常规则判断。\n"
-        "规则：如果最后一条明显是在问机器人问题、寻求机器人能力、@机器人上下文延续，则返回 YES；\n"
+        "规则：如果最后一条是在问机器人问题，或者是售前售后咨询/功能答疑/问题排查，则返回 YES；\n"
         "如果更像成员间闲聊、互相对话、与机器人无关，则返回 NO。\n"
         "只允许输出 YES 或 NO，不要输出其他任何文字。\n\n"
-        f"我的同事名单：{colleague_text}\n"
         f"群名：{(req.groupName or '').strip()}\n"
         f"发送者：{current_sender}\n"
         f"最后一条消息：{(inbound_text or '').strip()}\n"
