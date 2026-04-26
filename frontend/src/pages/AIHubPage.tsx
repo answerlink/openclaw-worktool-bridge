@@ -16,6 +16,15 @@ const DEFAULT_PROVIDER_SYSTEM_PROMPT_TEMPLATE = `你是[{robot_name}]
 {current_asker}
 `;
 
+function normalizeOpenaiBaseUrl(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return s;
+  if (/\/v1\/?$/i.test(s)) {
+    return s.replace(/\/?$/, '/chat/completions');
+  }
+  return s;
+}
+
 export default function AIHubPage() {
   const [items, setItems] = useState<Provider[]>([]);
   const [open, setOpen] = useState(false);
@@ -24,6 +33,9 @@ export default function AIHubPage() {
   const [useCustomOpenaiUrl, setUseCustomOpenaiUrl] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testDebugOpen, setTestDebugOpen] = useState(false);
+  const [testDebugTitle, setTestDebugTitle] = useState('模型测试诊断');
+  const [testDebugData, setTestDebugData] = useState<any>(null);
   const [form] = Form.useForm();
 
   const normalizeProviderPayload = (rawValues: any, isEditing: boolean) => {
@@ -32,7 +44,7 @@ export default function AIHubPage() {
       if (values.base_url_preset && values.base_url_preset !== '__custom__') {
         values.base_url = values.base_url_preset;
       } else {
-        values.base_url = values.base_url_openai;
+        values.base_url = normalizeOpenaiBaseUrl(values.base_url_openai);
       }
     } else {
       values.base_url = values.base_url_openclaw;
@@ -98,7 +110,15 @@ export default function AIHubPage() {
       const sec = Number(res?.elapsed_seconds || 0);
       message.success(`测试成功，响应耗时 ${sec.toFixed(1)}s`);
     } catch (e: any) {
-      message.error(e?.response?.data?.detail || e?.message || '测试失败');
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      const msg = (typeof detail === 'string' ? detail : detail?.message) || e?.message || '测试失败';
+      message.error(msg);
+      if (detail?.debug) {
+        setTestDebugTitle(`测试失败（HTTP ${status || '-'}）`);
+        setTestDebugData(detail.debug);
+        setTestDebugOpen(true);
+      }
     } finally {
       setTesting(false);
     }
@@ -334,7 +354,15 @@ export default function AIHubPage() {
                   )}
                   rules={[{ required: true }]}
                 >
-                  <Input placeholder="https://your-endpoint/v1/chat/completions" />
+                  <Input
+                    placeholder="https://your-endpoint/v1/chat/completions"
+                    onBlur={(e) => {
+                      const normalized = normalizeOpenaiBaseUrl(e.target.value);
+                      if (normalized !== e.target.value) {
+                        form.setFieldsValue({ base_url_openai: normalized });
+                      }
+                    }}
+                  />
                 </Form.Item>
               ) : null}
             </>
@@ -437,6 +465,58 @@ export default function AIHubPage() {
             <Switch />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        title={testDebugTitle}
+        open={testDebugOpen}
+        onCancel={() => setTestDebugOpen(false)}
+        width={860}
+        footer={[
+          <Button
+            key="copy-curl"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(String(testDebugData?.curl || ''));
+                message.success('cURL 已复制');
+              } catch {
+                message.error('复制失败');
+              }
+            }}
+            disabled={!testDebugData?.curl}
+          >
+            复制 cURL
+          </Button>,
+          <Button
+            key="copy-json"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(JSON.stringify(testDebugData || {}, null, 2));
+                message.success('诊断JSON 已复制');
+              } catch {
+                message.error('复制失败');
+              }
+            }}
+            disabled={!testDebugData}
+          >
+            复制诊断JSON
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setTestDebugOpen(false)}>
+            关闭
+          </Button>
+        ]}
+      >
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Typography.Text strong>请求 URL</Typography.Text>
+          <Input.TextArea readOnly rows={2} value={String(testDebugData?.request?.url || '')} />
+          <Typography.Text strong>请求 Header</Typography.Text>
+          <Input.TextArea readOnly rows={6} value={JSON.stringify(testDebugData?.request?.headers || {}, null, 2)} />
+          <Typography.Text strong>请求 Body(JSON)</Typography.Text>
+          <Input.TextArea readOnly rows={10} value={JSON.stringify(testDebugData?.request?.request_body || {}, null, 2)} />
+          <Typography.Text strong>cURL</Typography.Text>
+          <Input.TextArea readOnly rows={7} value={String(testDebugData?.curl || '')} />
+          <Typography.Text strong>响应体</Typography.Text>
+          <Input.TextArea readOnly rows={8} value={typeof testDebugData?.response_body === 'string' ? testDebugData.response_body : JSON.stringify(testDebugData?.response_body || {}, null, 2)} />
+        </Space>
       </Modal>
     </Card>
   );

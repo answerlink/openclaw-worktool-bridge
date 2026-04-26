@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+import shlex
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional, Set
@@ -3691,7 +3692,7 @@ def _extract_provider_text(data: Any) -> str:
     return ""
 
 
-async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optional[Dict[str, Any]] = None) -> str:
+def _build_provider_http_request(rule: Dict[str, Any], prompt: str, payload_extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     auth_scheme = str(rule.get("auth_scheme") or "bearer")
     api_token = str(rule.get("api_token") or "")
@@ -3720,6 +3721,7 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
         req_body = extra_json.get("request_body")
         if isinstance(req_body, dict):
             payload.update(req_body)
+
     if isinstance(payload_extra, dict):
         for k, v in payload_extra.items():
             if k == "variables" and isinstance(v, dict) and isinstance(payload.get("variables"), dict):
@@ -3732,6 +3734,25 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
     url = str(rule.get("base_url") or "").strip()
     if not url:
         raise HTTPException(status_code=500, detail="provider base_url empty")
+    return {"url": url, "headers": headers, "payload": payload, "auth_scheme": auth_scheme}
+
+
+def _build_request_curl(method: str, url: str, headers: Dict[str, Any], body: Any) -> str:
+    parts: List[str] = ["curl", "-X", method.upper(), shlex.quote(url)]
+    for k, v in headers.items():
+        parts.extend(["-H", shlex.quote(f"{k}: {v}")])
+    if body is not None:
+        raw = json.dumps(body, ensure_ascii=False)
+        parts.extend(["--data-raw", shlex.quote(raw)])
+    return " ".join(parts)
+
+
+async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optional[Dict[str, Any]] = None) -> str:
+    req_cfg = _build_provider_http_request(rule, prompt, payload_extra)
+    headers = req_cfg["headers"]
+    payload = req_cfg["payload"]
+    url = req_cfg["url"]
+    auth_scheme = req_cfg["auth_scheme"]
 
     timeout = aiohttp.ClientTimeout(total=30)
     started = time.perf_counter()
@@ -4794,6 +4815,15 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
         "auth_scheme": auth_scheme,
         "extra_json": extra_json,
     }
+    test_prompt = "hi"
+    req_cfg = _build_provider_http_request(test_rule, test_prompt)
+    debug_request = {
+        "method": "POST",
+        "url": req_cfg["url"],
+        "headers": req_cfg["headers"],
+        "request_body": req_cfg["payload"],
+    }
+    debug_curl = _build_request_curl("POST", req_cfg["url"], req_cfg["headers"], req_cfg["payload"])
     started = time.perf_counter()
     if provider_type == "openclaw":
         sample_payload = {
@@ -4807,13 +4837,57 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
             "textType": 1,
             "fileBase64": "",
         }
-        resp = await _call_openclaw_webhook(test_rule, sample_payload)
-        elapsed = round(time.perf_counter() - started, 3)
-        return {"ok": True, "elapsed_seconds": elapsed, "response_preview": _short_text(json.dumps(resp, ensure_ascii=False), 200)}
+        try:
+            resp = await _call_openclaw_webhook(test_rule, sample_payload)
+            elapsed = round(time.perf_counter() - started, 3)
+            return {
+                "ok": True,
+                "elapsed_seconds": elapsed,
+                "response_preview": _short_text(json.dumps(resp, ensure_ascii=False), 200),
+                "debug": {"request": debug_request, "curl": debug_curl, "response_body": resp},
+            }
+        except HTTPException as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail={
+                    "message": str(e.detail),
+                    "debug": {"request": debug_request, "curl": debug_curl},
+                },
+            ) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": str(e),
+                    "debug": {"request": debug_request, "curl": debug_curl},
+                },
+            ) from e
 
-    reply = await _call_provider(test_rule, "hi")
-    elapsed = round(time.perf_counter() - started, 3)
-    return {"ok": True, "elapsed_seconds": elapsed, "reply_preview": _short_text(reply, 200)}
+    try:
+        reply = await _call_provider(test_rule, test_prompt)
+        elapsed = round(time.perf_counter() - started, 3)
+        return {
+            "ok": True,
+            "elapsed_seconds": elapsed,
+            "reply_preview": _short_text(reply, 200),
+            "debug": {"request": debug_request, "curl": debug_curl},
+        }
+    except HTTPException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={
+                "message": str(e.detail),
+                "debug": {"request": debug_request, "curl": debug_curl},
+            },
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": str(e),
+                "debug": {"request": debug_request, "curl": debug_curl},
+            },
+        ) from e
 
 
 @app.put("/api/v1/providers/{provider_id}")
