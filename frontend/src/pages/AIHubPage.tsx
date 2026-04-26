@@ -367,20 +367,29 @@ export default function AIHubPage() {
               ) : null}
             </>
           ) : (
-            <Form.Item
-              name="base_url_openclaw"
-              label={(
-                <Space size={6}>
-                  <span>Base URL</span>
-                  <Popover content={baseUrlHelp} trigger="hover" placement="right">
-                    <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
-                  </Popover>
-                </Space>
-              )}
-              rules={[{ required: true }]}
-            >
-              <Input placeholder={OPENCLAW_WEBHOOK_HINT} />
-            </Form.Item>
+            <>
+              <Form.Item
+                name="base_url_openclaw"
+                label={(
+                  <Space size={6}>
+                    <span>Base URL</span>
+                    <Popover content={baseUrlHelp} trigger="hover" placement="right">
+                      <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                    </Popover>
+                  </Space>
+                )}
+                rules={[{ required: true }]}
+              >
+                <Input placeholder={OPENCLAW_WEBHOOK_HINT} />
+              </Form.Item>
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 8 }}>
+                容器化部署小龙虾（官方一键脚本，含 WorkTool 插件）：
+                {' '}
+                <a href="https://github.com/answerlink/openclaw-worktool" target="_blank" rel="noopener noreferrer">
+                  github.com/answerlink/openclaw-worktool
+                </a>
+              </Typography.Text>
+            </>
           )}
           <Form.Item
             name="api_token"
