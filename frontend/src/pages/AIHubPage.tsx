@@ -11,6 +11,10 @@ const OPENAI_BASE_OPTIONS = [
   { label: '自定义（OpenAI兼容接口）', value: '__custom__' }
 ];
 const OPENCLAW_WEBHOOK_HINT = 'http://{你的外网ip:18799}/wechat/webhook?robotId={你的机器人id}';
+const DEFAULT_PROVIDER_SYSTEM_PROMPT_TEMPLATE = `你是[{robot_name}]
+{colleague_line}
+{current_asker}
+`;
 
 export default function AIHubPage() {
   const [items, setItems] = useState<Provider[]>([]);
@@ -137,6 +141,15 @@ export default function AIHubPage() {
     </Space>
   );
 
+  const systemPromptHelp = (
+    <Space direction="vertical" size={4}>
+      <div>这是啥：该引擎统一生效的系统提示词模板。</div>
+      <div>为什么填：同一企业下多个机器人可共享一致回复风格。</div>
+      <div>怎么填：保留花括号变量，系统会在运行时自动替换。</div>
+      <div>示例：你是企业微信机器人[{`{robot_name}`}]，请先给结论再给步骤。</div>
+    </Space>
+  );
+
   return (
     <Card
       title={(
@@ -153,6 +166,7 @@ export default function AIHubPage() {
         form.setFieldsValue({
           enabled: true,
           asker_info_mode: 'off',
+          system_prompt_template: DEFAULT_PROVIDER_SYSTEM_PROMPT_TEMPLATE,
           provider_type: 'openai',
           base_url_preset: OPENAI_BASE_OPTIONS[0].value,
           base_url_openai: OPENAI_BASE_OPTIONS[0].value,
@@ -202,6 +216,7 @@ export default function AIHubPage() {
                         model: row.model,
                         provider_type: nextType,
                         extra_json: row.extra_json || '',
+                        system_prompt_template: String((row as any)?.system_prompt_template || '').trim() || DEFAULT_PROVIDER_SYSTEM_PROMPT_TEMPLATE,
                         asker_info_mode: row.asker_info_mode || 'off',
                         enabled: row.enabled
                       });
@@ -392,6 +407,30 @@ export default function AIHubPage() {
                 选择“额外字段”时，会发送 <code>variables.prompt_inject</code>。请在第三方流程中把该值拼接到 system_prompt。
                 {' '}示例：<code>{`{"variables":{"prompt_inject":"..."}}`}</code>
               </Typography.Text>
+              <Form.Item
+                name="system_prompt_template"
+                label={(
+                  <Space size={6}>
+                    <span>系统提示词模板</span>
+                    <Popover content={systemPromptHelp} trigger="hover" placement="right">
+                      <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                    </Popover>
+                  </Space>
+                )}
+              >
+                <Input.TextArea rows={9} placeholder={DEFAULT_PROVIDER_SYSTEM_PROMPT_TEMPLATE} />
+              </Form.Item>
+              <Space style={{ marginTop: -8, marginBottom: 12 }}>
+                <Button
+                  size="small"
+                  onClick={() => form.setFieldsValue({ system_prompt_template: DEFAULT_PROVIDER_SYSTEM_PROMPT_TEMPLATE })}
+                >
+                  一键重置成默认值
+                </Button>
+                <Typography.Text type="secondary">
+                  支持变量：{'{robot_name}'} {'{current_asker}'} {'{colleague_line}'} {'{colleague_list}'} {'{scene}'} {'{sender_name}'} {'{group_name}'} {'{last_message}'} {'{recent_context}'}
+                </Typography.Text>
+              </Space>
             </>
           ) : null}
           <Form.Item name="enabled" valuePropName="checked" label="启用">

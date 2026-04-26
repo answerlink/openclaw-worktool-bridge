@@ -88,6 +88,11 @@ GROUP_DECISION_PROMPT_TEMPLATE_DEFAULT = (
     "近期上下文：\n"
     "{recent_context}\n"
 )
+PROVIDER_SYSTEM_PROMPT_TEMPLATE_DEFAULT = (
+    "你是[{robot_name}]\n"
+    "{colleague_line}\n"
+    "{current_asker}\n"
+)
 
 
 app = FastAPI(title="WorkTool Bot Console API", version=APP_VERSION)
@@ -254,6 +259,7 @@ def init_db() -> None:
                   provider_type ENUM('openai','openclaw') NOT NULL DEFAULT 'openai',
                   auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                   extra_json JSON NULL,
+                  system_prompt_template TEXT NULL,
                   include_asker_info TINYINT(1) NOT NULL DEFAULT 0,
                   asker_info_mode ENUM('off','system_prompt','variables') NOT NULL DEFAULT 'off',
                   enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -299,6 +305,7 @@ def init_db() -> None:
                       provider_type ENUM('openai','openclaw') NOT NULL DEFAULT 'openai',
                       auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                       extra_json JSON NULL,
+                      system_prompt_template TEXT NULL,
                       include_asker_info TINYINT(1) NOT NULL DEFAULT 0,
                       asker_info_mode ENUM('off','system_prompt','variables') NOT NULL DEFAULT 'off',
                       enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -424,6 +431,9 @@ def init_db() -> None:
                 cur.execute(
                     "UPDATE ai_providers SET asker_info_mode=CASE WHEN include_asker_info=1 THEN 'variables' ELSE 'off' END"
                 )
+            cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'system_prompt_template'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE ai_providers ADD COLUMN system_prompt_template TEXT NULL AFTER extra_json")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS default_replies (
@@ -1164,6 +1174,7 @@ class ProviderCreate(BaseModel):
     provider_type: Literal["openai", "openclaw"] = "openai"
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
+    system_prompt_template: Optional[str] = None
     asker_info_mode: Literal["off", "system_prompt", "variables"] = "off"
     include_asker_info: Optional[bool] = None
     enabled: bool = True
@@ -1177,6 +1188,7 @@ class ProviderUpdate(BaseModel):
     provider_type: Optional[Literal["openai", "openclaw"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
+    system_prompt_template: Optional[str] = None
     asker_info_mode: Optional[Literal["off", "system_prompt", "variables"]] = None
     include_asker_info: Optional[bool] = None
     enabled: Optional[bool] = None
@@ -1565,6 +1577,15 @@ def _normalize_group_decision_prompt_template(value: Optional[str]) -> Optional[
     return s[:12000]
 
 
+def _normalize_provider_system_prompt_template(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    return s[:12000]
+
+
 def _load_group_colleagues_from_robot(robot: Dict[str, Any]) -> List[str]:
     raw = robot.get("group_colleagues_json")
     if isinstance(raw, list):
@@ -1580,6 +1601,13 @@ def _load_group_colleagues_from_robot(robot: Dict[str, Any]) -> List[str]:
 
 
 def _render_group_decision_prompt_template(template: str, values: Dict[str, str]) -> str:
+    prompt = str(template or "")
+    for key, val in values.items():
+        prompt = prompt.replace(f"{{{key}}}", str(val or ""))
+    return prompt
+
+
+def _render_provider_system_prompt_template(template: str, values: Dict[str, str]) -> str:
     prompt = str(template or "")
     for key, val in values.items():
         prompt = prompt.replace(f"{{{key}}}", str(val or ""))
@@ -4681,8 +4709,8 @@ async def create_provider(body: ProviderCreate, user: Dict[str, Any] = Depends(g
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO ai_providers(created_by,name,base_url,api_token,model,provider_type,auth_scheme,extra_json,include_asker_info,asker_info_mode,enabled)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO ai_providers(created_by,name,base_url,api_token,model,provider_type,auth_scheme,extra_json,system_prompt_template,include_asker_info,asker_info_mode,enabled)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     int(user["id"]),
@@ -4693,6 +4721,7 @@ async def create_provider(body: ProviderCreate, user: Dict[str, Any] = Depends(g
                     body.provider_type,
                     _resolve_auth_scheme(body.provider_type, body.auth_scheme),
                     extra,
+                    _normalize_provider_system_prompt_template(body.system_prompt_template),
                     0 if asker_info_mode == "off" else 1,
                     asker_info_mode,
                     1 if body.enabled else 0,
@@ -4815,6 +4844,9 @@ async def update_provider(provider_id: int, body: ProviderUpdate, user: Dict[str
     if body.extra_json is not None:
         updates.append("extra_json=%s")
         params.append(_normalize_extra_json(body.extra_json))
+    if body.system_prompt_template is not None:
+        updates.append("system_prompt_template=%s")
+        params.append(_normalize_provider_system_prompt_template(body.system_prompt_template))
     if body.asker_info_mode is not None:
         mode = _resolve_asker_info_mode(body.asker_info_mode, body.include_asker_info)
         updates.append("asker_info_mode=%s")
@@ -5680,28 +5712,71 @@ async def _process_qa_callback_task(
         context_messages = _load_chat_context_messages(robot_pk, scene, context_session_key, CHAT_CONTEXT_MAX_MESSAGES)
         if not context_messages:
             context_messages = [{"role": "user", "content": inbound_text}]
+        current_asker_text = _build_provider_current_asker_text(req, scene)
+        colleague_names = _load_group_colleagues_from_robot(robot)
+        robot_display_name = await _get_robot_display_name_cached(robot_id)
+        if not robot_display_name:
+            robot_display_name = str(robot.get("name") or robot.get("robot_id") or "机器人").strip()
+        scene_name = "群聊" if scene == "group" else "私聊"
+        group_name = (req.groupName or "").strip() if scene == "group" else ""
+        sender_name = (req.receivedName or "").strip() or "未知用户"
+        history_lines: List[str] = []
+        for x in context_messages[-12:]:
+            role = str(x.get("role") or "").strip().lower()
+            content = str(x.get("content") or "").strip()
+            if not content:
+                continue
+            if role == "assistant":
+                history_lines.append(f"AI：{content}")
+            else:
+                history_lines.append(f"用户：{content}")
+        recent_context_text = "\n".join(history_lines) or "（无）"
+        colleague_list_text = "，".join([str(x or "").strip() for x in colleague_names if str(x or "").strip()]) or "（无）"
+        colleague_line_text = "" if colleague_list_text == "（无）" else f"这些人是你的同事：[{colleague_list_text}]"
+        base_system_prompt = ""
+        provider_system_template = str(selected_rule.get("system_prompt_template") or "").strip()
+        if provider_system_template:
+            base_system_prompt = _render_provider_system_prompt_template(
+                provider_system_template,
+                {
+                    "robot_name": robot_display_name,
+                    "scene": scene_name,
+                    "group_name": group_name or "（无）",
+                    "sender_name": sender_name,
+                    "current_asker": current_asker_text,
+                    "last_message": (inbound_text or "").strip(),
+                    "colleague_line": colleague_line_text,
+                    "colleague_list": colleague_list_text,
+                    "recent_context": recent_context_text,
+                },
+            )[:12000]
         if asker_info_mode in {"system_prompt", "variables"}:
-            current_asker_text = _build_provider_current_asker_text(req, scene)
-            colleague_names = _load_group_colleagues_from_robot(robot)
-            robot_display_name = await _get_robot_display_name_cached(robot_id)
-            if not robot_display_name:
-                robot_display_name = str(robot.get("name") or robot.get("robot_id") or "机器人").strip()
             if asker_info_mode == "system_prompt":
+                messages = []
+                if base_system_prompt:
+                    messages.append({"role": "system", "content": base_system_prompt})
+                messages.append({"role": "system", "content": _build_provider_system_prompt(robot_display_name, colleague_names, current_asker_text)})
+                messages.extend(context_messages)
                 provider_payload_extra = {
-                    "messages": [
-                        {"role": "system", "content": _build_provider_system_prompt(robot_display_name, colleague_names, current_asker_text)},
-                        *context_messages,
-                    ]
+                    "messages": messages
                 }
             else:
+                messages = []
+                if base_system_prompt:
+                    messages.append({"role": "system", "content": base_system_prompt})
+                messages.extend(context_messages)
                 provider_payload_extra = {
-                    "messages": context_messages,
+                    "messages": messages,
                     "variables": {
                         "prompt_inject": _build_provider_prompt_inject(robot_display_name, colleague_names, current_asker_text),
                     }
                 }
         else:
-            provider_payload_extra = {"messages": context_messages}
+            messages = []
+            if base_system_prompt:
+                messages.append({"role": "system", "content": base_system_prompt})
+            messages.extend(context_messages)
+            provider_payload_extra = {"messages": messages}
         reply_text = await _call_provider(selected_rule, provider_prompt, provider_payload_extra)
         await _send_worktool_text(robot_id, scene, req, reply_text)
         _insert_message_log(robot_pk, "outbound", scene, reply_text, "success")

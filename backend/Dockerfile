@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app/backend
 
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --retries 5 --timeout 120 -r /tmp/requirements.txt
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r /tmp/requirements.txt
 
 COPY backend /app/backend
 

@@ -44,6 +44,9 @@ frontend/*.tsbuildinfo
 # Docker
 .docker/
 docker-compose.override.yml
+mysql_data/
+mysql_data_backup/
+recreate.sh
 
 # Local backup artifacts
 backup/sqlite/

@@ -20,6 +20,7 @@ export interface Provider {
   provider_type: 'openai' | 'openclaw';
   auth_scheme: 'bearer' | 'x-openclaw-token' | 'none';
   extra_json?: string | null;
+  system_prompt_template?: string | null;
   asker_info_mode?: 'off' | 'system_prompt' | 'variables';
   enabled: boolean;
   api_token_masked: string;
