@@ -86,7 +86,7 @@ export default function RobotPage() {
       setProviders([]);
       return;
     }
-    const providerRes = await api.listProviders();
+    const providerRes = await api.listProviders(robotId);
     setProviders(providerRes);
     try {
       const ruleRes = await api.listRules(robotId);
@@ -99,7 +99,7 @@ export default function RobotPage() {
   const refreshProviders = async () => {
     setProviderRefreshing(true);
     try {
-      const providerRes = await api.listProviders();
+      const providerRes = await api.listProviders(selectedRobotId);
       setProviders(providerRes);
       message.success('AI回复引擎列表已刷新');
     } catch (e: any) {

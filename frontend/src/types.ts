@@ -24,6 +24,8 @@ export interface Provider {
   asker_info_mode?: 'off' | 'system_prompt' | 'variables';
   enabled: boolean;
   api_token_masked: string;
+  used_robot_ids?: string[];
+  used_robot_count?: number;
   is_system?: boolean;
   can_manage?: boolean;
 }

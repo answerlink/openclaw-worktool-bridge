@@ -207,6 +207,31 @@ export default function AIHubPage() {
           { title: '名称', dataIndex: 'name' },
           { title: '类型', dataIndex: 'provider_type', width: 110 },
           { title: 'Base URL', dataIndex: 'base_url', ellipsis: true },
+          {
+            title: '使用机器人',
+            width: 120,
+            render: (_: unknown, row: Provider) => {
+              if (row.is_system) return <Typography.Text type="secondary">-</Typography.Text>;
+              const ids = Array.isArray(row.used_robot_ids) ? row.used_robot_ids : [];
+              const count = Number(row.used_robot_count || ids.length || 0);
+              if (!count) return <Typography.Text type="secondary">0个</Typography.Text>;
+              return (
+                <Popover
+                  trigger="hover"
+                  placement="top"
+                  content={(
+                    <Space direction="vertical" size={2}>
+                      {ids.map((id) => (
+                        <Typography.Text key={id} code>{id}</Typography.Text>
+                      ))}
+                    </Space>
+                  )}
+                >
+                  <Typography.Text>{count}个</Typography.Text>
+                </Popover>
+              );
+            }
+          },
           { title: 'Token', dataIndex: 'api_token_masked' },
           {
             title: '状态',

@@ -1490,29 +1490,48 @@ def _provider_owned_by_user(provider_id: int, user_id: int) -> bool:
         conn.close()
 
 
-def _provider_accessible_by_user(provider_id: int, user_id: int) -> bool:
+def _provider_accessible_by_user(provider_id: int, user_id: int, robot_pk: Optional[int] = None) -> bool:
     include_system = 1 if _default_test_provider_enabled() else 0
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1
-                FROM ai_providers p
-                WHERE p.id=%s
-                  AND (
-                    (%s=1 AND p.is_system=1) OR
-                    p.created_by=%s OR EXISTS(
-                      SELECT 1
-                      FROM routing_rules r
-                      JOIN user_robots ur ON ur.robot_pk=r.robot_pk
-                      WHERE r.provider_id=p.id AND ur.user_id=%s
-                    )
-                  )
-                LIMIT 1
-                """,
-                (provider_id, include_system, user_id, user_id),
-            )
+            if robot_pk is None:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM ai_providers p
+                    WHERE p.id=%s
+                      AND (
+                        (%s=1 AND p.is_system=1) OR
+                        p.created_by=%s OR EXISTS(
+                          SELECT 1
+                          FROM routing_rules r
+                          JOIN user_robots ur ON ur.robot_pk=r.robot_pk
+                          WHERE r.provider_id=p.id AND ur.user_id=%s
+                        )
+                      )
+                    LIMIT 1
+                    """,
+                    (provider_id, include_system, user_id, user_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM ai_providers p
+                    WHERE p.id=%s
+                      AND (
+                        (%s=1 AND p.is_system=1) OR
+                        p.created_by=%s OR EXISTS(
+                          SELECT 1
+                          FROM routing_rules r
+                          WHERE r.provider_id=p.id AND r.robot_pk=%s
+                        )
+                      )
+                    LIMIT 1
+                    """,
+                    (provider_id, include_system, user_id, int(robot_pk)),
+                )
             return bool(cur.fetchone())
     finally:
         conn.close()
@@ -4617,7 +4636,7 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
 
     if has_group_decision_provider_id:
         if body.group_decision_provider_id is not None and not _provider_accessible_by_user(
-            int(body.group_decision_provider_id), int(user["id"])
+            int(body.group_decision_provider_id), int(user["id"]), int(robot["id"])
         ):
             raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
         updates.append("group_decision_provider_id=%s")
@@ -4681,23 +4700,38 @@ async def delete_robot(robot_id: str, user: Dict[str, Any] = Depends(get_current
 
 @app.get("/api/v1/providers")
 async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    _ = robot_id
+    robot_pk: Optional[int] = None
+    if robot_id:
+        robot = _require_robot_access(int(user["id"]), robot_id)
+        robot_pk = int(robot["id"])
     ensure_default_test_provider(int(user["id"]))
     include_system = 1 if _default_test_provider_enabled() else 0
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT p.*
-                FROM ai_providers p
-                LEFT JOIN routing_rules r ON r.provider_id=p.id
-                LEFT JOIN user_robots ur ON ur.robot_pk=r.robot_pk AND ur.user_id=%s
-                WHERE (%s=1 AND p.is_system=1) OR p.created_by=%s OR ur.user_id IS NOT NULL
-                ORDER BY p.id ASC
-                """,
-                (int(user["id"]), include_system, int(user["id"])),
-            )
+            if robot_pk is None:
+                cur.execute(
+                    """
+                    SELECT DISTINCT p.*
+                    FROM ai_providers p
+                    LEFT JOIN routing_rules r ON r.provider_id=p.id
+                    LEFT JOIN user_robots ur ON ur.robot_pk=r.robot_pk AND ur.user_id=%s
+                    WHERE (%s=1 AND p.is_system=1) OR p.created_by=%s OR ur.user_id IS NOT NULL
+                    ORDER BY p.id ASC
+                    """,
+                    (int(user["id"]), include_system, int(user["id"])),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT DISTINCT p.*
+                    FROM ai_providers p
+                    LEFT JOIN routing_rules r ON r.provider_id=p.id AND r.robot_pk=%s
+                    WHERE (%s=1 AND p.is_system=1) OR p.created_by=%s OR r.id IS NOT NULL
+                    ORDER BY p.id ASC
+                    """,
+                    (int(robot_pk), include_system, int(user["id"])),
+                )
             rows = cur.fetchall() or []
             items = []
             for row in rows:
@@ -4709,6 +4743,22 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
                     bool(row.get("include_asker_info")),
                 )
                 row["include_asker_info"] = bool(row.get("include_asker_info"))
+                if not is_system:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT rbt.robot_id
+                        FROM routing_rules rr
+                        JOIN robots rbt ON rbt.id=rr.robot_pk
+                        JOIN user_robots ur2 ON ur2.robot_pk=rr.robot_pk
+                        WHERE rr.provider_id=%s AND ur2.user_id=%s
+                        ORDER BY rbt.robot_id ASC
+                        """,
+                        (int(row["id"]), int(user["id"])),
+                    )
+                    used_robot_rows = cur.fetchall() or []
+                    used_robot_ids = [str(x.get("robot_id") or "").strip() for x in used_robot_rows if str(x.get("robot_id") or "").strip()]
+                    row["used_robot_ids"] = used_robot_ids
+                    row["used_robot_count"] = len(used_robot_ids)
                 row["is_system"] = is_system
                 row["can_manage"] = can_manage
                 row["api_token_masked"] = mask_token(str(row["api_token"]))
@@ -5009,7 +5059,7 @@ async def list_rules(robot_id: str, scene: Optional[str] = None, user: Dict[str,
 async def create_rule(body: RuleCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), body.robot_id)
     _reject_demo_robot_write(body.robot_id, "机器人配置", user=user)
-    if not _provider_accessible_by_user(body.provider_id, int(user["id"])):
+    if not _provider_accessible_by_user(body.provider_id, int(user["id"]), int(robot["id"])):
         raise HTTPException(status_code=403, detail="无权使用该Provider")
     pattern_match_type = body.pattern_match_type
     content_match_type = body.content_match_type
@@ -5083,7 +5133,7 @@ async def update_rule(rule_id: int, body: RuleUpdate, user: Dict[str, Any] = Dep
                 updates.append("content_pattern=%s")
                 params.append(body.content_pattern.strip() or None)
             if body.provider_id is not None:
-                if not _provider_accessible_by_user(body.provider_id, int(user["id"])):
+                if not _provider_accessible_by_user(body.provider_id, int(user["id"]), int(row["robot_pk"])):
                     raise HTTPException(status_code=403, detail="无权使用该Provider")
                 updates.append("provider_id=%s")
                 params.append(body.provider_id)
