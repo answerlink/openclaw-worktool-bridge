@@ -3046,7 +3046,7 @@ def _append_chat_context_message(
         conn.close()
 
 
-def _load_chat_context_messages(robot_pk: int, scene: str, session_key: str, limit: Optional[int] = None) -> List[Dict[str, str]]:
+def _load_chat_context_messages(robot_pk: int, scene: str, session_key: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     if not CHAT_CONTEXT_ENABLED:
         return []
     normalized_scene = (scene or "").strip().lower()
@@ -3061,7 +3061,7 @@ def _load_chat_context_messages(robot_pk: int, scene: str, session_key: str, lim
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT role,content
+                SELECT role,content,sender_name
                 FROM chat_context_logs
                 WHERE robot_pk=%s AND scene=%s AND session_key=%s
                 ORDER BY id DESC
@@ -3071,13 +3071,19 @@ def _load_chat_context_messages(robot_pk: int, scene: str, session_key: str, lim
             )
             rows = cur.fetchall() or []
             rows.reverse()
-            result: List[Dict[str, str]] = []
+            result: List[Dict[str, Any]] = []
             for row in rows:
                 role = str(row.get("role") or "").strip().lower()
                 content = (row.get("content") or "").strip()
                 if role not in {"user", "assistant"} or not content:
                     continue
-                result.append({"role": role, "content": content})
+                result.append(
+                    {
+                        "role": role,
+                        "content": content,
+                        "sender_name": (row.get("sender_name") or "").strip(),
+                    }
+                )
             return result
     except Exception as e:
         logger.warning(
@@ -3090,6 +3096,39 @@ def _load_chat_context_messages(robot_pk: int, scene: str, session_key: str, lim
         return []
     finally:
         conn.close()
+
+
+def _compact_group_context_messages_for_current_sender(
+    messages: List[Dict[str, Any]],
+    current_sender_name: str,
+) -> List[Dict[str, Any]]:
+    if not messages:
+        return []
+    sender_key = _normalize_name_key(current_sender_name)
+    if not sender_key:
+        return messages
+    last_assistant_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if str(messages[i].get("role") or "").strip().lower() == "assistant":
+            last_assistant_idx = i
+            break
+    prefix = messages[: last_assistant_idx + 1]
+    tail = messages[last_assistant_idx + 1 :]
+    if not tail:
+        return messages
+    filtered_tail: List[Dict[str, Any]] = []
+    for item in tail:
+        role = str(item.get("role") or "").strip().lower()
+        if role != "user":
+            filtered_tail.append(item)
+            continue
+        item_sender_key = _normalize_name_key(item.get("sender_name"))
+        if item_sender_key == sender_key:
+            filtered_tail.append(item)
+    # If all pending user turns are filtered out (should be rare), keep the latest turn.
+    if not filtered_tail:
+        filtered_tail.append(tail[-1])
+    return prefix + filtered_tail
 
 
 async def _run_chat_context_cleanup_if_needed() -> None:
@@ -5834,8 +5873,14 @@ async def _process_qa_callback_task(
         provider_prompt = inbound_text
         provider_payload_extra: Optional[Dict[str, Any]] = None
         context_messages = _load_chat_context_messages(robot_pk, scene, context_session_key, CHAT_CONTEXT_MAX_MESSAGES)
+        if scene == "group":
+            context_messages = _compact_group_context_messages_for_current_sender(
+                context_messages,
+                (req.receivedName or "").strip(),
+            )
         if not context_messages:
             context_messages = [{"role": "user", "content": inbound_text}]
+        provider_context_messages = [{"role": str(x.get("role") or ""), "content": str(x.get("content") or "")} for x in context_messages]
         current_asker_text = _build_provider_current_asker_text(req, scene)
         colleague_names = _load_group_colleagues_from_robot(robot)
         robot_display_name = await _get_robot_display_name_cached(robot_id)
@@ -5880,7 +5925,7 @@ async def _process_qa_callback_task(
                 if base_system_prompt:
                     messages.append({"role": "system", "content": base_system_prompt})
                 messages.append({"role": "system", "content": _build_provider_system_prompt(robot_display_name, colleague_names, current_asker_text)})
-                messages.extend(context_messages)
+                messages.extend(provider_context_messages)
                 provider_payload_extra = {
                     "messages": messages
                 }
@@ -5888,7 +5933,7 @@ async def _process_qa_callback_task(
                 messages = []
                 if base_system_prompt:
                     messages.append({"role": "system", "content": base_system_prompt})
-                messages.extend(context_messages)
+                messages.extend(provider_context_messages)
                 provider_payload_extra = {
                     "messages": messages,
                     "variables": {
@@ -5899,7 +5944,7 @@ async def _process_qa_callback_task(
             messages = []
             if base_system_prompt:
                 messages.append({"role": "system", "content": base_system_prompt})
-            messages.extend(context_messages)
+            messages.extend(provider_context_messages)
             provider_payload_extra = {"messages": messages}
         reply_text = await _call_provider(selected_rule, provider_prompt, provider_payload_extra)
         await _send_worktool_text(robot_id, scene, req, reply_text)
