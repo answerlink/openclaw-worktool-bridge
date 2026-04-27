@@ -6,7 +6,7 @@ import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 import HoverPreviewText from '../components/HoverPreviewText';
 
-type TaskStatus = 'pending' | 'success' | 'failed';
+type TaskStatus = 'pending' | 'success' | 'failed' | 'terminated';
 
 interface CommandTaskRow {
   key: string;
@@ -21,6 +21,7 @@ interface CommandTaskRow {
   status: TaskStatus;
   timeCost?: number;
   errorReason?: string;
+  isClearPendingQueue?: boolean;
 }
 
 interface RawCommandRecord {
@@ -65,6 +66,22 @@ function parseTargets(value: unknown): string[] {
   return parsed.map((x) => String(x || '').trim()).filter(Boolean);
 }
 
+function parseTypeList(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value.map((x) => Number(x)).filter((x) => Number.isFinite(x));
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return [];
+  const parsed = safeParseJson(raw);
+  if (Array.isArray(parsed)) {
+    return parsed.map((x) => Number(x)).filter((x) => Number.isFinite(x));
+  }
+  return raw
+    .split(',')
+    .map((x) => Number(String(x || '').trim()))
+    .filter((x) => Number.isFinite(x));
+}
+
 function parseDateTimeMs(value: unknown): number {
   const raw = String(value || '').trim();
   if (!raw) return 0;
@@ -98,6 +115,9 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
     if (!messageId) continue;
     const payload = safeParseJson(row.body);
     const firstMsg = Array.isArray(payload?.list) ? payload.list[0] || {} : {};
+    const typeList = parseTypeList(row?.typeList);
+    const firstType = Number(firstMsg?.type);
+    const isClearPendingQueue = typeList.includes(304) || firstType === 304;
     const titleList = Array.isArray(firstMsg?.titleList) ? firstMsg.titleList : [];
     const content = String(firstMsg?.receivedContent || '').trim();
     const result = resultMap.get(messageId);
@@ -125,7 +145,25 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
       status,
       timeCost: result?.timeCost,
       errorReason: String(result?.errorReason || '').trim() || undefined,
+      isClearPendingQueue,
     });
+  }
+
+  // Commands are already ordered by create_time desc (newest -> oldest).
+  // Once a 304 appears, all older still-pending commands are considered terminated.
+  let seenClearPendingQueue = false;
+  for (const row of merged) {
+    if (row.isClearPendingQueue) {
+      row.status = 'success';
+      seenClearPendingQueue = true;
+      continue;
+    }
+    if (seenClearPendingQueue && row.status === 'pending') {
+      row.status = 'terminated';
+      if (!row.errorReason) {
+        row.errorReason = '客户端已清空待执行任务队列(304)';
+      }
+    }
   }
   return merged;
 }
@@ -290,6 +328,7 @@ export default function CommandTaskPage() {
         render: (v: TaskStatus) => {
           if (v === 'success') return <Tag color="success">执行成功</Tag>;
           if (v === 'failed') return <Tag color="error">执行失败</Tag>;
+          if (v === 'terminated') return <Tag color="default">终止执行</Tag>;
           return <Tag color="processing">待执行</Tag>;
         },
       },
