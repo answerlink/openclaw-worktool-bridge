@@ -274,16 +274,25 @@ def _sanitize_mysql_raw_confirm_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
 def _extract_connect_log_fields(log_text: str) -> Dict[str, str]:
     text = str(log_text or "")
 
-    def pick(pattern: str) -> str:
-        m = re.search(pattern, text, flags=re.IGNORECASE)
-        return (m.group(1).strip() if m and m.group(1) else "")
+    field_pat = re.compile(r"(appVersion|workVersion|deviceRooted|hook|appName|blue):", flags=re.IGNORECASE)
+    matches = list(field_pat.finditer(text))
+    kv: Dict[str, str] = {}
+    for i, m in enumerate(matches):
+        key = m.group(1).lower()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        raw_val = text[start:end].strip()
+        if key == "appname":
+            kv[key] = raw_val
+        else:
+            kv[key] = raw_val.split()[0] if raw_val else ""
 
-    app_version = pick(r"appVersion:\s*([^\s]+)")
-    work_version = pick(r"workVersion:\s*([^\s]+)")
-    device_rooted = pick(r"deviceRooted:\s*([^\s]+)")
-    hook = pick(r"hook:\s*([^\s]+)")
-    app_name = pick(r"appName:\s*(.*?)\s+blue:")
-    blue = pick(r"blue:\s*([^\s]+)")
+    app_version = kv.get("appversion", "")
+    work_version = kv.get("workversion", "")
+    device_rooted = kv.get("devicerooted", "")
+    hook = kv.get("hook", "")
+    app_name = kv.get("appname", "")
+    blue = kv.get("blue", "")
 
     android_version = ""
     phone_model = ""
