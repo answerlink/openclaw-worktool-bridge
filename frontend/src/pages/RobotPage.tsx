@@ -361,6 +361,7 @@ export default function RobotPage() {
     message.success('规则已删除');
     await loadRulesAndProviders(selectedRobotId);
   };
+  const hasSelectedRobot = !!selectedRobotId && items.some((r) => r.robot_id === selectedRobotId);
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -391,7 +392,23 @@ export default function RobotPage() {
           items={[
             {
               key: 'robot-list',
-              label: `机器人列表（当前：${selectedRobotId || '-'}）`,
+              label: (
+                <Space size={8}>
+                  <span>{`机器人列表（当前：${selectedRobotId || '-'}）`}</span>
+                  <Button
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (selectedRobotId) {
+                        void onEditRobot(selectedRobotId);
+                      }
+                    }}
+                    disabled={!hasSelectedRobot}
+                  >
+                    编辑当前
+                  </Button>
+                </Space>
+              ),
               children: (
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Table

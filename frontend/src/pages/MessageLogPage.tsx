@@ -25,6 +25,24 @@ interface QaLogItem {
   atMe?: boolean;
 }
 
+const COLUMN_LABEL_MAP: Record<string, string> = {
+  startTime: '时间',
+  robotId: '机器人',
+  groupName: '群名',
+  receivedName: '提问者',
+  roomType: '房间类型',
+  textType: '消息类型',
+  atMe: '是否@',
+  rawSpoken: '原始问题',
+  question: '问题',
+  answer: '回答',
+  providerName: 'AI回复引擎',
+  aiDecisionReply: 'AI判断群回复',
+  timeCost: '耗时(秒)',
+  messageId: 'messageId',
+  url: '回调地址'
+};
+
 const roomTypeMap: Record<number, string> = {
   1: '外部群',
   2: '外部联系人',
@@ -312,7 +330,10 @@ export default function MessageLogPage() {
   );
 
   const columnOptions = useMemo(
-    () => allColumns.map((c) => ({ label: String(c.title), value: String(c.key) })),
+    () => allColumns.map((c) => {
+      const key = String(c.key);
+      return { label: COLUMN_LABEL_MAP[key] || key, value: key };
+    }),
     [allColumns]
   );
 
