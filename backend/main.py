@@ -72,6 +72,7 @@ DEFAULT_TEST_PROVIDER_BASE_URL = os.getenv(
 ).strip()
 DEFAULT_TEST_PROVIDER_API_KEY = os.getenv("DEFAULT_TEST_PROVIDER_API_KEY", "").strip()
 DEFAULT_TEST_PROVIDER_MODEL = os.getenv("DEFAULT_TEST_PROVIDER_MODEL", "doubao-seed-2.0-lite").strip()
+AI_PROVIDER_TIMEOUT_SECONDS = max(int(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "60") or "60"), 1)
 QA_CALLBACK_WORKER_CONCURRENCY = max(int(os.getenv("QA_CALLBACK_WORKER_CONCURRENCY", "8") or "8"), 1)
 QA_CALLBACK_QUEUE_MAXSIZE = max(int(os.getenv("QA_CALLBACK_QUEUE_MAXSIZE", "2000") or "2000"), 100)
 ROBOT_SHOW_NAME_CACHE_TTL_SECONDS = max(int(os.getenv("ROBOT_SHOW_NAME_CACHE_TTL_SECONDS", "600") or "600"), 60)
@@ -3812,7 +3813,7 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
     url = req_cfg["url"]
     auth_scheme = req_cfg["auth_scheme"]
 
-    timeout = aiohttp.ClientTimeout(total=30)
+    timeout = aiohttp.ClientTimeout(total=AI_PROVIDER_TIMEOUT_SECONDS)
     started = time.perf_counter()
     logger.info(
         "provider_request_start rule_id=%s provider_id=%s provider_name=%s url=%s auth_scheme=%s prompt=%s",
@@ -3873,7 +3874,7 @@ async def _call_openclaw_webhook(rule: Dict[str, Any], callback_payload: Dict[st
     if not url:
         raise HTTPException(status_code=500, detail="provider base_url empty")
 
-    timeout = aiohttp.ClientTimeout(total=30)
+    timeout = aiohttp.ClientTimeout(total=AI_PROVIDER_TIMEOUT_SECONDS)
     started = time.perf_counter()
     logger.info(
         "openclaw_webhook_start rule_id=%s provider_id=%s provider_name=%s url=%s auth_scheme=%s payload=%s",
