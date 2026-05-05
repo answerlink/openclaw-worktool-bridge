@@ -251,9 +251,11 @@ export default function App() {
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider width={228} className="app-sider">
         <div className="app-sider-inner">
-          <div>
+          <div className="app-sider-main">
             <div className="brand">WorkTool Console</div>
-            <Menu className="app-menu" theme="light" mode="inline" selectedKeys={[location.pathname]} items={items} />
+            <div className="app-menu-wrap">
+              <Menu className="app-menu" theme="light" mode="inline" selectedKeys={[location.pathname]} items={items} />
+            </div>
           </div>
           <div className="app-sider-footer">
             <Button
