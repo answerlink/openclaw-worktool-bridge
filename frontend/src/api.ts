@@ -92,6 +92,14 @@ export const api = {
   }) => http.post('/admin/wework/authorization/save', payload).then((r) => r.data),
   adminWeworkAuthorizationDelete: (corpId: string) =>
     http.post('/admin/wework/authorization/delete', null, { params: { corp_id: corpId } }).then((r) => r.data),
+  adminRobotMigrateWeworkToWechat: (oldRobotId: string) =>
+    http.post('/admin/robot-migrate/wework-to-wechat', { old_robot_id: oldRobotId }).then((r) => r.data),
+  adminRobotMigrateWechatToWework: (oldRobotId: string) =>
+    http.post('/admin/robot-migrate/wechat-to-wework', { old_robot_id: oldRobotId }).then((r) => r.data),
+  adminRobotMigrateWeworkToNewWework: (oldRobotId: string) =>
+    http.post('/admin/robot-migrate/wework-to-new-wework', { old_robot_id: oldRobotId }).then((r) => r.data),
+  adminRobotMigrateWechatToNewWechat: (oldRobotId: string) =>
+    http.post('/admin/robot-migrate/wechat-to-new-wechat', { old_robot_id: oldRobotId }).then((r) => r.data),
   adminListUsers: (params: { phone?: string; page?: number; page_size?: number }) =>
     http.get('/admin/users', { params }).then((r) => r.data),
   adminCreateUser: (payload: { phone: string; password: string; company_name?: string }) =>

@@ -35,6 +35,7 @@ import LoginPage from './pages/LoginPage';
 import UserManagementPage from './pages/UserManagementPage';
 import IpBlacklistPage from './pages/IpBlacklistPage';
 import EnterpriseAuthorizationPage from './pages/EnterpriseAuthorizationPage';
+import RobotMigratePage from './pages/RobotMigratePage';
 import { api, clearAccessToken, getAccessToken } from './api';
 
 const { Header, Sider, Content } = Layout;
@@ -211,6 +212,7 @@ export default function App() {
       }
       adminItems.push({ key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户管理</Link> });
       adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
+      adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换</Link> });
       if (enableAdminIpBlacklist) {
         adminItems.push({ key: '/ip-blacklist', icon: <StopOutlined />, label: <Link to="/ip-blacklist">黑名单管理</Link> });
       }
@@ -322,6 +324,7 @@ export default function App() {
             {enableTroubleshoot && isAdmin ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
             {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
             {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
+            {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
             {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
             {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

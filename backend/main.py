@@ -1135,6 +1135,10 @@ class WeworkAuthorizationSaveRequest(BaseModel):
     remark: Optional[str] = None
 
 
+class RobotMigrateRequest(BaseModel):
+    old_robot_id: str
+
+
 class WorkToolSettingsUpdate(BaseModel):
     worktool_api_base: Optional[str] = None
     callback_public_base_url: Optional[str] = None
@@ -7678,6 +7682,51 @@ async def admin_wework_authorization_delete(corp_id: str, user: Dict[str, Any] =
     if not target:
         raise HTTPException(status_code=400, detail="corp_id required")
     return await post_worktool_api(delete_path, {"corpId": target})
+
+
+async def _admin_migrate_robot(old_robot_id: str, worktool_path: str, action_name: str) -> Dict[str, Any]:
+    target = (old_robot_id or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="old_robot_id required")
+    res = await post_worktool_api(worktool_path, {"oldRobotId": target})
+    _ensure_worktool_ok(res, action_name)
+    return {"ok": True, "action": action_name, "old_robot_id": target, "result": res}
+
+
+@app.post("/api/v1/admin/robot-migrate/wework-to-wechat")
+async def admin_robot_migrate_wework_to_wechat(
+    body: RobotMigrateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToWechat", "企微换个微ID")
+
+
+@app.post("/api/v1/admin/robot-migrate/wechat-to-wework")
+async def admin_robot_migrate_wechat_to_wework(
+    body: RobotMigrateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToWework", "个微换企微ID")
+
+
+@app.post("/api/v1/admin/robot-migrate/wework-to-new-wework")
+async def admin_robot_migrate_wework_to_new_wework(
+    body: RobotMigrateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToNewWework", "企微换新的企微ID")
+
+
+@app.post("/api/v1/admin/robot-migrate/wechat-to-new-wechat")
+async def admin_robot_migrate_wechat_to_new_wechat(
+    body: RobotMigrateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToNewWechat", "个微换新的个微ID")
 
 
 @app.get("/api/v1/admin/users")
