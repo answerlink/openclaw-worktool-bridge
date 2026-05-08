@@ -1574,6 +1574,33 @@ def _normalize_name_key(value: Optional[str]) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
 
 
+def _expand_colleague_aliases(name: str) -> List[str]:
+    raw = str(name or "").strip()
+    if not raw:
+        return []
+    aliases: List[str] = [raw]
+    m = re.match(r"^\s*(.*?)\s*[（(]\s*(.*?)\s*[）)]\s*$", raw)
+    if not m:
+        return aliases
+    prefix = (m.group(1) or "").strip()
+    inner = (m.group(2) or "").strip()
+    if prefix:
+        aliases.append(prefix)
+    if inner:
+        aliases.append(inner)
+    return aliases
+
+
+def _build_group_colleague_name_keys(colleagues: List[str]) -> Set[str]:
+    keys: Set[str] = set()
+    for name in colleagues:
+        for alias in _expand_colleague_aliases(name):
+            key = _normalize_name_key(alias)
+            if key:
+                keys.add(key)
+    return keys
+
+
 def _normalize_group_colleagues(values: Optional[List[str]]) -> List[str]:
     if not isinstance(values, list):
         return []
@@ -5739,7 +5766,7 @@ async def _process_qa_callback_task(
         _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at)
         return
     if scene == "group":
-        colleague_name_keys = {_normalize_name_key(x) for x in _load_group_colleagues_from_robot(robot)}
+        colleague_name_keys = _build_group_colleague_name_keys(_load_group_colleagues_from_robot(robot))
         sender_key = _normalize_name_key(req.receivedName)
         if colleague_name_keys and sender_key and sender_key in colleague_name_keys and not bool(req.atMe):
             logger.info("qa_callback_skipped robot_id=%s reason=group_colleague_speaker_no_at", robot_id)
