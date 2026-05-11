@@ -1088,6 +1088,7 @@ class QARequest(BaseModel):
     roomType: int = 0
     atMe: bool = False
     textType: int = 1
+    fileBase64: str = ""
     messageId: str = ""
     msgId: str = ""
 
@@ -2944,6 +2945,15 @@ def _scene_from_room_type(room_type: int) -> str:
 
 def _pick_inbound_text(req: QARequest) -> str:
     return (req.rawSpoken or req.spoken or "").strip()
+
+
+def _image_data_url_from_base64(raw_base64: str) -> str:
+    data = str(raw_base64 or "").strip()
+    if not data:
+        return ""
+    if data.startswith("data:image/"):
+        return data
+    return f"data:image/jpeg;base64,{data}"
 
 
 def _build_provider_current_asker_text(req: QARequest, scene: str) -> str:
@@ -5739,7 +5749,10 @@ async def _process_qa_callback_task(
     robot = _get_robot_by_id_or_404(robot_id)
     robot_pk = int(robot["id"])
     scene = _scene_from_room_type(req.roomType)
-    inbound_text = _pick_inbound_text(req)
+    text_type = int(req.textType or 0)
+    image_base64 = str(req.fileBase64 or "").strip()
+    is_image_callback = text_type == 2 and bool(image_base64)
+    inbound_text = "[图片]" if is_image_callback else _pick_inbound_text(req)
     match_target = _rule_match_target(scene, req)
     callback_message_id = _pick_message_id(req)
     ai_decision_reply: Optional[bool] = None
@@ -5913,6 +5926,19 @@ async def _process_qa_callback_task(
         if not context_messages:
             context_messages = [{"role": "user", "content": inbound_text}]
         provider_context_messages = [{"role": str(x.get("role") or ""), "content": str(x.get("content") or "")} for x in context_messages]
+        if is_image_callback:
+            image_data_url = _image_data_url_from_base64(image_base64)
+            if image_data_url:
+                provider_context_messages = provider_context_messages[:-1]
+                provider_context_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": inbound_text},
+                            {"type": "image_url", "image_url": {"url": image_data_url}},
+                        ],
+                    }
+                )
         current_asker_text = _build_provider_current_asker_text(req, scene)
         colleague_names = _load_group_colleagues_from_robot(robot)
         robot_display_name = await _get_robot_display_name_cached(robot_id)
@@ -6104,17 +6130,24 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
     callback_payload.setdefault("roomType", req.roomType)
     callback_payload.setdefault("atMe", req.atMe)
     callback_payload.setdefault("textType", req.textType)
+    callback_payload.setdefault("fileBase64", req.fileBase64)
     callback_payload.setdefault("messageId", req.messageId)
 
-    # Only text callbacks should trigger QA reply pipeline.
-    if int(req.textType or 0) != 1:
+    # Ignore payloads without textType, and image callbacks without fileBase64.
+    raw_text_type = raw_payload.get("textType") if isinstance(raw_payload, dict) else None
+    has_text_type = raw_text_type is not None and str(raw_text_type).strip() != ""
+    text_type = int(req.textType or 0)
+    has_file_base64 = bool(str((raw_payload.get("fileBase64") if isinstance(raw_payload, dict) else "") or "").strip())
+    if (not has_text_type) or (text_type == 2 and not has_file_base64):
         logger.info(
-            "qa_callback_non_text_ignored robot_id=%s robot_pk=%s scene=%s room_type=%s text_type=%s message_id=%s",
+            "qa_callback_text_type_ignored robot_id=%s robot_pk=%s scene=%s room_type=%s text_type=%s has_text_type=%s has_file_base64=%s message_id=%s",
             robot_id,
             robot_pk,
             scene,
             req.roomType,
             req.textType,
+            has_text_type,
+            has_file_base64,
             callback_message_id or "-",
         )
         return QAResponse(code=0, message="参数接收成功")
