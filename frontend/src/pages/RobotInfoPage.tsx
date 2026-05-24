@@ -171,9 +171,13 @@ export default function RobotInfoPage() {
 
   const onlineText = online === true ? '在线' : '不在线';
   const onlineTagColor = online === true ? 'blue' : 'red';
-  const isValid = detail?.robotType !== 4 && isNotExpired(detail?.authExpir || detail?.authExpire);
-  const validText = isValid ? '有效' : '无效';
-  const validTagColor = isValid ? 'blue' : 'red';
+  const rawFirstLogin = String(detail?.firstLogin || '').trim();
+  const rawAuthExpire = String(detail?.authExpir || detail?.authExpire || '').trim();
+  const isRobotTypeInvalid = detail?.robotType === 4;
+  const isNotActivated = !rawFirstLogin;
+  const isValid = !isRobotTypeInvalid && !isNotActivated && isNotExpired(rawAuthExpire);
+  const validText = isRobotTypeInvalid ? '无效' : (isNotActivated ? '未激活' : (isValid ? '有效' : '无效'));
+  const validTagColor = isValid ? 'blue' : (isNotActivated ? 'default' : 'red');
   const firstLoginText = fmtDateTimeText(detail?.firstLogin) || fmtTime(detail?.signatureTime) || '-';
   const authExpirText = fmtDateTimeText(detail?.authExpir || detail?.authExpire) || '-';
   const latestOnlineInfo = [...onlineInfos].sort(
