@@ -1084,7 +1084,9 @@ class QARequest(BaseModel):
     spoken: str = ""
     rawSpoken: str = ""
     receivedName: str = ""
+    receivedRemark: Optional[str] = None
     groupName: Optional[str] = None
+    groupRemark: Optional[str] = None
     roomType: int = 0
     atMe: bool = False
     textType: int = 1
@@ -2997,6 +2999,53 @@ def _rule_match_target(scene: str, req: QARequest) -> str:
     if scene == "group":
         return ((req.groupName or "").strip() or (req.receivedName or "").strip())
     return (req.receivedName or "").strip()
+
+
+def _first_non_empty_name(*values: Any) -> str:
+    for v in values:
+        s = str(v or "").strip()
+        if s:
+            return s
+    return ""
+
+
+def _resolve_callback_group_name(req: QARequest, raw_payload: Dict[str, Any]) -> str:
+    return _first_non_empty_name(
+        getattr(req, "groupRemark", None),
+        raw_payload.get("groupRemark"),
+        raw_payload.get("group_remark"),
+        raw_payload.get("roomRemark"),
+        raw_payload.get("room_remark"),
+        req.groupName,
+        raw_payload.get("groupName"),
+        raw_payload.get("group_name"),
+        raw_payload.get("roomName"),
+        raw_payload.get("room_name"),
+    )
+
+
+def _resolve_callback_received_name(req: QARequest, raw_payload: Dict[str, Any]) -> str:
+    friend = raw_payload.get("friend") if isinstance(raw_payload.get("friend"), dict) else {}
+    return _first_non_empty_name(
+        getattr(req, "receivedRemark", None),
+        raw_payload.get("receivedRemark"),
+        raw_payload.get("received_remark"),
+        raw_payload.get("friendRemark"),
+        raw_payload.get("friend_remark"),
+        raw_payload.get("remarkName"),
+        raw_payload.get("remark_name"),
+        raw_payload.get("markName"),
+        raw_payload.get("mark_name"),
+        raw_payload.get("senderRemark"),
+        raw_payload.get("sender_remark"),
+        friend.get("markName") if isinstance(friend, dict) else None,
+        friend.get("remarkName") if isinstance(friend, dict) else None,
+        req.receivedName,
+        raw_payload.get("receivedName"),
+        raw_payload.get("received_name"),
+        raw_payload.get("senderName"),
+        raw_payload.get("sender_name"),
+    )
 
 
 def _pick_message_id(req: QARequest) -> str:
@@ -6112,16 +6161,19 @@ async def _qa_callback_worker_loop(worker_no: int) -> None:
 async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResponse:
     robot = _get_robot_by_id_or_404(robot_id)
     robot_pk = int(robot["id"])
-    scene = _scene_from_room_type(req.roomType)
-    inbound_text = _pick_inbound_text(req)
-    match_target = _rule_match_target(scene, req)
-    callback_message_id = _pick_message_id(req)
     try:
         raw_payload = await request.json()
     except Exception:
         raw_payload = {}
     if not isinstance(raw_payload, dict):
         raw_payload = {}
+    # Name normalization rule: prefer remark when available for both groups and private chats.
+    req.groupName = _resolve_callback_group_name(req, raw_payload) or None
+    req.receivedName = _resolve_callback_received_name(req, raw_payload)
+    scene = _scene_from_room_type(req.roomType)
+    inbound_text = _pick_inbound_text(req)
+    match_target = _rule_match_target(scene, req)
+    callback_message_id = _pick_message_id(req)
     callback_payload: Dict[str, Any] = dict(raw_payload)
     callback_payload.setdefault("spoken", req.spoken)
     callback_payload.setdefault("rawSpoken", req.rawSpoken)
