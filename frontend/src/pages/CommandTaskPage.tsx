@@ -36,9 +36,12 @@ interface RawCommandRecord {
 interface RawResultRecord {
   messageId?: string;
   rawSuccess?: number;
+  success?: boolean | number;
   errorReason?: string;
   runTime?: string;
+  createTime?: string;
   timeCost?: number;
+  costTimes?: number;
   type?: number;
   successList?: string;
   failList?: string;
@@ -92,6 +95,36 @@ function parseDateTimeMs(value: unknown): number {
   return Number.isNaN(ts2) ? 0 : ts2;
 }
 
+function extractResultRows(res: any): RawResultRecord[] {
+  const data = res?.data;
+  if (Array.isArray(data)) return data as RawResultRecord[];
+  if (Array.isArray(data?.list)) return data.list as RawResultRecord[];
+  if (Array.isArray(data?.records)) return data.records as RawResultRecord[];
+  if (Array.isArray(res?.list)) return res.list as RawResultRecord[];
+  return [];
+}
+
+function resultRunTime(row?: RawResultRecord): string {
+  return String(row?.runTime || row?.createTime || '').trim();
+}
+
+function resultTimeCost(row?: RawResultRecord): number | undefined {
+  const raw = row?.timeCost ?? row?.costTimes;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function resultStatus(row?: RawResultRecord): TaskStatus | null {
+  if (!row) return null;
+  if (row.rawSuccess !== undefined && row.rawSuccess !== null) {
+    return Number(row.rawSuccess) === 0 ? 'success' : 'failed';
+  }
+  if (row.success !== undefined && row.success !== null) {
+    return Boolean(row.success) ? 'success' : 'failed';
+  }
+  return 'failed';
+}
+
 function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[]): CommandTaskRow[] {
   const resultMap = new Map<string, RawResultRecord>();
   for (const row of resultRows || []) {
@@ -102,8 +135,8 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
       continue;
     }
     const current = resultMap.get(id)!;
-    const t1 = Date.parse(String(current.runTime || '')) || 0;
-    const t2 = Date.parse(String(row.runTime || '')) || 0;
+    const t1 = parseDateTimeMs(resultRunTime(current));
+    const t2 = parseDateTimeMs(resultRunTime(row));
     if (t2 >= t1) {
       resultMap.set(id, row);
     }
@@ -122,9 +155,8 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
     const content = String(firstMsg?.receivedContent || '').trim();
     const result = resultMap.get(messageId);
     let status: TaskStatus = 'pending';
-    if (result) {
-      status = Number(result.rawSuccess) === 0 ? 'success' : 'failed';
-    }
+    const resolvedStatus = resultStatus(result);
+    if (resolvedStatus) status = resolvedStatus;
 
     const successList = parseTargets(result?.successList);
     const failList = parseTargets(result?.failList);
@@ -136,14 +168,14 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
       key: messageId,
       messageId,
       createTime: String(row?.createTime || ''),
-      runTime: result?.runTime,
+      runTime: resultRunTime(result),
       robotId: String(row?.robotId || ''),
       type: result?.type ?? (firstMsg?.type ?? undefined),
       ip: String(row?.ip || ''),
       targetsText: mergedTargets.length ? mergedTargets.join('、') : '-',
       content: content || '-',
       status,
-      timeCost: result?.timeCost,
+      timeCost: resultTimeCost(result),
       errorReason: String(result?.errorReason || '').trim() || undefined,
       isClearPendingQueue,
     });
@@ -211,13 +243,29 @@ export default function CommandTaskPage() {
     try {
       const mid = messageIdFilter.trim();
       const commandSize = 30;
-      const resultSize = 30;
+      const resultSize = 100;
       const [commandsRes, resultsRes] = await Promise.all([
         api.getWorktoolRawCommands({ robot_id: robotId, page: 1, size: commandSize, sort: 'create_time,desc', message_id: mid || undefined }),
         api.getWorktoolRawCommandResults({ robot_id: robotId, page: 1, size: resultSize, sort: 'run_time,desc', message_id: mid || undefined }),
       ]);
       const commandRows = (commandsRes?.data?.list || []) as RawCommandRecord[];
-      const resultRows = (resultsRes?.data || []) as RawResultRecord[];
+      let resultRows = extractResultRows(resultsRes);
+      if (!mid) {
+        const knownResultIds = new Set(resultRows.map((row) => String(row?.messageId || '').trim()).filter(Boolean));
+        const missingMessageIds = commandRows
+          .map((row) => String(row?.messageId || '').trim())
+          .filter((id) => id && !knownResultIds.has(id));
+        if (missingMessageIds.length > 0) {
+          const supplementResults = await Promise.all(
+            missingMessageIds.map((messageId) =>
+              api.getWorktoolRawCommandResults({ robot_id: robotId, page: 1, size: 20, sort: 'run_time,desc', message_id: messageId })
+                .then(extractResultRows)
+                .catch(() => [])
+            )
+          );
+          resultRows = [...resultRows, ...supplementResults.flat()];
+        }
+      }
       const mergedRows = mergeRows(commandRows, resultRows);
       setRows(mergedRows);
       setLastUpdatedAt(new Date().toLocaleString());
