@@ -520,6 +520,28 @@ def init_db() -> None:
             )
             cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS robot_migrate_logs (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  operator_user_id BIGINT NULL,
+                  operator_phone VARCHAR(20) NULL,
+                  action_key VARCHAR(64) NOT NULL,
+                  action_name VARCHAR(128) NOT NULL,
+                  old_robot_id VARCHAR(128) NOT NULL,
+                  new_robot_id VARCHAR(128) NULL,
+                  worktool_path VARCHAR(255) NOT NULL,
+                  request_json JSON NULL,
+                  result_json JSON NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_rml_created_at (created_at),
+                  INDEX idx_rml_operator_time (operator_user_id, created_at),
+                  INDEX idx_rml_old_robot (old_robot_id),
+                  INDEX idx_rml_new_robot (new_robot_id),
+                  CONSTRAINT fk_robot_migrate_logs_operator FOREIGN KEY (operator_user_id) REFERENCES users(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS message_logs (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   robot_pk BIGINT NOT NULL,
@@ -7796,13 +7818,93 @@ async def admin_wework_authorization_delete(corp_id: str, user: Dict[str, Any] =
     return await post_worktool_api(delete_path, {"corpId": target})
 
 
-async def _admin_migrate_robot(old_robot_id: str, worktool_path: str, action_name: str) -> Dict[str, Any]:
+def _extract_migrated_robot_id(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    keys = {
+        "newRobotId",
+        "new_robot_id",
+        "robotId",
+        "robot_id",
+        "targetRobotId",
+        "target_robot_id",
+        "newId",
+        "new_id",
+    }
+    for key in keys:
+        value = str(data.get(key) or "").strip()
+        if value:
+            return value
+    for nested_key in ("data", "result"):
+        value = _extract_migrated_robot_id(data.get(nested_key))
+        if value:
+            return value
+    return ""
+
+
+def _insert_robot_migrate_log(
+    user: Dict[str, Any],
+    action_key: str,
+    action_name: str,
+    old_robot_id: str,
+    new_robot_id: str,
+    worktool_path: str,
+    request_payload: Dict[str, Any],
+    result_payload: Dict[str, Any],
+) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO robot_migrate_logs(
+                  operator_user_id,operator_phone,action_key,action_name,old_robot_id,new_robot_id,
+                  worktool_path,request_json,result_json
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    int(user["id"]) if user.get("id") is not None else None,
+                    str(user.get("phone") or "").strip() or None,
+                    action_key,
+                    action_name,
+                    old_robot_id,
+                    new_robot_id or None,
+                    worktool_path,
+                    json.dumps(request_payload, ensure_ascii=False),
+                    json.dumps(result_payload, ensure_ascii=False),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def _admin_migrate_robot(
+    old_robot_id: str,
+    worktool_path: str,
+    action_key: str,
+    action_name: str,
+    user: Dict[str, Any],
+) -> Dict[str, Any]:
     target = (old_robot_id or "").strip()
     if not target:
         raise HTTPException(status_code=400, detail="old_robot_id required")
-    res = await post_worktool_api(worktool_path, {"oldRobotId": target})
+    request_payload = {"oldRobotId": target}
+    res = await post_worktool_api(worktool_path, request_payload)
     _ensure_worktool_ok(res, action_name)
-    return {"ok": True, "action": action_name, "old_robot_id": target, "result": res}
+    new_robot_id = _extract_migrated_robot_id(res)
+    _insert_robot_migrate_log(
+        user=user,
+        action_key=action_key,
+        action_name=action_name,
+        old_robot_id=target,
+        new_robot_id=new_robot_id,
+        worktool_path=worktool_path,
+        request_payload=request_payload,
+        result_payload=res,
+    )
+    return {"ok": True, "action": action_name, "old_robot_id": target, "new_robot_id": new_robot_id, "result": res}
 
 
 @app.post("/api/v1/admin/robot-migrate/wework-to-wechat")
@@ -7811,7 +7913,7 @@ async def admin_robot_migrate_wework_to_wechat(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToWechat", "企微换个微ID")
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToWechat", "wework-to-wechat", "企微换个微ID", user)
 
 
 @app.post("/api/v1/admin/robot-migrate/wechat-to-wework")
@@ -7820,7 +7922,7 @@ async def admin_robot_migrate_wechat_to_wework(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToWework", "个微换企微ID")
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToWework", "wechat-to-wework", "个微换企微ID", user)
 
 
 @app.post("/api/v1/admin/robot-migrate/wework-to-new-wework")
@@ -7829,7 +7931,7 @@ async def admin_robot_migrate_wework_to_new_wework(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToNewWework", "企微换新的企微ID")
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToNewWework", "wework-to-new-wework", "企微换新的企微ID", user)
 
 
 @app.post("/api/v1/admin/robot-migrate/wechat-to-new-wechat")
@@ -7838,7 +7940,48 @@ async def admin_robot_migrate_wechat_to_new_wechat(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToNewWechat", "个微换新的个微ID")
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToNewWechat", "wechat-to-new-wechat", "个微换新的个微ID", user)
+
+
+@app.get("/api/v1/admin/robot-migrate/logs")
+async def admin_robot_migrate_logs(
+    limit: int = Query(default=10, ge=1, le=100),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,operator_user_id,operator_phone,action_key,action_name,old_robot_id,new_robot_id,
+                       worktool_path,created_at
+                FROM robot_migrate_logs
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (int(limit),),
+            )
+            rows = cur.fetchall() or []
+        items = []
+        for row in rows:
+            created_at = row.get("created_at")
+            items.append(
+                {
+                    "id": int(row.get("id") or 0),
+                    "operator_user_id": row.get("operator_user_id"),
+                    "operator_phone": row.get("operator_phone") or "",
+                    "action_key": row.get("action_key") or "",
+                    "action_name": row.get("action_name") or "",
+                    "old_robot_id": row.get("old_robot_id") or "",
+                    "new_robot_id": row.get("new_robot_id") or "",
+                    "worktool_path": row.get("worktool_path") or "",
+                    "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or ""),
+                }
+            )
+        return {"items": items}
+    finally:
+        conn.close()
 
 
 @app.get("/api/v1/admin/users")

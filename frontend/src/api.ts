@@ -100,6 +100,7 @@ export const api = {
     http.post('/admin/robot-migrate/wework-to-new-wework', { old_robot_id: oldRobotId }).then((r) => r.data),
   adminRobotMigrateWechatToNewWechat: (oldRobotId: string) =>
     http.post('/admin/robot-migrate/wechat-to-new-wechat', { old_robot_id: oldRobotId }).then((r) => r.data),
+  adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
   adminListUsers: (params: { phone?: string; page?: number; page_size?: number }) =>
     http.get('/admin/users', { params }).then((r) => r.data),
   adminCreateUser: (payload: { phone: string; password: string; company_name?: string }) =>

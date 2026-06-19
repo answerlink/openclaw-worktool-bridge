@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
-import { Alert, Button, Card, Form, Input, Modal, Space, Typography, message } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, Form, Input, Modal, Space, Table, Typography, message } from 'antd';
 import { api } from '../api';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 type MigrateAction = {
   key: string;
@@ -9,10 +10,21 @@ type MigrateAction = {
   run: (oldRobotId: string) => Promise<any>;
 };
 
+interface MigrateLogRow {
+  id: number;
+  operator_phone: string;
+  action_name: string;
+  old_robot_id: string;
+  new_robot_id: string;
+  created_at: string;
+}
+
 export default function RobotMigratePage() {
   const [form] = Form.useForm<{ oldRobotId: string }>();
   const [loadingKey, setLoadingKey] = useState<string>('');
   const [resultText, setResultText] = useState('');
+  const [logs, setLogs] = useState<MigrateLogRow[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const actions = useMemo<MigrateAction[]>(
     () => [
@@ -44,6 +56,23 @@ export default function RobotMigratePage() {
     []
   );
 
+  const loadLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const res = await api.adminRobotMigrateLogs(10);
+      setLogs(res?.items || []);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '加载更换记录失败');
+      setLogs([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadLogs();
+  }, []);
+
   const runAction = async (action: MigrateAction) => {
     const values = await form.validateFields();
     const oldRobotId = String(values.oldRobotId || '').trim();
@@ -58,6 +87,7 @@ export default function RobotMigratePage() {
           const res = await action.run(oldRobotId);
           setResultText(JSON.stringify(res, null, 2));
           message.success('操作成功');
+          void loadLogs();
         } catch (e: any) {
           message.error(e?.response?.data?.detail || '操作失败');
         } finally {
@@ -107,6 +137,22 @@ export default function RobotMigratePage() {
             </Card>
           ) : null}
         </Space>
+      </Card>
+      <Card title="最近10条更换记录">
+        <Table
+          rowKey="id"
+          size="small"
+          loading={logsLoading}
+          dataSource={logs}
+          pagination={false}
+          columns={[
+            { title: '时间', dataIndex: 'created_at', width: 180, render: (v: string) => v || '-' },
+            { title: '操作者', dataIndex: 'operator_phone', width: 140, render: (v: string) => v || '-' },
+            { title: '操作', dataIndex: 'action_name', width: 160 },
+            { title: '原机器人ID', dataIndex: 'old_robot_id', width: 220, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={200} popupWidth={760} /> },
+            { title: '新机器人ID', dataIndex: 'new_robot_id', width: 220, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={200} popupWidth={760} /> },
+          ]}
+        />
       </Card>
     </Space>
   );
