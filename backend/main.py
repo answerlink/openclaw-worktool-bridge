@@ -3826,7 +3826,7 @@ def _load_enabled_rules(robot_pk: int, scene: str) -> List[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT r.id,r.pattern_match_type,r.pattern,r.content_match_type,r.content_pattern,r.priority,r.provider_id,p.name AS provider_name,p.base_url,p.api_token,p.model,p.provider_type,p.auth_scheme,p.extra_json,p.include_asker_info,p.asker_info_mode
+                SELECT r.id,r.pattern_match_type,r.pattern,r.content_match_type,r.content_pattern,r.priority,r.provider_id,p.name AS provider_name,p.base_url,p.api_token,p.model,p.provider_type,p.auth_scheme,p.extra_json,p.system_prompt_template,p.include_asker_info,p.asker_info_mode
                 FROM routing_rules r
                 JOIN ai_providers p ON p.id=r.provider_id
                 WHERE r.robot_pk=%s AND r.scene=%s AND r.enabled=1 AND p.enabled=1

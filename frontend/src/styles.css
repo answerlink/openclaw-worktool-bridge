@@ -198,6 +198,8 @@ html, body, #root {
 }
 
 .wt-hover-preview-content {
+  max-height: 60vh;
+  overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;

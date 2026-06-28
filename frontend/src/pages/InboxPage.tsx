@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 type InboxStatus = 'all' | 'unread' | 'read';
 
@@ -135,9 +136,10 @@ export default function InboxPage() {
       {
         title: '标题',
         dataIndex: 'title',
-        ellipsis: true,
         render: (v: string, row: InboxRow) => (
-          <Typography.Link onClick={() => openDetail(row)}>{v}</Typography.Link>
+          <Typography.Link onClick={() => openDetail(row)}>
+            <HoverPreviewText value={v} maxWidth={360} popupWidth={760} />
+          </Typography.Link>
         ),
       },
       { title: '接收时间', dataIndex: 'delivered_at', width: 180 },

@@ -3,6 +3,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import HoverPreviewText from '../components/HoverPreviewText';
 
 interface AuthRow {
   corpId: string;
@@ -54,7 +55,7 @@ export default function EnterpriseAuthorizationPage() {
 
   const columns = useMemo(
     () => [
-      { title: 'CorpId', dataIndex: 'corpId', width: 220, ellipsis: true },
+      { title: 'CorpId', dataIndex: 'corpId', width: 220, render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
       { title: '企业名称', dataIndex: 'corpName', width: 160, render: (v: string | undefined) => v || '-' },
       { title: 'AgentId', dataIndex: 'agentId', width: 120, render: (v: string | undefined) => v || '-' },
       {
@@ -64,7 +65,7 @@ export default function EnterpriseAuthorizationPage() {
         render: (v: boolean | undefined) => <Tag color={v ? 'green' : 'default'}>{v ? '启用' : '停用'}</Tag>,
       },
       { title: '到期时间', dataIndex: 'expireTime', width: 180, render: (v: string | undefined) => v || '-' },
-      { title: '备注', dataIndex: 'remark', ellipsis: true, render: (v: string | undefined) => v || '-' },
+      { title: '备注', dataIndex: 'remark', render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={260} popupWidth={760} /> },
       {
         title: '操作',
         width: 180,

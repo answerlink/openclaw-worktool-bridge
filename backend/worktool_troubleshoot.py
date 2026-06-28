@@ -216,7 +216,7 @@ def _sanitize_mysql_raw_message_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
             "消息类型": x.get("type_list"),
             "来源IP": _mask_ip(x.get("ip")),
             "是否API发送": x.get("api_send"),
-            "发送内容": (x.get("body") or "")[:300],
+            "发送内容": x.get("body") or "",
         }
         for x in rows
     ]
@@ -265,7 +265,7 @@ def _sanitize_mysql_raw_confirm_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
             "消息ID": x.get("message_id") or "",
             "执行结果": "成功" if is_success(x) else "失败",
             "执行耗时(秒)": x.get("time_cost"),
-            "失败原因": (x.get("error_reason") or "")[:200],
+            "失败原因": x.get("error_reason") or "",
         }
         for x in rows
     ]
@@ -322,7 +322,7 @@ def _sanitize_robot_connect_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, A
                 "登录时间": x.get("create_time"),
                 "登录IP": x.get("ip") or "-",
                 **parsed,
-                "原始日志": (x.get("log") or "")[:300],
+                "原始日志": x.get("log") or "",
             }
         )
     return items
@@ -825,7 +825,7 @@ async def run_troubleshoot_search(
                     "方向": "接收" if r.get("direction") == "inbound" else "发送",
                     "场景": "群聊" if r.get("scene") == "group" else "私聊",
                     "会话": "-",
-                    "消息": (r.get("normalized_content") or "")[:120],
+                    "消息": r.get("normalized_content") or "",
                     "状态": r.get("status"),
                 }
                 for r in logs

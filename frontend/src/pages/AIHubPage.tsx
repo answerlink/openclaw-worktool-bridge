@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, Modal, Popconfirm, Popover, Select, Space, Switch, Table, Typography, message } from 'antd';
 import { api } from '../api';
+import HoverPreviewText from '../components/HoverPreviewText';
 import type { Provider } from '../types';
 
 const OPENAI_BASE_OPTIONS = [
@@ -206,7 +207,7 @@ export default function AIHubPage() {
           },
           { title: '名称', dataIndex: 'name' },
           { title: '类型', dataIndex: 'provider_type', width: 110 },
-          { title: 'Base URL', dataIndex: 'base_url', ellipsis: true },
+          { title: 'Base URL', dataIndex: 'base_url', render: (v: string) => <HoverPreviewText value={v} maxWidth={360} popupWidth={760} /> },
           {
             title: '使用机器人',
             width: 120,
