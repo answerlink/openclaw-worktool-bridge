@@ -214,6 +214,22 @@ export default function TaskCenterPage() {
     }
   };
 
+  const submitClearStorage = async () => {
+    if (!robotId) return message.warning('请先选择机器人');
+    setSubmitting(true);
+    try {
+      await api.dispatchTask({
+        robot_id: robotId,
+        action: 'clear_wework_storage',
+      });
+      message.success('清理企微存储空间指令已下发');
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '下发失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Card
       title={(
@@ -355,6 +371,18 @@ export default function TaskCenterPage() {
                 <Form.Item label="附言" name="leaving_msg"><Input.TextArea rows={3} /></Form.Item>
                 <Button type="primary" htmlType="submit" loading={submitting}>下发加好友</Button>
               </Form>
+            ),
+          },
+          {
+            key: 'clear_storage',
+            label: '清理企微存储空间',
+            children: (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Alert type="warning" showIcon message="该动作会向机器人发送清理企微存储空间指令，请确认机器人在线且目标账号允许执行。" />
+                <Button danger type="primary" loading={submitting} onClick={() => void submitClearStorage()}>
+                  下发清理企微存储空间
+                </Button>
+              </Space>
             ),
           },
         ]}

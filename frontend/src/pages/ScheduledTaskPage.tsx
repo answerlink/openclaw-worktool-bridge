@@ -83,6 +83,7 @@ interface FormValues {
   mark_extra?: string;
   friend_tag_list_text?: string;
   leaving_msg?: string;
+  clear_wework_storage?: boolean;
   schedule_type?: 'once' | 'daily' | 'weekly' | 'cron';
   run_at_date?: Dayjs;
   daily_time?: Dayjs;
@@ -108,6 +109,7 @@ function actionLabel(v: string) {
     update_group: '修改群信息',
     dissolve_group: '解散群',
     add_friend_by_phone: '按手机号加好友',
+    clear_wework_storage: '清理企微存储空间',
   };
   return m[v] || v;
 }
@@ -335,6 +337,8 @@ export default function ScheduledTaskPage() {
       payload.mark_extra = String(v.mark_extra || '');
       payload.friend_tag_list = splitLines(String(v.friend_tag_list_text || ''));
       payload.leaving_msg = String(v.leaving_msg || '');
+    } else if (action === 'clear_wework_storage') {
+      payload.clear_wework_storage = true;
     }
 
     return payload;
@@ -572,6 +576,7 @@ export default function ScheduledTaskPage() {
                 { label: '修改群信息', value: 'update_group' },
                 { label: '解散群', value: 'dissolve_group' },
                 { label: '按手机号加好友', value: 'add_friend_by_phone' },
+                { label: '清理企微存储空间', value: 'clear_wework_storage' },
               ]}
             />
           </Form.Item>
@@ -661,6 +666,15 @@ export default function ScheduledTaskPage() {
               <Form.Item name="friend_tag_list_text" label="标签（每行一个）"><Input.TextArea rows={3} /></Form.Item>
               <Form.Item name="leaving_msg" label="附言"><Input.TextArea rows={3} /></Form.Item>
             </>
+          )}
+
+          {actionType === 'clear_wework_storage' && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="该任务会直接向机器人发送清理企微存储空间指令，不需要额外参数。"
+            />
           )}
 
           <Space style={{ width: '100%' }} align="start" wrap>

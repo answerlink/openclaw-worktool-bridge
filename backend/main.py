@@ -1335,6 +1335,7 @@ class TaskDispatchRequest(BaseModel):
         "update_group",
         "dissolve_group",
         "add_friend_by_phone",
+        "clear_wework_storage",
     ]
     tag_ids: List[int] = Field(default_factory=list)
     target_names: List[str] = Field(default_factory=list)
@@ -1370,6 +1371,7 @@ class ScheduledTaskCreateRequest(BaseModel):
         "update_group",
         "dissolve_group",
         "add_friend_by_phone",
+        "clear_wework_storage",
     ]
     payload_json: Dict[str, Any] = Field(default_factory=dict)
     schedule_type: Literal["once", "daily", "weekly", "cron"] = "once"
@@ -1392,6 +1394,7 @@ class ScheduledTaskUpdateRequest(BaseModel):
             "update_group",
             "dissolve_group",
             "add_friend_by_phone",
+            "clear_wework_storage",
         ]
     ] = None
     payload_json: Optional[Dict[str, Any]] = None
@@ -2777,6 +2780,8 @@ async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: st
         if payload.get("leaving_msg"):
             friend["leavingMsg"] = str(payload.get("leaving_msg")).strip()
         list_items.append({"type": 213, "friend": friend})
+    elif action == "clear_wework_storage":
+        list_items.append({"type": 237})
     else:
         raise HTTPException(status_code=400, detail="暂不支持的 action")
 
