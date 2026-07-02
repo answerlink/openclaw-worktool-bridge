@@ -6064,12 +6064,8 @@ async def _process_qa_callback_task(
                     "messages": messages
                 }
             else:
-                messages = []
-                if base_system_prompt:
-                    messages.append({"role": "system", "content": base_system_prompt})
-                messages.extend(provider_context_messages)
                 provider_payload_extra = {
-                    "messages": messages,
+                    "messages": provider_context_messages,
                     "variables": {
                         "prompt_inject": _build_provider_prompt_inject(robot_display_name, colleague_names, current_asker_text),
                     }

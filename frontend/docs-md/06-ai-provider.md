@@ -34,7 +34,7 @@
 
 说明：
 
-- 当你选择“额外字段”模式时，需在第三方工作流里自行把 `variables.prompt_inject` 合并到 system prompt。
+- 当你选择“额外字段”模式时，console 只发送 `variables.prompt_inject`，不会覆盖 system prompt；需在第三方工作流里自行把 `variables.prompt_inject` 合并到 system prompt。
 - 若配置了“我的同事”名单，会自动参与注入内容，并用于群聊未@同事发言的跳过策略。
 
 ## OpenClaw 模式

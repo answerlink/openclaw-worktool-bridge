@@ -42,7 +42,7 @@
 </ul>
 <p>说明：</p>
 <ul>
-<li>当你选择“额外字段”模式时，需在第三方工作流里自行把 <code>variables.prompt_inject</code> 合并到 system prompt。</li>
+<li>当你选择“额外字段”模式时，console 只发送 <code>variables.prompt_inject</code>，不会覆盖 system prompt；需在第三方工作流里自行把 <code>variables.prompt_inject</code> 合并到 system prompt。</li>
 <li>若配置了“我的同事”名单，会自动参与注入内容，并用于群聊未@同事发言的跳过策略。</li>
 </ul>
 <h2 id="openclaw-模式">OpenClaw 模式</h2><ul>

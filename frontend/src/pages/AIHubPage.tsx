@@ -455,7 +455,7 @@ export default function AIHubPage() {
               <Form.Item
                 name="asker_info_mode"
                 label="提问人信息注入模式"
-                tooltip="默认关闭；开启后不会改 user content，只会注入 system_prompt 或 variables.prompt_inject。"
+                tooltip="默认关闭；覆盖模式会注入 system_prompt，额外字段模式只发送 variables.prompt_inject。"
                 initialValue="off"
               >
                 <Select
@@ -467,7 +467,7 @@ export default function AIHubPage() {
                 />
               </Form.Item>
               <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 8 }}>
-                选择“额外字段”时，会发送 <code>variables.prompt_inject</code>。请在第三方流程中把该值拼接到 system_prompt。
+                选择“额外字段”时，只会发送 <code>variables.prompt_inject</code>，不会由 console 覆盖 system_prompt。请在第三方流程中把该值拼接到 system_prompt。
                 {' '}示例：<code>{`{"variables":{"prompt_inject":"..."}}`}</code>
               </Typography.Text>
               <Form.Item
