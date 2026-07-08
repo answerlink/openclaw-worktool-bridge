@@ -542,6 +542,27 @@ def init_db() -> None:
             )
             cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS private_license_logs (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  operator_user_id BIGINT NULL,
+                  operator_phone VARCHAR(20) NULL,
+                  machine_code VARCHAR(128) NOT NULL,
+                  expire_date VARCHAR(32) NOT NULL,
+                  expire_epoch_ms BIGINT NOT NULL,
+                  restrict_robot TINYINT(1) NOT NULL DEFAULT 1,
+                  robot_start VARCHAR(64) NULL,
+                  robot_end VARCHAR(64) NULL,
+                  robot_limit INT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_pll_created_at (created_at),
+                  INDEX idx_pll_operator_time (operator_user_id, created_at),
+                  INDEX idx_pll_machine_code (machine_code),
+                  CONSTRAINT fk_private_license_logs_operator FOREIGN KEY (operator_user_id) REFERENCES users(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS message_logs (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   robot_pk BIGINT NOT NULL,
@@ -1162,6 +1183,16 @@ class WeworkAuthorizationSaveRequest(BaseModel):
 
 class RobotMigrateRequest(BaseModel):
     old_robot_id: str
+
+
+class PrivateLicenseLogCreateRequest(BaseModel):
+    machine_code: str
+    expire_date: str
+    expire_epoch_ms: int
+    restrict_robot: bool = True
+    robot_start: Optional[str] = None
+    robot_end: Optional[str] = None
+    robot_limit: Optional[int] = None
 
 
 class WorkToolSettingsUpdate(BaseModel):
@@ -7881,6 +7912,54 @@ def _insert_robot_migrate_log(
         conn.close()
 
 
+def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCreateRequest) -> None:
+    machine_code = (body.machine_code or "").strip()
+    expire_date = (body.expire_date or "").strip()
+    robot_start = (body.robot_start or "").strip() or None
+    robot_end = (body.robot_end or "").strip() or None
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", machine_code):
+        raise HTTPException(status_code=400, detail="machine_code invalid")
+    if not expire_date:
+        raise HTTPException(status_code=400, detail="expire_date required")
+    if body.expire_epoch_ms <= 0:
+        raise HTTPException(status_code=400, detail="expire_epoch_ms invalid")
+    if body.restrict_robot:
+        if not robot_start or not robot_end or body.robot_limit is None:
+            raise HTTPException(status_code=400, detail="robot scope required")
+        if body.robot_limit <= 0:
+            raise HTTPException(status_code=400, detail="robot_limit invalid")
+    else:
+        robot_start = None
+        robot_end = None
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO private_license_logs(
+                  operator_user_id,operator_phone,machine_code,expire_date,expire_epoch_ms,
+                  restrict_robot,robot_start,robot_end,robot_limit
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    int(user["id"]) if user.get("id") is not None else None,
+                    str(user.get("phone") or "").strip() or None,
+                    machine_code,
+                    expire_date,
+                    int(body.expire_epoch_ms),
+                    1 if body.restrict_robot else 0,
+                    robot_start,
+                    robot_end,
+                    int(body.robot_limit) if body.robot_limit is not None else None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 async def _admin_migrate_robot(
     old_robot_id: str,
     worktool_path: str,
@@ -7977,6 +8056,61 @@ async def admin_robot_migrate_logs(
                     "old_robot_id": row.get("old_robot_id") or "",
                     "new_robot_id": row.get("new_robot_id") or "",
                     "worktool_path": row.get("worktool_path") or "",
+                    "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or ""),
+                }
+            )
+        return {"items": items}
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/admin/private-license/logs")
+async def admin_private_license_log_create(
+    body: PrivateLicenseLogCreateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+    _insert_private_license_log(user, body)
+    return {"ok": True}
+
+
+@app.get("/api/v1/admin/private-license/logs")
+async def admin_private_license_logs(
+    limit: int = Query(default=10, ge=1, le=100),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,operator_user_id,operator_phone,machine_code,expire_date,expire_epoch_ms,
+                       restrict_robot,robot_start,robot_end,robot_limit,created_at
+                FROM private_license_logs
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (int(limit),),
+            )
+            rows = cur.fetchall() or []
+        items = []
+        for row in rows:
+            created_at = row.get("created_at")
+            items.append(
+                {
+                    "id": int(row.get("id") or 0),
+                    "operator_user_id": row.get("operator_user_id"),
+                    "operator_phone": row.get("operator_phone") or "",
+                    "machine_code": row.get("machine_code") or "",
+                    "expire_date": row.get("expire_date") or "",
+                    "expire_epoch_ms": int(row.get("expire_epoch_ms") or 0),
+                    "restrict_robot": bool(row.get("restrict_robot")),
+                    "robot_start": row.get("robot_start") or "",
+                    "robot_end": row.get("robot_end") or "",
+                    "robot_limit": row.get("robot_limit"),
                     "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or ""),
                 }
             )
