@@ -101,6 +101,16 @@ export const api = {
   adminRobotMigrateWechatToNewWechat: (oldRobotId: string) =>
     http.post('/admin/robot-migrate/wechat-to-new-wechat', { old_robot_id: oldRobotId }).then((r) => r.data),
   adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
+  adminPrivateLicenseLogCreate: (payload: {
+    machine_code: string;
+    expire_date: string;
+    expire_epoch_ms: number;
+    restrict_robot: boolean;
+    robot_start?: string;
+    robot_end?: string;
+    robot_limit?: number;
+  }) => http.post('/admin/private-license/logs', payload).then((r) => r.data),
+  adminPrivateLicenseLogs: (limit = 10) => http.get('/admin/private-license/logs', { params: { limit } }).then((r) => r.data),
   adminListUsers: (params: { phone?: string; page?: number; page_size?: number }) =>
     http.get('/admin/users', { params }).then((r) => r.data),
   adminCreateUser: (payload: { phone: string; password: string; company_name?: string }) =>

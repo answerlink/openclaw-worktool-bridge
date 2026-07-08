@@ -11,6 +11,7 @@ import {
   ProfileOutlined,
   InfoCircleOutlined,
   NotificationOutlined,
+  SafetyCertificateOutlined,
   SearchOutlined,
   ShareAltOutlined,
   StopOutlined,
@@ -34,7 +35,7 @@ import InboxAdminPage from './pages/InboxAdminPage';
 import LoginPage from './pages/LoginPage';
 import UserManagementPage from './pages/UserManagementPage';
 import IpBlacklistPage from './pages/IpBlacklistPage';
-import EnterpriseAuthorizationPage from './pages/EnterpriseAuthorizationPage';
+import EnterpriseAuthorizationPage, { PrivateLicenseAuthorizationPage } from './pages/EnterpriseAuthorizationPage';
 import RobotMigratePage from './pages/RobotMigratePage';
 import { api, clearAccessToken, getAccessToken } from './api';
 
@@ -218,6 +219,7 @@ export default function App() {
       }
       if (enableAdminEnterpriseAuth) {
         adminItems.push({ key: '/enterprise-authorization', icon: <BuildOutlined />, label: <Link to="/enterprise-authorization">企业定制开通</Link> });
+        adminItems.push({ key: '/private-license', icon: <SafetyCertificateOutlined />, label: <Link to="/private-license">私有化授权</Link> });
       }
 
       baseItems.push({ type: 'divider' });
@@ -327,6 +329,7 @@ export default function App() {
             {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
             {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
             {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
+            {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Content>
