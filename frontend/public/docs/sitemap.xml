@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>/docs/overview.html</loc></url>
-  <url><loc>/docs/quickstart.html</loc></url>
-  <url><loc>/docs/core-concepts.html</loc></url>
-  <url><loc>/docs/robot-callback.html</loc></url>
-  <url><loc>/docs/rules.html</loc></url>
-  <url><loc>/docs/ai-provider.html</loc></url>
-  <url><loc>/docs/forwarding.html</loc></url>
-  <url><loc>/docs/monitoring.html</loc></url>
-  <url><loc>/docs/faq.html</loc></url>
-  <url><loc>/docs/admin.html</loc></url>
-  <url><loc>/docs/deploy.html</loc></url>
-  <url><loc>/docs/env-reference.html</loc></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/overview.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/quickstart.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/core-concepts.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/robot-callback.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/rules.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/ai-provider.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/forwarding.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/monitoring.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/faq.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/admin.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/deploy.html</loc><lastmod>2026-07-10</lastmod></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/env-reference.html</loc><lastmod>2026-07-10</lastmod></url>
 </urlset>
