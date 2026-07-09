@@ -111,6 +111,30 @@ export const api = {
     robot_limit?: number;
   }) => http.post('/admin/private-license/logs', payload).then((r) => r.data),
   adminPrivateLicenseLogs: (limit = 10) => http.get('/admin/private-license/logs', { params: { limit } }).then((r) => r.data),
+  adminAppUpdateApps: () => http.get('/admin/app-updates/apps').then((r) => r.data),
+  adminAppUpdates: (appName: string) => http.get('/admin/app-updates', { params: { app_name: appName } }).then((r) => r.data),
+  adminAppUpdateUpload: (payload: { app_name: string; version_name: string; file: File }) => {
+    const form = new FormData();
+    form.append('file', payload.file);
+    return http.post('/admin/app-updates/upload', form, {
+      params: { app_name: payload.app_name, version_name: payload.version_name },
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    }).then((r) => r.data);
+  },
+  adminAppUpdateCreate: (payload: {
+    app_name: string;
+    title?: string;
+    update_log?: string;
+    remark?: string;
+    version_name: string;
+    version_code?: number;
+    min_version_code?: number;
+    download_url: string;
+    size?: string;
+    enable?: boolean;
+  }) => http.post('/admin/app-updates', payload).then((r) => r.data),
+  adminAppUpdateEnable: (id: number) => http.post(`/admin/app-updates/${id}/enable`).then((r) => r.data),
   adminListUsers: (params: { phone?: string; page?: number; page_size?: number }) =>
     http.get('/admin/users', { params }).then((r) => r.data),
   adminCreateUser: (payload: { phone: string; password: string; company_name?: string }) =>
