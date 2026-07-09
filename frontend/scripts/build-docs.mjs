@@ -11,6 +11,18 @@ const outRoot = path.join(projectRoot, 'public', 'docs');
 
 const siteTitle = 'WorkTool Console 文档';
 const siteBase = '/docs';
+const publicOrigin = 'https://console.worktool.ymdyes.cn';
+
+function currentShanghaiDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const pick = (type) => parts.find((p) => p.type === type)?.value || '00';
+  return `${pick('year')}-${pick('month')}-${pick('day')}`;
+}
 
 const groups = [
   {
@@ -217,13 +229,27 @@ async function main() {
   await fs.writeFile(path.join(outRoot, 'index.html'), `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${siteBase}/overview.html">`, 'utf8');
   await fs.writeFile(path.join(outRoot, 'search-index.json'), JSON.stringify(searchIndex, null, 2), 'utf8');
 
+  const today = currentShanghaiDate();
   const sitemap = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ...pages.map((p) => `  <url><loc>${siteBase}/${p.slug}.html</loc></url>`),
+    ...pages.map((p) => `  <url><loc>${publicOrigin}${siteBase}/${p.slug}.html</loc><lastmod>${today}</lastmod></url>`),
     '</urlset>',
   ].join('\n');
   await fs.writeFile(path.join(outRoot, 'sitemap.xml'), sitemap, 'utf8');
+
+  const rootSitemapUrls = [
+    { loc: `${publicOrigin}/`, priority: '0.6' },
+    { loc: `${publicOrigin}/login`, priority: '0.3' },
+    ...pages.map((p) => ({ loc: `${publicOrigin}${siteBase}/${p.slug}.html`, priority: '0.8' })),
+  ];
+  const rootSitemap = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...rootSitemapUrls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${today}</lastmod><priority>${u.priority}</priority></url>`),
+    '</urlset>',
+  ].join('\n');
+  await fs.writeFile(path.join(projectRoot, 'public', 'sitemap.xml'), rootSitemap, 'utf8');
 
   console.log(`docs built: ${pages.length} pages -> ${outRoot}`);
 }
