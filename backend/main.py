@@ -9,13 +9,16 @@ import secrets
 import shlex
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
+from urllib.parse import quote
 
 import aiohttp
 import jwt
 import pymysql
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
@@ -41,6 +44,8 @@ WORKTOOL_IPACL_DELETE_PATH = os.getenv("WORKTOOL_IPACL_DELETE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_LIST_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_LIST_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_SAVE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_SAVE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_DELETE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_DELETE_PATH", "").strip()
+APP_UPLOAD_DIR = os.getenv("APP_UPLOAD_DIR", "/data/uploads").strip() or "/data/uploads"
+APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
 OPEN_TROUBLESHOOT_API_KEY = os.getenv("OPEN_TROUBLESHOOT_API_KEY", "").strip()
 OPEN_TROUBLESHOOT_ALLOWED_ROBOT_IDS = {
     x.strip()
@@ -105,6 +110,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+Path(APP_UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=APP_UPLOAD_DIR), name="uploads")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
 logger = logging.getLogger("backend")
@@ -173,6 +180,34 @@ def _db_cfg() -> Dict[str, Any]:
 
 def db_conn() -> Any:
     return pymysql.connect(**_db_cfg())
+
+
+def _worktool_db_cfg() -> Dict[str, Any]:
+    host = os.getenv("WORKTOOL_DB_HOST", "").strip()
+    port = int(os.getenv("WORKTOOL_DB_PORT", "3306").strip())
+    user = os.getenv("WORKTOOL_DB_USER", "").strip()
+    password = os.getenv("WORKTOOL_DB_PASSWORD", "")
+    database = os.getenv("WORKTOOL_DB_NAME", "").strip()
+    if not (host and user and database):
+        raise HTTPException(status_code=503, detail="worktool mysql not configured")
+    return {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "database": database,
+        "charset": "utf8mb4",
+        "cursorclass": pymysql.cursors.DictCursor,
+        "autocommit": False,
+        "connect_timeout": 5,
+        "read_timeout": 15,
+        "write_timeout": 15,
+        "init_command": "SET time_zone = '+08:00'",
+    }
+
+
+def worktool_db_conn() -> Any:
+    return pymysql.connect(**_worktool_db_cfg())
 
 
 def init_db() -> None:
@@ -1193,6 +1228,19 @@ class PrivateLicenseLogCreateRequest(BaseModel):
     robot_start: Optional[str] = None
     robot_end: Optional[str] = None
     robot_limit: Optional[int] = None
+
+
+class AdminAppUpdateCreateRequest(BaseModel):
+    app_name: str
+    title: Optional[str] = None
+    update_log: Optional[str] = None
+    remark: Optional[str] = None
+    version_name: str
+    version_code: Optional[int] = None
+    min_version_code: Optional[int] = None
+    download_url: str
+    size: Optional[str] = None
+    enable: Optional[bool] = None
 
 
 class WorkToolSettingsUpdate(BaseModel):
@@ -7960,6 +8008,71 @@ def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCre
         conn.close()
 
 
+def _format_worktool_datetime(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value or "")
+
+
+def _normalize_app_update_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": int(row.get("id") or 0),
+        "app_name": row.get("app_name") or "",
+        "title": row.get("title") or "",
+        "update_log": row.get("update_log") or "",
+        "remark": row.get("remark") or "",
+        "version_name": row.get("version_name") or "",
+        "version_code": row.get("version_code"),
+        "min_version_code": row.get("min_version_code"),
+        "download_url": row.get("download_url") or "",
+        "create_time": _format_worktool_datetime(row.get("create_time")),
+        "size": row.get("size") or "",
+        "enable": bool(row.get("enable")),
+    }
+
+
+def _version_code_from_name(version_name: str) -> int:
+    parts = [int(x) for x in re.findall(r"\d+", version_name or "")]
+    if len(parts) >= 4:
+        return parts[0] * 10000 + parts[1] * 1000 + parts[2] * 10 + parts[3]
+    if parts:
+        return int("".join(str(x) for x in parts))
+    raise HTTPException(status_code=400, detail="version_name invalid")
+
+
+def _safe_app_file_part(app_name: str) -> str:
+    cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", (app_name or "").strip()).strip("._-")
+    return cleaned or "app"
+
+
+def _get_latest_app_update(cur: Any, app_name: str) -> Optional[Dict[str, Any]]:
+    cur.execute(
+        """
+        SELECT id,app_name,title,update_log,remark,version_name,version_code,min_version_code,
+               download_url,create_time,size,enable
+        FROM app_update
+        WHERE app_name=%s
+        ORDER BY create_time DESC, id DESC
+        LIMIT 1
+        """,
+        (app_name,),
+    )
+    return cur.fetchone()
+
+
+def _public_base_url_from_request(request: Request) -> str:
+    configured = normalize_public_base_url(APP_PUBLIC_BASE_URL or CALLBACK_PUBLIC_BASE_URL_FIXED_RAW)
+    if configured:
+        return configured
+    host = (request.headers.get("host") or "").strip()
+    if not host:
+        return str(request.base_url).rstrip("/")
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    if proto not in {"http", "https"}:
+        proto = "https"
+    return f"{proto}://{host}".rstrip("/")
+
+
 async def _admin_migrate_robot(
     old_robot_id: str,
     worktool_path: str,
@@ -8115,6 +8228,238 @@ async def admin_private_license_logs(
                 }
             )
         return {"items": items}
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/admin/app-updates/apps")
+async def admin_app_update_apps(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    _require_admin(user)
+    conn = worktool_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT app_name, COUNT(*) AS version_count, MAX(create_time) AS latest_create_time
+                FROM app_update
+                WHERE app_name IS NOT NULL AND app_name <> ''
+                GROUP BY app_name
+                ORDER BY app_name ASC
+                """
+            )
+            rows = cur.fetchall() or []
+        return {
+            "items": [
+                {
+                    "app_name": row.get("app_name") or "",
+                    "version_count": int(row.get("version_count") or 0),
+                    "latest_create_time": _format_worktool_datetime(row.get("latest_create_time")),
+                }
+                for row in rows
+            ]
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/admin/app-updates")
+async def admin_app_updates(
+    app_name: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    target = (app_name or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="app_name required")
+    conn = worktool_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id,app_name,title,update_log,remark,version_name,version_code,min_version_code,
+                       download_url,create_time,size,enable
+                FROM (
+                  SELECT id,app_name,title,update_log,remark,version_name,version_code,min_version_code,
+                         download_url,create_time,size,enable
+                  FROM app_update
+                  WHERE app_name=%s
+                  ORDER BY create_time DESC, id DESC
+                  LIMIT 3
+                ) t
+                ORDER BY create_time ASC, id ASC
+                """,
+                (target,),
+            )
+            rows = cur.fetchall() or []
+            latest = _get_latest_app_update(cur, target)
+        return {
+            "items": [_normalize_app_update_row(row) for row in rows],
+            "latest": _normalize_app_update_row(latest) if latest else None,
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/admin/app-updates/upload")
+async def admin_app_update_upload(
+    request: Request,
+    app_name: str,
+    version_name: str,
+    file: UploadFile = File(...),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    app = (app_name or "").strip()
+    version = (version_name or "").strip()
+    if not app:
+        raise HTTPException(status_code=400, detail="app_name required")
+    if not re.fullmatch(r"\d+(?:\.\d+){1,5}", version):
+        raise HTTPException(status_code=400, detail="version_name invalid")
+    original = (file.filename or "").strip()
+    if not original.lower().endswith(".apk"):
+        raise HTTPException(status_code=400, detail="仅支持上传 apk 文件")
+
+    app_part = _safe_app_file_part(app)
+    target_dir = Path(APP_UPLOAD_DIR) / "apk" / app_part
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_name = f"{app_part}-{version}.apk"
+    target_path = target_dir / target_name
+    written = 0
+    try:
+        with target_path.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                out.write(chunk)
+    finally:
+        await file.close()
+    if written <= 0:
+        try:
+            target_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail="上传文件为空")
+
+    public_path = f"/uploads/apk/{quote(app_part)}/{quote(target_name)}"
+    return {
+        "ok": True,
+        "download_url": f"{_public_base_url_from_request(request)}{public_path}",
+        "path": public_path,
+        "size_bytes": written,
+    }
+
+
+@app.post("/api/v1/admin/app-updates")
+async def admin_app_update_create(
+    body: AdminAppUpdateCreateRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    app = (body.app_name or "").strip()
+    version = (body.version_name or "").strip()
+    download_url = (body.download_url or "").strip()
+    if not app:
+        raise HTTPException(status_code=400, detail="app_name required")
+    if not re.fullmatch(r"\d+(?:\.\d+){1,5}", version):
+        raise HTTPException(status_code=400, detail="version_name invalid")
+    if not (download_url.startswith("http://") or download_url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="download_url required")
+
+    conn = worktool_db_conn()
+    try:
+        with conn.cursor() as cur:
+            latest = _get_latest_app_update(cur, app)
+            if latest is None:
+                raise HTTPException(status_code=400, detail="app_name 不存在，无法生成默认模板")
+            title = (body.title or "").strip() or f"v{version}更新啦~"
+            update_log = body.update_log if body.update_log is not None else (latest.get("update_log") or "")
+            remark = body.remark if body.remark is not None else (latest.get("remark") or "")
+            size = (body.size if body.size is not None else (latest.get("size") or "")) or ""
+            version_code = int(body.version_code) if body.version_code is not None else _version_code_from_name(version)
+            min_version_code = (
+                int(body.min_version_code)
+                if body.min_version_code is not None
+                else int(latest.get("min_version_code") or 0)
+            )
+            enable = 1 if (bool(body.enable) if body.enable is not None else bool(latest.get("enable"))) else 0
+            if enable:
+                cur.execute("UPDATE app_update SET enable=0 WHERE app_name=%s", (app,))
+            cur.execute(
+                """
+                INSERT INTO app_update(
+                  app_name,title,update_log,remark,version_name,version_code,min_version_code,
+                  download_url,create_time,size,enable
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s)
+                """,
+                (
+                    app[:192],
+                    title[:765],
+                    str(update_log or "")[:765],
+                    str(remark or "")[:765] or None,
+                    version[:192],
+                    version_code,
+                    min_version_code,
+                    download_url[:765],
+                    size[:192],
+                    enable,
+                ),
+            )
+            new_id = int(cur.lastrowid)
+            cur.execute(
+                """
+                SELECT id,app_name,title,update_log,remark,version_name,version_code,min_version_code,
+                       download_url,create_time,size,enable
+                FROM app_update
+                WHERE id=%s
+                """,
+                (new_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return {"ok": True, "item": _normalize_app_update_row(row or {"id": new_id})}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/admin/app-updates/{update_id}/enable")
+async def admin_app_update_enable(
+    update_id: int,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    conn = worktool_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id,app_name,enable FROM app_update WHERE id=%s FOR UPDATE", (int(update_id),))
+            target = cur.fetchone()
+            if not target:
+                raise HTTPException(status_code=404, detail="app版本不存在")
+            app_name = target.get("app_name") or ""
+            if not app_name:
+                raise HTTPException(status_code=400, detail="app_name empty")
+            cur.execute("UPDATE app_update SET enable=0 WHERE app_name=%s AND id<>%s", (app_name, int(update_id)))
+            cur.execute("UPDATE app_update SET enable=1 WHERE id=%s", (int(update_id),))
+            cur.execute(
+                """
+                SELECT id,app_name,title,update_log,remark,version_name,version_code,min_version_code,
+                       download_url,create_time,size,enable
+                FROM app_update
+                WHERE id=%s
+                """,
+                (int(update_id),),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return {"ok": True, "item": _normalize_app_update_row(row or {"id": int(update_id)})}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
