@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { Badge, Button, Layout, Menu, Space, Typography } from 'antd';
+import { Badge, Button, Drawer, Layout, Menu, Space, Typography } from 'antd';
 import {
   DashboardOutlined,
   RobotOutlined,
@@ -11,6 +11,8 @@ import {
   BuildOutlined,
   ProfileOutlined,
   InfoCircleOutlined,
+  LogoutOutlined,
+  MenuOutlined,
   NotificationOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
@@ -63,6 +65,15 @@ export default function App() {
   const [userPhone, setUserPhone] = useState('');
   const [robotInitChecked, setRobotInitChecked] = useState(false);
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+
+  useEffect(() => {
+    const syncViewport = () => setIsMobile(window.innerWidth <= 768);
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
 
   useEffect(() => {
     if (location.pathname === '/login') {
@@ -231,6 +242,16 @@ export default function App() {
     return baseItems;
   }, [enableTroubleshoot, isAdmin, enableAdminIpBlacklist, enableAdminEnterpriseAuth]);
 
+  const handleLogout = async () => {
+    try {
+      await api.authLogoutAll();
+    } catch {
+      // Ignore remote logout errors and always clear the local session.
+    }
+    clearAccessToken();
+    window.location.href = '/login';
+  };
+
   if (!authReady) {
     return null;
   }
@@ -254,8 +275,70 @@ export default function App() {
     return <Navigate to="/dashboard" replace />;
   }
 
+  const pageRoutes = (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/robot-info" element={<RobotInfoPage />} />
+      <Route path="/robots" element={<RobotPage />} />
+      <Route path="/logs" element={<MessageLogPage />} />
+      <Route path="/group-tags" element={<GroupTagLibraryPage />} />
+      <Route path="/task-center" element={<TaskCenterPage />} />
+      <Route path="/scheduled-tasks" element={<ScheduledTaskPage />} />
+      <Route path="/groups" element={<GroupListPage />} />
+      <Route path="/inbox" element={<InboxPage />} />
+      <Route path="/command-tasks" element={<CommandTaskPage />} />
+      <Route path="/forward" element={<ForwardPage />} />
+      <Route path="/providers" element={<AIHubPage />} />
+      {enableTroubleshoot && isAdmin ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+
+  if (isMobile) {
+    return (
+      <Layout className="app-mobile-shell">
+        <Header className="mobile-topbar">
+          <Button type="text" icon={<MenuOutlined />} aria-label="打开导航" onClick={() => setMobileNavOpen(true)} />
+          <Typography.Text strong className="mobile-topbar-title">机器人管理系统</Typography.Text>
+          <Badge count={inboxUnreadCount} overflowCount={99} size="small">
+            <Button type="text" icon={<BellOutlined />} aria-label="站内信" onClick={() => navigate('/inbox')} />
+          </Badge>
+        </Header>
+        <Drawer
+          title="WorkTool Console"
+          placement="left"
+          width={280}
+          open={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          styles={{ body: { display: 'flex', flexDirection: 'column', padding: 12 } }}
+        >
+          <Menu mode="inline" selectedKeys={[location.pathname]} items={items} onClick={() => setMobileNavOpen(false)} />
+          <div className="mobile-drawer-footer">
+            <Button block icon={<BellOutlined />} onClick={() => { setMobileNavOpen(false); navigate('/inbox'); }}>
+              站内信
+            </Button>
+            <Button block href="/docs/" target="_blank" rel="noreferrer">使用文档</Button>
+            <Button block href="https://worktool.apifox.cn/" target="_blank" rel="noreferrer">API文档</Button>
+            <Button block href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">开源地址</Button>
+            <Typography.Text type="secondary">账号：{maskPhone(userPhone)}</Typography.Text>
+            <Button block icon={<LogoutOutlined />} onClick={() => void handleLogout()}>退出登录</Button>
+          </div>
+        </Drawer>
+        <Content className="mobile-content-wrap">{pageRoutes}</Content>
+      </Layout>
+    );
+  }
+
   return (
-    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
+    <Layout className="app-shell" style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider width={228} className="app-sider">
         <div className="app-sider-inner">
           <div className="app-sider-main">
@@ -279,13 +362,13 @@ export default function App() {
           </div>
         </div>
       </Sider>
-      <Layout style={{ minWidth: 0 }}>
+      <Layout className="app-main-layout" style={{ minWidth: 0 }}>
         <Header className="topbar">
-          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-            <Typography.Title level={4} style={{ margin: 0, color: '#304047' }}>
+          <div className="topbar-inner">
+            <Typography.Title className="topbar-title" level={4} style={{ margin: 0, color: '#304047' }}>
               机器人管理系统
             </Typography.Title>
-            <Space>
+            <Space className="topbar-actions" wrap>
               <Button href="/docs/" target="_blank" rel="noreferrer">
                 使用文档
               </Button>
@@ -296,15 +379,7 @@ export default function App() {
                 开源地址
               </Button>
               <Button
-                onClick={async () => {
-                  try {
-                    await api.authLogoutAll();
-                  } catch {
-                    // ignore remote logout errors
-                  }
-                  clearAccessToken();
-                  window.location.href = '/login';
-                }}
+                onClick={() => void handleLogout()}
               >
                 退出登录
               </Button>
@@ -312,30 +387,7 @@ export default function App() {
           </div>
         </Header>
         <Content className="content-wrap">
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/robot-info" element={<RobotInfoPage />} />
-            <Route path="/robots" element={<RobotPage />} />
-            <Route path="/logs" element={<MessageLogPage />} />
-            <Route path="/group-tags" element={<GroupTagLibraryPage />} />
-            <Route path="/task-center" element={<TaskCenterPage />} />
-            <Route path="/scheduled-tasks" element={<ScheduledTaskPage />} />
-            <Route path="/groups" element={<GroupListPage />} />
-            <Route path="/inbox" element={<InboxPage />} />
-            <Route path="/command-tasks" element={<CommandTaskPage />} />
-            <Route path="/forward" element={<ForwardPage />} />
-            <Route path="/providers" element={<AIHubPage />} />
-            {enableTroubleshoot && isAdmin ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
-            {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          {pageRoutes}
         </Content>
       </Layout>
     </Layout>
