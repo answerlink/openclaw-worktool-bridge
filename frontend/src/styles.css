@@ -76,6 +76,24 @@ html, body, #root {
   align-items: center;
 }
 
+.topbar-inner {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topbar-title {
+  flex: 0 0 auto;
+}
+
+.topbar-actions {
+  justify-content: flex-end;
+  min-width: 0;
+}
+
 .content-wrap {
   margin: 16px;
   background: #f6f3ed;
@@ -205,4 +223,304 @@ html, body, #root {
   user-select: text;
   line-height: 1.6;
   font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .app-mobile-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    background: #f6f3ed;
+  }
+
+  .mobile-topbar {
+    height: 52px;
+    min-height: 52px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #fffdf8;
+    border-bottom: 1px solid rgba(47, 59, 64, 0.08);
+  }
+
+  .mobile-topbar .ant-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .mobile-topbar-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 16px;
+    color: #304047;
+  }
+
+  .mobile-content-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 8px;
+    padding-bottom: 16px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-drawer-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid rgba(47, 59, 64, 0.08);
+  }
+
+  .ant-drawer-body > .ant-menu {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .app-shell {
+    display: block !important;
+    height: 100dvh !important;
+    overflow: hidden !important;
+  }
+
+  .app-sider {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    flex: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: auto !important;
+    border-right: none;
+    border-bottom: 1px solid rgba(47, 59, 64, 0.08);
+  }
+
+  .app-sider-inner {
+    height: auto;
+    display: block;
+  }
+
+  .app-sider-main {
+    display: block;
+  }
+
+  .brand {
+    padding: 10px 12px 6px;
+    font-size: 15px;
+    border-bottom: none;
+  }
+
+  .app-menu-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 8px 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-menu {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    padding-top: 0;
+    white-space: nowrap;
+  }
+
+  .app-menu.ant-menu-inline {
+    border-inline-end: none;
+  }
+
+  .app-menu .ant-menu-item,
+  .app-menu .ant-menu-submenu-title {
+    flex: 0 0 auto;
+    width: auto !important;
+    height: 36px !important;
+    line-height: 36px !important;
+    margin: 0 4px !important;
+    padding-inline: 12px !important;
+  }
+
+  .app-menu .ant-menu-item-divider {
+    display: none;
+  }
+
+  .app-sider-footer {
+    padding: 6px 12px 10px;
+    border-top: none;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .app-sider-footer .ant-btn {
+    width: auto;
+    min-width: 92px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .app-sider-footer .ant-typography {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-main-layout {
+    position: fixed;
+    top: 118px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: auto;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .topbar {
+    height: auto;
+    min-height: 52px;
+    padding: 8px 12px;
+    line-height: 1.2;
+  }
+
+  .topbar-inner {
+    align-items: flex-start;
+  }
+
+  .topbar-title {
+    font-size: 17px !important;
+    line-height: 32px !important;
+    white-space: nowrap;
+  }
+
+  .topbar-actions {
+    flex: 1 1 auto;
+    gap: 6px !important;
+  }
+
+  .topbar-actions .ant-btn {
+    height: 30px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .content-wrap,
+  .mobile-content-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    margin: 8px;
+    padding-bottom: 16px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ant-card {
+    border-radius: 8px;
+  }
+
+  .ant-card .ant-card-head {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+
+  .ant-card .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .ant-card .ant-card-head-title {
+    padding: 10px 0;
+    font-size: 15px;
+  }
+
+  .ant-card .ant-card-extra {
+    padding: 8px 0;
+    margin-inline-start: 0;
+  }
+
+  .ant-card .ant-card-body {
+    padding: 12px;
+  }
+
+  .ant-space {
+    max-width: 100%;
+  }
+
+  .ant-space-item {
+    max-width: 100%;
+  }
+
+  .ant-input,
+  .ant-input-number,
+  .ant-select,
+  .ant-picker {
+    max-width: 100%;
+  }
+
+  .ant-table-wrapper {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .ant-table {
+    font-size: 12px;
+  }
+
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px 10px;
+  }
+
+  .ant-pagination {
+    row-gap: 8px;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+  }
+
+  .ant-modal .ant-modal-content {
+    padding: 16px;
+  }
+
+  .ant-popover {
+    max-width: calc(100vw - 16px);
+  }
+
+  .wt-hover-preview-content {
+    max-height: 55vh;
+    font-size: 12px;
+  }
+
+  .robot-info-matrix {
+    min-width: 720px;
+  }
+
+  .callback-form-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .callback-action-row {
+    flex-wrap: wrap;
+  }
 }
