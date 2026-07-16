@@ -479,7 +479,7 @@ export default function ScheduledTaskPage() {
       title={(
         <Space direction="vertical" size={0}>
           <span>定时任务</span>
-          <Typography.Text type="secondary">配置越少越好：默认只需要填任务内容和执行时间；高级设置可按需展开。</Typography.Text>
+          <Typography.Text type="secondary">默认只需要填任务内容和执行时间；高级设置可按需展开。</Typography.Text>
         </Space>
       )}
       extra={
