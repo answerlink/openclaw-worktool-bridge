@@ -182,6 +182,142 @@ def db_conn() -> Any:
     return pymysql.connect(**_db_cfg())
 
 
+_AUDIT_SENSITIVE_KEYS = {
+    "api_token",
+    "api_key",
+    "password",
+    "password_hash",
+    "secret",
+    "machine_code",
+    "machinecode",
+}
+
+
+def _request_source_ip(request: Optional[Request]) -> str:
+    if request is None:
+        return ""
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded[:64]
+    real_ip = (request.headers.get("x-real-ip") or "").strip()
+    if real_ip:
+        return real_ip[:64]
+    return ((request.client.host if request.client else "") or "")[:64]
+
+
+def _audit_mask_value(value: Any) -> Any:
+    text = str(value or "")
+    if len(text) <= 8:
+        return "*" * len(text)
+    return f"{text[:4]}****{text[-4:]}"
+
+
+def _audit_sanitize(value: Any, key: str = "") -> Any:
+    normalized_key = key.replace("-", "_").lower()
+    if normalized_key in _AUDIT_SENSITIVE_KEYS or any(x in normalized_key for x in ("password", "token", "secret")):
+        return _audit_mask_value(value)
+    if isinstance(value, dict):
+        return {str(k): _audit_sanitize(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_audit_sanitize(v, key) for v in value]
+    if isinstance(value, tuple):
+        return [_audit_sanitize(v, key) for v in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _audit_json(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return json.dumps(_audit_sanitize(value), ensure_ascii=False, default=str)
+
+
+def _begin_admin_audit(
+    user: Dict[str, Any],
+    request: Optional[Request],
+    *,
+    module: str,
+    action_key: str,
+    action_name: str,
+    target_type: str,
+    target_id: str = "",
+    target_name: str = "",
+    before: Any = None,
+    upstream_path: str = "",
+) -> int:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO admin_operation_logs(
+                  module,action_key,action_name,target_type,target_id,target_name,
+                  operator_user_id,operator_phone,source_ip,before_json,upstream_path,status
+                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
+                """,
+                (
+                    module[:64],
+                    action_key[:64],
+                    action_name[:128],
+                    target_type[:64],
+                    target_id[:255] or None,
+                    target_name[:255] or None,
+                    int(user["id"]) if user.get("id") is not None else None,
+                    str(user.get("phone") or "").strip()[:20] or None,
+                    _request_source_ip(request) or None,
+                    _audit_json(before),
+                    upstream_path[:255] or None,
+                ),
+            )
+            audit_id = int(cur.lastrowid)
+        conn.commit()
+        return audit_id
+    finally:
+        conn.close()
+
+
+def _finish_admin_audit(
+    audit_id: int,
+    *,
+    status: Literal["success", "failed", "unknown"],
+    after: Any = None,
+    error_text: str = "",
+    target_id: str = "",
+    target_name: str = "",
+) -> None:
+    try:
+        conn = db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE admin_operation_logs
+                    SET status=%s,after_json=%s,error_text=%s,finished_at=CURRENT_TIMESTAMP,
+                        target_id=COALESCE(%s,target_id),target_name=COALESCE(%s,target_name)
+                    WHERE id=%s AND status='pending'
+                    """,
+                    (
+                        status,
+                        _audit_json(after),
+                        (error_text or "")[:1000] or None,
+                        target_id[:255] or None,
+                        target_name[:255] or None,
+                        int(audit_id),
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("admin audit completion failed audit_id=%s", audit_id)
+
+
+def _audit_failure(audit_id: int, exc: Exception) -> None:
+    detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+    _finish_admin_audit(audit_id, status="failed", error_text=str(detail or "operation failed"))
+
+
 def _worktool_db_cfg() -> Dict[str, Any]:
     host = os.getenv("WORKTOOL_DB_HOST", "").strip()
     port = int(os.getenv("WORKTOOL_DB_PORT", "3306").strip())
@@ -593,6 +729,34 @@ def init_db() -> None:
                   INDEX idx_pll_operator_time (operator_user_id, created_at),
                   INDEX idx_pll_machine_code (machine_code),
                   CONSTRAINT fk_private_license_logs_operator FOREIGN KEY (operator_user_id) REFERENCES users(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_operation_logs (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  module VARCHAR(64) NOT NULL,
+                  action_key VARCHAR(64) NOT NULL,
+                  action_name VARCHAR(128) NOT NULL,
+                  target_type VARCHAR(64) NOT NULL,
+                  target_id VARCHAR(255) NULL,
+                  target_name VARCHAR(255) NULL,
+                  operator_user_id BIGINT NULL,
+                  operator_phone VARCHAR(20) NULL,
+                  source_ip VARCHAR(64) NULL,
+                  before_json JSON NULL,
+                  after_json JSON NULL,
+                  upstream_path VARCHAR(255) NULL,
+                  status ENUM('pending','success','failed','unknown') NOT NULL DEFAULT 'pending',
+                  error_text VARCHAR(1000) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  finished_at DATETIME NULL,
+                  INDEX idx_aol_module_time (module, created_at),
+                  INDEX idx_aol_target_time (target_type, target_id, created_at),
+                  INDEX idx_aol_operator_time (operator_user_id, created_at),
+                  INDEX idx_aol_status_time (status, created_at),
+                  CONSTRAINT fk_admin_operation_logs_operator FOREIGN KEY (operator_user_id) REFERENCES users(id) ON DELETE SET NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -7657,7 +7821,11 @@ async def admin_list_inbox_messages(
 
 
 @app.post("/api/v1/admin/inbox/messages")
-async def admin_create_inbox_message(body: InboxMessageCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_create_inbox_message(
+    body: InboxMessageCreate,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     title = (body.title or "").strip()
     content = (body.content or "").strip()
@@ -7670,6 +7838,17 @@ async def admin_create_inbox_message(body: InboxMessageCreate, user: Dict[str, A
     expire_at = _parse_datetime_or_none(body.expire_at, raise_on_invalid=True)
     if expire_at and publish_at and expire_at <= publish_at:
         raise HTTPException(status_code=400, detail="expire_at must be greater than publish_at")
+
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="inbox", action_key="create", action_name="创建站内信",
+        target_type="inbox_message", target_name=title,
+        before={
+            "category": body.category, "level": body.level, "title": title, "content": content,
+            "recipient_scope": scope, "publish_now": bool(body.publish_now),
+            "publish_at": publish_at, "expire_at": expire_at,
+        },
+    )
 
     conn = db_conn()
     try:
@@ -7697,7 +7876,16 @@ async def admin_create_inbox_message(body: InboxMessageCreate, user: Dict[str, A
             if body.publish_now:
                 publish_result = _publish_inbox_message(conn, message_id)
         conn.commit()
+        _finish_admin_audit(
+            audit_id, status="success",
+            after={"id": message_id, "title": title, "status": "published" if bool(body.publish_now) else "draft"},
+            target_id=str(message_id), target_name=title,
+        )
         return {"ok": True, "id": message_id, **publish_result}
+    except Exception as exc:
+        conn.rollback()
+        _audit_failure(audit_id, exc)
+        raise
     finally:
         conn.close()
 
@@ -7706,6 +7894,7 @@ async def admin_create_inbox_message(body: InboxMessageCreate, user: Dict[str, A
 async def admin_update_inbox_message(
     message_id: int,
     body: InboxMessageUpdate,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
@@ -7745,6 +7934,22 @@ async def admin_update_inbox_message(
     if not updates:
         return {"ok": True}
 
+    before_conn = db_conn()
+    try:
+        with before_conn.cursor() as cur:
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            before = cur.fetchone()
+    finally:
+        before_conn.close()
+    if not before:
+        raise HTTPException(status_code=404, detail="站内信不存在")
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="inbox", action_key="update", action_name="编辑站内信",
+        target_type="inbox_message", target_id=str(message_id), target_name=str(before.get("title") or ""),
+        before=before,
+    )
+
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -7752,15 +7957,40 @@ async def admin_update_inbox_message(
             cur.execute(f"UPDATE inbox_messages SET {', '.join(updates)} WHERE id=%s", tuple(params))
             if cur.rowcount <= 0:
                 raise HTTPException(status_code=404, detail="站内信不存在")
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            after = cur.fetchone()
         conn.commit()
+        _finish_admin_audit(audit_id, status="success", after=after, target_name=str((after or {}).get("title") or ""))
         return {"ok": True}
+    except Exception as exc:
+        conn.rollback()
+        _audit_failure(audit_id, exc)
+        raise
     finally:
         conn.close()
 
 
 @app.delete("/api/v1/admin/inbox/messages/{message_id}")
-async def admin_delete_inbox_message(message_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_delete_inbox_message(
+    message_id: int,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
+    before_conn = db_conn()
+    try:
+        with before_conn.cursor() as cur:
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            before = cur.fetchone()
+    finally:
+        before_conn.close()
+    if not before:
+        raise HTTPException(status_code=404, detail="站内信不存在")
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="inbox", action_key="delete", action_name="删除站内信",
+        target_type="inbox_message", target_id=str(message_id), target_name=str(before.get("title") or ""), before=before,
+    )
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -7768,34 +7998,83 @@ async def admin_delete_inbox_message(message_id: int, user: Dict[str, Any] = Dep
             if cur.rowcount <= 0:
                 raise HTTPException(status_code=404, detail="站内信不存在")
         conn.commit()
+        _finish_admin_audit(audit_id, status="success", after=None)
         return {"ok": True}
+    except Exception as exc:
+        conn.rollback()
+        _audit_failure(audit_id, exc)
+        raise
     finally:
         conn.close()
 
 
 @app.post("/api/v1/admin/inbox/messages/{message_id}/publish")
-async def admin_publish_inbox_message(message_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_publish_inbox_message(
+    message_id: int,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     conn = db_conn()
     try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            before = cur.fetchone()
+        if not before:
+            raise HTTPException(status_code=404, detail="站内信不存在")
+        audit_id = _begin_admin_audit(
+            user, request,
+            module="inbox", action_key="publish", action_name="发布站内信",
+            target_type="inbox_message", target_id=str(message_id), target_name=str(before.get("title") or ""), before=before,
+        )
         result = _publish_inbox_message(conn, int(message_id))
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            after = cur.fetchone()
         conn.commit()
+        _finish_admin_audit(audit_id, status="success", after=after)
         return {"ok": True, **result}
+    except Exception as exc:
+        conn.rollback()
+        if "audit_id" in locals():
+            _audit_failure(audit_id, exc)
+        raise
     finally:
         conn.close()
 
 
 @app.post("/api/v1/admin/inbox/messages/{message_id}/offline")
-async def admin_offline_inbox_message(message_id: int, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_offline_inbox_message(
+    message_id: int,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     conn = db_conn()
     try:
         with conn.cursor() as cur:
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="站内信不存在")
+            audit_id = _begin_admin_audit(
+                user, request,
+                module="inbox", action_key="offline", action_name="下线站内信",
+                target_type="inbox_message", target_id=str(message_id), target_name=str(before.get("title") or ""), before=before,
+            )
             cur.execute("UPDATE inbox_messages SET status='offline' WHERE id=%s", (int(message_id),))
             if cur.rowcount <= 0:
                 raise HTTPException(status_code=404, detail="站内信不存在")
+            cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
+            after = cur.fetchone()
         conn.commit()
+        _finish_admin_audit(audit_id, status="success", after=after)
         return {"ok": True}
+    except Exception as exc:
+        conn.rollback()
+        if "audit_id" in locals():
+            _audit_failure(audit_id, exc)
+        raise
     finally:
         conn.close()
 
@@ -7821,28 +8100,58 @@ async def admin_ip_acl_blacklist_query(user: Dict[str, Any] = Depends(get_curren
 
 
 @app.post("/api/v1/admin/ip-acl/blacklist/add")
-async def admin_ip_acl_blacklist_add(ip: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_ip_acl_blacklist_add(
+    ip: str,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     _require_feature_enabled(ENABLE_ADMIN_IP_BLACKLIST, "admin ip blacklist")
     add_path = _require_configured_path(WORKTOOL_IPACL_ADD_PATH, "WORKTOOL_IPACL_ADD_PATH")
     target_ip = (ip or "").strip()
     if not _is_valid_ip(target_ip):
         raise HTTPException(status_code=400, detail="ip格式不合法")
-    res = await post_worktool_api(add_path, {"ip": target_ip, "type": "blacklist"})
-    _ensure_worktool_ok(res, "新增黑名单IP")
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="ip_blacklist", action_key="add", action_name="新增黑名单IP",
+        target_type="ip", target_id=target_ip, target_name=target_ip,
+        before={"ip": target_ip, "in_blacklist": False}, upstream_path=add_path,
+    )
+    try:
+        res = await post_worktool_api(add_path, {"ip": target_ip, "type": "blacklist"})
+        _ensure_worktool_ok(res, "新增黑名单IP")
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(audit_id, status="success", after={"ip": target_ip, "in_blacklist": True})
     return {"ok": True, "ip": target_ip}
 
 
 @app.post("/api/v1/admin/ip-acl/blacklist/delete")
-async def admin_ip_acl_blacklist_delete(ip: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_ip_acl_blacklist_delete(
+    ip: str,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     _require_feature_enabled(ENABLE_ADMIN_IP_BLACKLIST, "admin ip blacklist")
     delete_path = _require_configured_path(WORKTOOL_IPACL_DELETE_PATH, "WORKTOOL_IPACL_DELETE_PATH")
     target_ip = (ip or "").strip()
     if not _is_valid_ip(target_ip):
         raise HTTPException(status_code=400, detail="ip格式不合法")
-    res = await post_worktool_api(delete_path, {"ip": target_ip, "type": "blacklist"})
-    _ensure_worktool_ok(res, "删除黑名单IP")
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="ip_blacklist", action_key="delete", action_name="删除黑名单IP",
+        target_type="ip", target_id=target_ip, target_name=target_ip,
+        before={"ip": target_ip, "in_blacklist": True}, upstream_path=delete_path,
+    )
+    try:
+        res = await post_worktool_api(delete_path, {"ip": target_ip, "type": "blacklist"})
+        _ensure_worktool_ok(res, "删除黑名单IP")
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(audit_id, status="success", after={"ip": target_ip, "in_blacklist": False})
     return {"ok": True, "ip": target_ip}
 
 
@@ -7863,9 +8172,37 @@ async def admin_wework_authorization_list(
     return await fetch_worktool_api(list_path, params)
 
 
+def _find_wework_authorization_record(raw: Any, corp_id: str) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    candidates: List[Any] = []
+    data = raw.get("data")
+    if isinstance(data, list):
+        candidates.extend(data)
+    elif isinstance(data, dict):
+        candidates.append(data)
+        for key in ("list", "records", "items"):
+            if isinstance(data.get(key), list):
+                candidates.extend(data[key])
+    for key in ("list", "records", "items"):
+        if isinstance(raw.get(key), list):
+            candidates.extend(raw[key])
+    for row in candidates:
+        if isinstance(row, dict) and str(row.get("corpId") or row.get("corp_id") or "").strip() == corp_id:
+            return row
+    return None
+
+
+async def _get_wework_authorization_snapshot(corp_id: str) -> Optional[Dict[str, Any]]:
+    list_path = _require_configured_path(WORKTOOL_WEWORK_AUTH_LIST_PATH, "WORKTOOL_WEWORK_AUTH_LIST_PATH")
+    raw = await fetch_worktool_api(list_path, {"corpId": corp_id})
+    return _find_wework_authorization_record(raw, corp_id)
+
+
 @app.post("/api/v1/admin/wework/authorization/save")
 async def admin_wework_authorization_save(
     body: WeworkAuthorizationSaveRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
@@ -7882,20 +8219,82 @@ async def admin_wework_authorization_save(
         "expireTime": _normalize_wework_expire_time(body.expireTime),
         "remark": (body.remark or "").strip(),
     }
-    res = await post_worktool_api(save_path, body=payload)
-    _ensure_worktool_ok(res, "保存企业授权")
+    before = await _get_wework_authorization_snapshot(corp_id)
+    audit_id = _begin_admin_audit(
+        user,
+        request,
+        module="enterprise_authorization",
+        action_key="create" if before is None else "update",
+        action_name="新增企业授权" if before is None else "修改企业授权",
+        target_type="wework_authorization",
+        target_id=corp_id,
+        target_name=str(payload.get("corpName") or (before or {}).get("corpName") or ""),
+        before=before,
+        upstream_path=save_path,
+    )
+    try:
+        res = await post_worktool_api(save_path, body=payload)
+        _ensure_worktool_ok(res, "保存企业授权")
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    try:
+        after = await _get_wework_authorization_snapshot(corp_id)
+    except Exception as exc:
+        _finish_admin_audit(
+            audit_id,
+            status="unknown",
+            after={"request": payload, "upstream_result": res},
+            error_text=f"上游已返回成功，但回读授权状态失败：{exc}",
+        )
+    else:
+        _finish_admin_audit(audit_id, status="success", after=after or payload)
     return res
 
 
 @app.post("/api/v1/admin/wework/authorization/delete")
-async def admin_wework_authorization_delete(corp_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_wework_authorization_delete(
+    corp_id: str,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
     delete_path = _require_configured_path(WORKTOOL_WEWORK_AUTH_DELETE_PATH, "WORKTOOL_WEWORK_AUTH_DELETE_PATH")
     target = (corp_id or "").strip()
     if not target:
         raise HTTPException(status_code=400, detail="corp_id required")
-    return await post_worktool_api(delete_path, {"corpId": target})
+    before = await _get_wework_authorization_snapshot(target)
+    audit_id = _begin_admin_audit(
+        user,
+        request,
+        module="enterprise_authorization",
+        action_key="delete",
+        action_name="删除企业授权",
+        target_type="wework_authorization",
+        target_id=target,
+        target_name=str((before or {}).get("corpName") or ""),
+        before=before,
+        upstream_path=delete_path,
+    )
+    try:
+        res = await post_worktool_api(delete_path, {"corpId": target})
+        _ensure_worktool_ok(res, "删除企业授权")
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    try:
+        after = await _get_wework_authorization_snapshot(target)
+    except Exception as exc:
+        _finish_admin_audit(
+            audit_id,
+            status="unknown",
+            after={"delete_request": {"corpId": target}, "upstream_result": res},
+            error_text=f"上游已返回成功，但回读授权状态失败：{exc}",
+        )
+    else:
+        _finish_admin_audit(audit_id, status="success", after=after)
+    return res
 
 
 def _extract_migrated_robot_id(data: Any) -> str:
@@ -8078,15 +8477,31 @@ async def _admin_migrate_robot(
     worktool_path: str,
     action_key: str,
     action_name: str,
+    request: Request,
     user: Dict[str, Any],
 ) -> Dict[str, Any]:
     target = (old_robot_id or "").strip()
     if not target:
         raise HTTPException(status_code=400, detail="old_robot_id required")
     request_payload = {"oldRobotId": target}
-    res = await post_worktool_api(worktool_path, request_payload)
-    _ensure_worktool_ok(res, action_name)
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="robot_migrate", action_key=action_key, action_name=action_name,
+        target_type="robot", target_id=target, target_name=target,
+        before={"old_robot_id": target}, upstream_path=worktool_path,
+    )
+    try:
+        res = await post_worktool_api(worktool_path, request_payload)
+        _ensure_worktool_ok(res, action_name)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
     new_robot_id = _extract_migrated_robot_id(res)
+    _finish_admin_audit(
+        audit_id, status="success",
+        after={"old_robot_id": target, "new_robot_id": new_robot_id, "upstream_result": res},
+        target_name=new_robot_id or target,
+    )
     _insert_robot_migrate_log(
         user=user,
         action_key=action_key,
@@ -8103,37 +8518,41 @@ async def _admin_migrate_robot(
 @app.post("/api/v1/admin/robot-migrate/wework-to-wechat")
 async def admin_robot_migrate_wework_to_wechat(
     body: RobotMigrateRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToWechat", "wework-to-wechat", "企微换个微ID", user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToWechat", "wework-to-wechat", "企微换个微ID", request, user)
 
 
 @app.post("/api/v1/admin/robot-migrate/wechat-to-wework")
 async def admin_robot_migrate_wechat_to_wework(
     body: RobotMigrateRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToWework", "wechat-to-wework", "个微换企微ID", user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToWework", "wechat-to-wework", "个微换企微ID", request, user)
 
 
 @app.post("/api/v1/admin/robot-migrate/wework-to-new-wework")
 async def admin_robot_migrate_wework_to_new_wework(
     body: RobotMigrateRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToNewWework", "wework-to-new-wework", "企微换新的企微ID", user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/weworkToNewWework", "wework-to-new-wework", "企微换新的企微ID", request, user)
 
 
 @app.post("/api/v1/admin/robot-migrate/wechat-to-new-wechat")
 async def admin_robot_migrate_wechat_to_new_wechat(
     body: RobotMigrateRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToNewWechat", "wechat-to-new-wechat", "个微换新的个微ID", user)
+    return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToNewWechat", "wechat-to-new-wechat", "个微换新的个微ID", request, user)
 
 
 @app.get("/api/v1/admin/robot-migrate/logs")
@@ -8177,14 +8596,128 @@ async def admin_robot_migrate_logs(
         conn.close()
 
 
+def _decode_audit_json(value: Any) -> Any:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return value
+
+
+@app.get("/api/v1/admin/audit-logs")
+async def admin_operation_logs(
+    module: Optional[str] = None,
+    action_key: Optional[str] = None,
+    target_id: Optional[str] = None,
+    target_name: Optional[str] = None,
+    operator_phone: Optional[str] = None,
+    status: Optional[Literal["pending", "success", "failed", "unknown"]] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    where: List[str] = []
+    params: List[Any] = []
+    if (module or "").strip():
+        where.append("module=%s")
+        params.append((module or "").strip())
+    if (action_key or "").strip():
+        where.append("action_key=%s")
+        params.append((action_key or "").strip())
+    if (target_id or "").strip():
+        where.append("target_id LIKE %s")
+        params.append(f"%{(target_id or '').strip()}%")
+    if (target_name or "").strip():
+        where.append("target_name LIKE %s")
+        params.append(f"%{(target_name or '').strip()}%")
+    if (operator_phone or "").strip():
+        where.append("operator_phone LIKE %s")
+        params.append(f"%{(operator_phone or '').strip()}%")
+    if status:
+        where.append("status=%s")
+        params.append(status)
+    if (start_time or "").strip():
+        where.append("created_at >= %s")
+        params.append((start_time or "").strip())
+    if (end_time or "").strip():
+        where.append("created_at <= %s")
+        params.append((end_time or "").strip())
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(1) AS c FROM admin_operation_logs{where_sql}", tuple(params))
+            total = int((cur.fetchone() or {}).get("c") or 0)
+            offset = (page - 1) * page_size
+            cur.execute(
+                f"""
+                SELECT id,module,action_key,action_name,target_type,target_id,target_name,
+                       operator_user_id,operator_phone,source_ip,before_json,after_json,
+                       upstream_path,status,error_text,created_at,finished_at
+                FROM admin_operation_logs{where_sql}
+                ORDER BY id DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(params + [page_size, offset]),
+            )
+            rows = cur.fetchall() or []
+        items = []
+        for row in rows:
+            created_at = row.get("created_at")
+            finished_at = row.get("finished_at")
+            items.append(
+                {
+                    "id": int(row.get("id") or 0),
+                    "module": row.get("module") or "",
+                    "action_key": row.get("action_key") or "",
+                    "action_name": row.get("action_name") or "",
+                    "target_type": row.get("target_type") or "",
+                    "target_id": row.get("target_id") or "",
+                    "target_name": row.get("target_name") or "",
+                    "operator_user_id": row.get("operator_user_id"),
+                    "operator_phone": row.get("operator_phone") or "",
+                    "source_ip": row.get("source_ip") or "",
+                    "before": _decode_audit_json(row.get("before_json")),
+                    "after": _decode_audit_json(row.get("after_json")),
+                    "upstream_path": row.get("upstream_path") or "",
+                    "status": row.get("status") or "pending",
+                    "error_text": row.get("error_text") or "",
+                    "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or ""),
+                    "finished_at": finished_at.isoformat() if isinstance(finished_at, datetime) else str(finished_at or ""),
+                }
+            )
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+    finally:
+        conn.close()
+
+
 @app.post("/api/v1/admin/private-license/logs")
 async def admin_private_license_log_create(
     body: PrivateLicenseLogCreateRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
     _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
-    _insert_private_license_log(user, body)
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="private_license", action_key="generate", action_name="生成私有化授权",
+        target_type="machine", target_id=body.machine_code[-8:],
+        before=body.model_dump(),
+    )
+    try:
+        _insert_private_license_log(user, body)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(audit_id, status="success", after={"expire_date": body.expire_date, "restrict_robot": body.restrict_robot})
     return {"ok": True}
 
 
@@ -8319,6 +8852,13 @@ async def admin_app_update_upload(
     if not original.lower().endswith(".apk"):
         raise HTTPException(status_code=400, detail="仅支持上传 apk 文件")
 
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="app_update", action_key="upload", action_name="上传APK文件",
+        target_type="apk_file", target_id=f"{app}:{version}", target_name=original,
+        before={"app_name": app, "version_name": version, "original_filename": original},
+    )
+
     app_part = _safe_app_file_part(app)
     target_dir = Path(APP_UPLOAD_DIR) / "apk" / app_part
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -8333,6 +8873,9 @@ async def admin_app_update_upload(
                     break
                 written += len(chunk)
                 out.write(chunk)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
     finally:
         await file.close()
     if written <= 0:
@@ -8340,9 +8883,18 @@ async def admin_app_update_upload(
             target_path.unlink(missing_ok=True)
         except Exception:
             pass
-        raise HTTPException(status_code=400, detail="上传文件为空")
+        exc = HTTPException(status_code=400, detail="上传文件为空")
+        _audit_failure(audit_id, exc)
+        raise exc
 
     public_path = f"/uploads/apk/{quote(app_part)}/{quote(target_name)}"
+    _finish_admin_audit(
+        audit_id,
+        status="success",
+        after={"app_name": app, "version_name": version, "path": public_path, "size_bytes": written},
+        target_id=f"{app}:{version}",
+        target_name=target_name,
+    )
     return {
         "ok": True,
         "download_url": f"{_public_base_url_from_request(request)}{public_path}",
@@ -8354,6 +8906,7 @@ async def admin_app_update_upload(
 @app.post("/api/v1/admin/app-updates")
 async def admin_app_update_create(
     body: AdminAppUpdateCreateRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
@@ -8373,6 +8926,12 @@ async def admin_app_update_create(
             latest = _get_latest_app_update(cur, app)
             if latest is None:
                 raise HTTPException(status_code=400, detail="app_name 不存在，无法生成默认模板")
+            audit_id = _begin_admin_audit(
+                user, request,
+                module="app_update", action_key="create", action_name="创建App版本",
+                target_type="app_version", target_id=f"{app}:{version}", target_name=app,
+                before={"latest": _normalize_app_update_row(latest), "request": body.model_dump()},
+            )
             title = (body.title or "").strip() or f"v{version}更新啦~"
             update_log = body.update_log if body.update_log is not None else (latest.get("update_log") or "")
             remark = body.remark if body.remark is not None else (latest.get("remark") or "")
@@ -8419,9 +8978,12 @@ async def admin_app_update_create(
             )
             row = cur.fetchone()
         conn.commit()
+        _finish_admin_audit(audit_id, status="success", after=_normalize_app_update_row(row or {"id": new_id}))
         return {"ok": True, "item": _normalize_app_update_row(row or {"id": new_id})}
-    except Exception:
+    except Exception as exc:
         conn.rollback()
+        if "audit_id" in locals():
+            _audit_failure(audit_id, exc)
         raise
     finally:
         conn.close()
@@ -8430,6 +8992,7 @@ async def admin_app_update_create(
 @app.post("/api/v1/admin/app-updates/{update_id}/enable")
 async def admin_app_update_enable(
     update_id: int,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
@@ -8443,6 +9006,21 @@ async def admin_app_update_enable(
             app_name = target.get("app_name") or ""
             if not app_name:
                 raise HTTPException(status_code=400, detail="app_name empty")
+            cur.execute(
+                """
+                SELECT id,app_name,version_name,version_code,enable,create_time
+                FROM app_update WHERE app_name=%s AND enable=1
+                ORDER BY create_time DESC,id DESC
+                """,
+                (app_name,),
+            )
+            before_enabled = cur.fetchall() or []
+            audit_id = _begin_admin_audit(
+                user, request,
+                module="app_update", action_key="enable", action_name="启用App版本",
+                target_type="app_version", target_id=str(update_id), target_name=app_name,
+                before={"target": target, "enabled_versions": before_enabled},
+            )
             cur.execute("UPDATE app_update SET enable=0 WHERE app_name=%s AND id<>%s", (app_name, int(update_id)))
             cur.execute("UPDATE app_update SET enable=1 WHERE id=%s", (int(update_id),))
             cur.execute(
@@ -8456,9 +9034,12 @@ async def admin_app_update_enable(
             )
             row = cur.fetchone()
         conn.commit()
+        _finish_admin_audit(audit_id, status="success", after={"enabled_version": _normalize_app_update_row(row or {"id": int(update_id)})})
         return {"ok": True, "item": _normalize_app_update_row(row or {"id": int(update_id)})}
-    except Exception:
+    except Exception as exc:
         conn.rollback()
+        if "audit_id" in locals():
+            _audit_failure(audit_id, exc)
         raise
     finally:
         conn.close()
@@ -8535,7 +9116,11 @@ async def admin_list_users(
 
 
 @app.post("/api/v1/admin/users")
-async def admin_create_user(body: AdminCreateUserRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+async def admin_create_user(
+    body: AdminCreateUserRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
     _require_admin(user)
     phone = (body.phone or "").strip()
     password = body.password or ""
@@ -8544,6 +9129,13 @@ async def admin_create_user(body: AdminCreateUserRequest, user: Dict[str, Any] =
         raise HTTPException(status_code=400, detail="手机号格式不合法")
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="密码长度至少8位")
+
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="user_management", action_key="create", action_name="创建用户",
+        target_type="user", target_id=phone, target_name=company_name or phone,
+        before={"phone": phone, "company_name": company_name},
+    )
 
     conn = db_conn()
     try:
@@ -8557,7 +9149,16 @@ async def admin_create_user(body: AdminCreateUserRequest, user: Dict[str, Any] =
             )
             uid = int(cur.lastrowid)
         conn.commit()
+        _finish_admin_audit(
+            audit_id, status="success",
+            after={"id": uid, "phone": phone, "company_name": company_name, "is_active": True},
+            target_id=str(uid), target_name=company_name or phone,
+        )
         return {"ok": True, "id": uid, "phone": phone}
+    except Exception as exc:
+        conn.rollback()
+        _audit_failure(audit_id, exc)
+        raise
     finally:
         conn.close()
 
