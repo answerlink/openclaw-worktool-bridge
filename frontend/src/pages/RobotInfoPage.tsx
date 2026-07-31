@@ -20,6 +20,13 @@ const tabToType: Record<CallbackTabKey, number | null> = {
   online_status: 5
 };
 
+const groupQrCallbackExample = `{
+  "messageId": "1942501372444566650",
+  "type": 207,
+  "qrCode": "https://c.weixin.com/g/rlaIbU-GvukjXx",
+  "groupName": "华东客户服务交流群"
+}`;
+
 function fmtTime(ms?: number) {
   if (!ms) return '';
   const d = new Date(ms);
@@ -311,7 +318,17 @@ export default function RobotInfoPage() {
     if (tabKey === 'group_qr') {
       Modal.info({
         title: '群二维码回调说明',
-        content: '创建群和修改群配置指令执行时回调 每次都是最新的码7天有效 另：app进设置-高级设置-打开获取群二维码',
+        width: 720,
+        content: (
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Typography.Text>创建群和修改群配置指令执行时会触发回调，二维码始终为最新二维码，有效期为 7 天。</Typography.Text>
+            <Typography.Text>也可在 App 的“设置 - 高级设置”中打开“获取群二维码”。</Typography.Text>
+            <Typography.Text>平台会向回调地址发送 POST 请求，Content-Type 为 application/json。</Typography.Text>
+            <pre style={{ margin: 0, padding: 12, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f5f5f5', borderRadius: 6 }}>
+              {groupQrCallbackExample}
+            </pre>
+          </Space>
+        ),
       });
       return;
     }

@@ -25,6 +25,21 @@
 
 这时可以手工填写回调地址。
 
+## 群二维码回调说明
+
+当机器人收到群二维码时，平台会向配置的回调地址发送 POST 请求，Content-Type 为 application/json。
+
+示例请求体：
+
+```json
+{
+  "messageId": "1942501372444566650",
+  "type": 207,
+  "qrCode": "https://c.weixin.com/g/rlaIbU-GvukjXx",
+  "groupName": "华东客户服务交流群"
+}
+```
+
 ## 常见问题
 
 - 保存失败：检查地址是否可访问、证书是否正常
