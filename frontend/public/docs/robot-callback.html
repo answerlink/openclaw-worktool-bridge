@@ -33,6 +33,15 @@
 </ul>
 <h2 id="什么时候需要自定义回调">什么时候需要自定义回调</h2><p>你已有自建系统，且希望 WorkTool 消息同时进入你自己的服务。</p>
 <p>这时可以手工填写回调地址。</p>
+<h2 id="群二维码回调说明">群二维码回调说明</h2><p>当机器人收到群二维码时，平台会向配置的回调地址发送 POST 请求，Content-Type 为 application/json。</p>
+<p>示例请求体：</p>
+<pre><code class="language-json">{
+  &quot;messageId&quot;: &quot;1942501372444566650&quot;,
+  &quot;type&quot;: 207,
+  &quot;qrCode&quot;: &quot;https://c.weixin.com/g/rlaIbU-GvukjXx&quot;,
+  &quot;groupName&quot;: &quot;华东客户服务交流群&quot;
+}
+</code></pre>
 <h2 id="常见问题">常见问题</h2><ul>
 <li>保存失败：检查地址是否可访问、证书是否正常</li>
 <li>收不到消息：检查 WorkTool 侧是否确实绑定到目标地址</li>
@@ -48,7 +57,7 @@
     </main>
     <aside class="toc-wrap">
       <div class="toc-title">本页目录</div>
-      <nav class="toc"><a class="toc-item toc-1" href="#机器人与回调配置">机器人与回调配置</a><a class="toc-item toc-2" href="#添加机器人">添加机器人</a><a class="toc-item toc-2" href="#回调配置建议">回调配置建议</a><a class="toc-item toc-2" href="#什么时候需要自定义回调">什么时候需要自定义回调</a><a class="toc-item toc-2" href="#常见问题">常见问题</a></nav>
+      <nav class="toc"><a class="toc-item toc-1" href="#机器人与回调配置">机器人与回调配置</a><a class="toc-item toc-2" href="#添加机器人">添加机器人</a><a class="toc-item toc-2" href="#回调配置建议">回调配置建议</a><a class="toc-item toc-2" href="#什么时候需要自定义回调">什么时候需要自定义回调</a><a class="toc-item toc-2" href="#群二维码回调说明">群二维码回调说明</a><a class="toc-item toc-2" href="#常见问题">常见问题</a></nav>
     </aside>
   </div>
   <script>
