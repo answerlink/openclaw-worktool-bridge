@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://console.worktool.ymdyes.cn/</loc><lastmod>2026-07-10</lastmod><priority>0.6</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/login</loc><lastmod>2026-07-10</lastmod><priority>0.3</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/overview.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/quickstart.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/core-concepts.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/robot-callback.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/rules.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/ai-provider.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/forwarding.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/monitoring.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/faq.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/admin.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/deploy.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
-  <url><loc>https://console.worktool.ymdyes.cn/docs/env-reference.html</loc><lastmod>2026-07-10</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/</loc><lastmod>2026-07-31</lastmod><priority>0.6</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/login</loc><lastmod>2026-07-31</lastmod><priority>0.3</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/overview.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/quickstart.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/core-concepts.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/robot-callback.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/rules.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/ai-provider.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/forwarding.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/monitoring.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/faq.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/admin.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/deploy.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
+  <url><loc>https://console.worktool.ymdyes.cn/docs/env-reference.html</loc><lastmod>2026-07-31</lastmod><priority>0.8</priority></url>
 </urlset>
