@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { Badge, Button, Drawer, Layout, Menu, Space, Typography } from 'antd';
 import {
   DashboardOutlined,
+  FileSearchOutlined,
   RobotOutlined,
   FileTextOutlined,
   ApiOutlined,
@@ -41,6 +42,7 @@ import IpBlacklistPage from './pages/IpBlacklistPage';
 import EnterpriseAuthorizationPage, { PrivateLicenseAuthorizationPage } from './pages/EnterpriseAuthorizationPage';
 import RobotMigratePage from './pages/RobotMigratePage';
 import AppManagementPage from './pages/AppManagementPage';
+import AdminAuditLogPage from './pages/AdminAuditLogPage';
 import { api, clearAccessToken, getAccessToken } from './api';
 
 const { Header, Sider, Content } = Layout;
@@ -228,6 +230,7 @@ export default function App() {
       adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
       adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换</Link> });
       adminItems.push({ key: '/app-management', icon: <AppstoreOutlined />, label: <Link to="/app-management">App管理</Link> });
+      adminItems.push({ key: '/admin-audit-logs', icon: <FileSearchOutlined />, label: <Link to="/admin-audit-logs">管理员审计日志</Link> });
       if (enableAdminIpBlacklist) {
         adminItems.push({ key: '/ip-blacklist', icon: <StopOutlined />, label: <Link to="/ip-blacklist">黑名单管理</Link> });
       }
@@ -295,6 +298,7 @@ export default function App() {
       {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
       {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
       {isAdmin ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
+      {isAdmin ? <Route path="/admin-audit-logs" element={<AdminAuditLogPage />} /> : <Route path="/admin-audit-logs" element={<Navigate to="/dashboard" replace />} />}
       {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
       {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
       {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}

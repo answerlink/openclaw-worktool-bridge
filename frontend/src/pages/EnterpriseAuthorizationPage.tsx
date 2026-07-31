@@ -14,6 +14,20 @@ interface AuthRow {
   remark?: string;
 }
 
+interface EnterpriseAuditRow {
+  id: number;
+  action_name: string;
+  target_id: string;
+  target_name: string;
+  operator_phone: string;
+  status: 'pending' | 'success' | 'failed' | 'unknown';
+  before: any;
+  after: any;
+  upstream_path: string;
+  error_text: string;
+  created_at: string;
+}
+
 interface PrivateLicenseLogRow {
   id: number;
   operator_phone: string;
@@ -450,6 +464,8 @@ export default function EnterpriseAuthorizationPage() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<AuthRow | null>(null);
   const [form] = Form.useForm();
+  const [auditRows, setAuditRows] = useState<EnterpriseAuditRow[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -467,8 +483,22 @@ export default function EnterpriseAuthorizationPage() {
     }
   };
 
+  const loadAuditLogs = async () => {
+    setAuditLoading(true);
+    try {
+      const res = await api.adminAuditLogs({ module: 'enterprise_authorization', page: 1, page_size: 20 });
+      setAuditRows(res?.items || []);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '加载企业授权操作记录失败');
+      setAuditRows([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
   useEffect(() => {
     void load();
+    void loadAuditLogs();
   }, []);
 
   const columns = useMemo(
@@ -515,6 +545,7 @@ export default function EnterpriseAuthorizationPage() {
                   await api.adminWeworkAuthorizationDelete(row.corpId);
                   message.success('删除成功');
                   await load();
+                  await loadAuditLogs();
                 } catch (e: any) {
                   message.error(e?.response?.data?.detail || '删除失败');
                 }
@@ -529,7 +560,41 @@ export default function EnterpriseAuthorizationPage() {
     []
   );
 
+  const auditColumns = useMemo(
+    () => [
+      { title: '时间', dataIndex: 'created_at', width: 180 },
+      { title: '操作者', dataIndex: 'operator_phone', width: 140, render: (v: string) => v || '-' },
+      { title: '操作', dataIndex: 'action_name', width: 140 },
+      { title: 'CorpId', dataIndex: 'target_id', width: 220, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={200} popupWidth={640} /> },
+      { title: '企业名称', dataIndex: 'target_name', width: 180, render: (v: string) => v || '-' },
+      {
+        title: '结果',
+        dataIndex: 'status',
+        width: 100,
+        render: (v: EnterpriseAuditRow['status']) => <Tag color={v === 'success' ? 'green' : v === 'failed' ? 'red' : v === 'unknown' ? 'orange' : 'blue'}>{v === 'success' ? '成功' : v === 'failed' ? '失败' : v === 'unknown' ? '待核对' : '处理中'}</Tag>,
+      },
+      {
+        title: '详情',
+        width: 90,
+        render: (_: unknown, row: EnterpriseAuditRow) => (
+          <Button
+            size="small"
+            onClick={() => Modal.info({
+              title: `${row.action_name} - 审计详情`,
+              width: 860,
+              content: <pre style={{ margin: 0, maxHeight: '60vh', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{JSON.stringify({ before: row.before, after: row.after, upstream_path: row.upstream_path, error_text: row.error_text }, null, 2)}</pre>,
+            })}
+          >
+            查看
+          </Button>
+        ),
+      },
+    ],
+    []
+  );
+
   return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
     <Card
       title="企业定制开通"
       extra={(
@@ -603,6 +668,7 @@ export default function EnterpriseAuthorizationPage() {
             message.success('保存成功');
             setOpen(false);
             await load();
+            await loadAuditLogs();
           } catch (e: any) {
             message.error(e?.response?.data?.detail || '保存失败');
           } finally {
@@ -638,5 +704,17 @@ export default function EnterpriseAuthorizationPage() {
         </Form>
       </Modal>
     </Card>
+    <Card title="最近企业授权操作记录" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadAuditLogs()} loading={auditLoading}>刷新</Button>}>
+      <Table
+        rowKey="id"
+        loading={auditLoading}
+        dataSource={auditRows}
+        columns={auditColumns}
+        pagination={false}
+        scroll={{ x: 1050 }}
+        locale={{ emptyText: '暂无操作记录（审计上线后开始记录）' }}
+      />
+    </Card>
+    </Space>
   );
 }

@@ -111,6 +111,18 @@ export const api = {
     robot_limit?: number;
   }) => http.post('/admin/private-license/logs', payload).then((r) => r.data),
   adminPrivateLicenseLogs: (limit = 10) => http.get('/admin/private-license/logs', { params: { limit } }).then((r) => r.data),
+  adminAuditLogs: (params?: {
+    module?: string;
+    action_key?: string;
+    target_id?: string;
+    target_name?: string;
+    operator_phone?: string;
+    status?: 'pending' | 'success' | 'failed' | 'unknown';
+    start_time?: string;
+    end_time?: string;
+    page?: number;
+    page_size?: number;
+  }) => http.get('/admin/audit-logs', { params }).then((r) => r.data),
   adminAppUpdateApps: () => http.get('/admin/app-updates/apps').then((r) => r.data),
   adminAppUpdates: (appName: string) => http.get('/admin/app-updates', { params: { app_name: appName } }).then((r) => r.data),
   adminAppUpdateUpload: (payload: { app_name: string; version_name: string; file: File }) => {
