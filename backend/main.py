@@ -1365,10 +1365,19 @@ class AuthResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class AuthChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class AdminCreateUserRequest(BaseModel):
     phone: str
     password: str
     company_name: Optional[str] = None
+
+
+class AdminUpdateUserPasswordRequest(BaseModel):
+    new_password: str
 
 
 class WeworkAuthorizationSaveRequest(BaseModel):
@@ -4552,6 +4561,37 @@ async def auth_reset_password(body: AuthResetPasswordRequest) -> Dict[str, Any]:
             )
         conn.commit()
         return {"ok": True, "message": "密码已重置"}
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/auth/password/change")
+async def auth_change_password(
+    body: AuthChangePasswordRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    current_password = body.current_password or ""
+    new_password = body.new_password or ""
+    if not current_password:
+        raise HTTPException(status_code=400, detail="请输入当前密码")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="密码长度至少8位")
+    if current_password == new_password:
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM users WHERE id=%s FOR UPDATE", (int(user["id"]),))
+            row = cur.fetchone()
+            if not row or not _verify_password(current_password, str(row["password_hash"])):
+                raise HTTPException(status_code=400, detail="当前密码错误")
+            cur.execute(
+                "UPDATE users SET password_hash=%s, token_version=token_version+1 WHERE id=%s",
+                (_hash_password(new_password), int(user["id"])),
+            )
+        conn.commit()
+        return {"ok": True, "message": "密码已修改，请重新登录"}
     finally:
         conn.close()
 
@@ -9159,6 +9199,56 @@ async def admin_create_user(
         conn.rollback()
         _audit_failure(audit_id, exc)
         raise
+    finally:
+        conn.close()
+
+
+@app.put("/api/v1/admin/users/{user_id}/password")
+async def admin_update_user_password(
+    user_id: int,
+    body: AdminUpdateUserPasswordRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    new_password = body.new_password or ""
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="密码长度至少8位")
+
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id,phone,company_name FROM users WHERE id=%s LIMIT 1", (int(user_id),))
+            target = cur.fetchone()
+            if not target:
+                raise HTTPException(status_code=404, detail="用户不存在")
+
+        target_phone = str(target.get("phone") or "")
+        target_name = str(target.get("company_name") or target_phone)
+        audit_id = _begin_admin_audit(
+            user, request,
+            module="user_management", action_key="change_password", action_name="修改用户密码",
+            target_type="user", target_id=str(user_id), target_name=target_name,
+            before={"id": int(user_id), "phone": target_phone, "company_name": target.get("company_name")},
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET password_hash=%s, token_version=token_version+1 WHERE id=%s",
+                    (_hash_password(new_password), int(user_id)),
+                )
+                if cur.rowcount != 1:
+                    raise HTTPException(status_code=404, detail="用户不存在")
+            conn.commit()
+            _finish_admin_audit(
+                audit_id, status="success",
+                after={"id": int(user_id), "phone": target_phone, "sessions_revoked": True},
+            )
+            return {"ok": True, "message": "密码已修改，用户需重新登录"}
+        except Exception as exc:
+            conn.rollback()
+            _audit_failure(audit_id, exc)
+            raise
     finally:
         conn.close()
 
