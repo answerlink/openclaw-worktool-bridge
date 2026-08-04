@@ -65,6 +65,8 @@ export const api = {
     http.post('/auth/register', payload).then((r) => r.data),
   authResetPassword: (payload: { phone: string; sms_code: string; new_password: string }) =>
     http.post('/auth/password/reset', payload).then((r) => r.data),
+  authChangePassword: (payload: { current_password: string; new_password: string }) =>
+    http.post('/auth/password/change', payload).then((r) => r.data),
   inboxUnreadCount: () => http.get('/inbox/unread-count').then((r) => r.data),
   inboxMessages: (params: { page?: number; page_size?: number; status?: 'all' | 'read' | 'unread' }) =>
     http.get('/inbox/messages', { params }).then((r) => r.data),
@@ -151,6 +153,8 @@ export const api = {
     http.get('/admin/users', { params }).then((r) => r.data),
   adminCreateUser: (payload: { phone: string; password: string; company_name?: string }) =>
     http.post('/admin/users', payload).then((r) => r.data),
+  adminUpdateUserPassword: (userId: number, payload: { new_password: string }) =>
+    http.put(`/admin/users/${userId}/password`, payload).then((r) => r.data),
   health: () => http.get('/health').then((r) => r.data),
   getOverview: () => http.get('/dashboard/overview').then((r) => r.data),
   getTrends: (days = 7) => http.get('/dashboard/trends', { params: { days } }).then((r) => r.data),

@@ -48,6 +48,9 @@ export default function UserManagementPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createForm] = Form.useForm();
+  const [passwordTarget, setPasswordTarget] = useState<AdminUserItem | null>(null);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordForm] = Form.useForm();
 
   const load = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
@@ -124,7 +127,23 @@ export default function UserManagementPage() {
                 {(vals || []).length ? (vals || []).map((x) => <Tag key={x}>{x}</Tag>) : '-'}
               </Space>
             )
-          }
+          },
+          {
+            title: '操作',
+            width: 110,
+            fixed: 'right' as const,
+            render: (_: unknown, row: AdminUserItem) => (
+              <Button
+                size="small"
+                onClick={() => {
+                  passwordForm.resetFields();
+                  setPasswordTarget(row);
+                }}
+              >
+                修改密码
+              </Button>
+            )
+          },
         ]}
       />
       <Modal
@@ -174,6 +193,57 @@ export default function UserManagementPage() {
           </Form.Item>
           <Form.Item name="company_name" label="企业名称（可选）">
             <Input />
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        title={`修改密码${passwordTarget ? `：${passwordTarget.phone}` : ''}`}
+        open={Boolean(passwordTarget)}
+        onCancel={() => setPasswordTarget(null)}
+        confirmLoading={passwordLoading}
+        okText="确认修改"
+        onOk={async () => {
+          if (!passwordTarget) return;
+          const values = await passwordForm.validateFields();
+          setPasswordLoading(true);
+          try {
+            await api.adminUpdateUserPassword(passwordTarget.id, { new_password: String(values.new_password || '') });
+            message.success('密码已修改，该用户需要重新登录');
+            setPasswordTarget(null);
+          } catch (e: any) {
+            message.error(e?.response?.data?.detail || e?.message || '修改密码失败');
+          } finally {
+            setPasswordLoading(false);
+          }
+        }}
+      >
+        <Form form={passwordForm} layout="vertical">
+          <Form.Item
+            name="new_password"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 8, message: '密码至少8位' },
+            ]}
+          >
+            <Input.Password placeholder="至少8位" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirm_password"
+            label="确认新密码"
+            dependencies={['new_password']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  return !value || getFieldValue('new_password') === value
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('两次输入的密码不一致'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="再次输入新密码" autoComplete="new-password" />
           </Form.Item>
         </Form>
       </Modal>

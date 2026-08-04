@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { Badge, Button, Drawer, Layout, Menu, Space, Typography } from 'antd';
+import { Badge, Button, Drawer, Form, Input, Layout, Menu, Modal, Space, Typography, message } from 'antd';
 import {
   DashboardOutlined,
   FileSearchOutlined,
@@ -12,6 +12,7 @@ import {
   BuildOutlined,
   ProfileOutlined,
   InfoCircleOutlined,
+  KeyOutlined,
   LogoutOutlined,
   MenuOutlined,
   NotificationOutlined,
@@ -53,6 +54,67 @@ function maskPhone(phone?: string) {
     return `${p.slice(0, 3)}****${p.slice(7)}`;
   }
   return p || '-';
+}
+
+function ChangePasswordButton({ block = false }: { block?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [form] = Form.useForm();
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    setLoading(true);
+    try {
+      await api.authChangePassword({
+        current_password: String(values.current_password || ''),
+        new_password: String(values.new_password || ''),
+      });
+      message.success('密码已修改，请使用新密码重新登录');
+      clearAccessToken();
+      window.location.href = '/login';
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || e?.message || '修改密码失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Button block={block} icon={<KeyOutlined />} onClick={() => { form.resetFields(); setOpen(true); }}>修改密码</Button>
+      <Modal title="修改登录密码" open={open} onCancel={() => setOpen(false)} onOk={() => void submit()} confirmLoading={loading} okText="确认修改">
+        <Form form={form} layout="vertical">
+          <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+          <Form.Item
+            name="new_password"
+            label="新密码"
+            rules={[{ required: true, message: '请输入新密码' }, { min: 8, message: '密码至少8位' }]}
+          >
+            <Input.Password placeholder="至少8位" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirm_password"
+            label="确认新密码"
+            dependencies={['new_password']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  return !value || getFieldValue('new_password') === value
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('两次输入的密码不一致'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
 }
 
 export default function App() {
@@ -333,6 +395,7 @@ export default function App() {
             <Button block href="https://worktool.apifox.cn/" target="_blank" rel="noreferrer">API文档</Button>
             <Button block href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">开源地址</Button>
             <Typography.Text type="secondary">账号：{maskPhone(userPhone)}</Typography.Text>
+            <ChangePasswordButton block />
             <Button block icon={<LogoutOutlined />} onClick={() => void handleLogout()}>退出登录</Button>
           </div>
         </Drawer>
@@ -382,6 +445,7 @@ export default function App() {
               <Button href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">
                 开源地址
               </Button>
+              <ChangePasswordButton />
               <Button
                 onClick={() => void handleLogout()}
               >
