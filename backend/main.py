@@ -44,6 +44,7 @@ WORKTOOL_IPACL_DELETE_PATH = os.getenv("WORKTOOL_IPACL_DELETE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_LIST_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_LIST_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_SAVE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_SAVE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_DELETE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_DELETE_PATH", "").strip()
+WORKTOOL_RENEW_TOKEN = os.getenv("WORKTOOL_RENEW_TOKEN", "").strip()
 APP_UPLOAD_DIR = os.getenv("APP_UPLOAD_DIR", "/data/uploads").strip() or "/data/uploads"
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
 OPEN_TROUBLESHOOT_API_KEY = os.getenv("OPEN_TROUBLESHOOT_API_KEY", "").strip()
@@ -1393,6 +1394,15 @@ class RobotMigrateRequest(BaseModel):
     old_robot_id: str
 
 
+class RobotRenewRequest(BaseModel):
+    robot_id: str
+    expire_date: str
+
+
+class RobotDisableRequest(BaseModel):
+    robot_id: str
+
+
 class PrivateLicenseLogCreateRequest(BaseModel):
     machine_code: str
     expire_date: str
@@ -2416,6 +2426,35 @@ async def post_worktool_api(path: str, params: Optional[Dict[str, Any]] = None, 
                     preview,
                 )
                 raise HTTPException(status_code=502, detail="worktool response is not valid json")
+            return data if isinstance(data, dict) else {"data": data}
+
+
+async def post_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    if not WORKTOOL_RENEW_TOKEN:
+        raise HTTPException(status_code=503, detail="WORKTOOL_RENEW_TOKEN not configured")
+    url = f"{get_worktool_api_base()}{path}"
+    safe_params = {k: v for k, v in (params or {}).items() if v is not None}
+    timeout = aiohttp.ClientTimeout(total=10)
+    headers = {"X-Worktool-Renew-Token": WORKTOOL_RENEW_TOKEN}
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(url, params=safe_params, headers=headers) as resp:
+            raw = await resp.text()
+            if resp.status != 200:
+                detail_msg = f"worktool request failed: status={resp.status}"
+                if raw.strip():
+                    try:
+                        err_data = json.loads(raw)
+                        if isinstance(err_data, dict) and (err_data.get("message") or err_data.get("msg")):
+                            detail_msg = f"worktool request failed: {err_data.get('message') or err_data.get('msg')}"
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=400, detail=detail_msg)
+            if not raw.strip():
+                raise HTTPException(status_code=502, detail="worktool response empty")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=502, detail="worktool response is not valid json") from exc
             return data if isinstance(data, dict) else {"data": data}
 
 
@@ -8555,6 +8594,60 @@ async def _admin_migrate_robot(
     return {"ok": True, "action": action_name, "old_robot_id": target, "new_robot_id": new_robot_id, "result": res}
 
 
+def _normalize_renew_expire_date(value: str) -> str:
+    raw = (value or "").strip()
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail="expire_date must be yyyy-MM-dd or yyyyMMdd")
+
+
+async def _admin_robot_renew_operation(
+    robot_id: str,
+    action_key: str,
+    action_name: str,
+    worktool_path: str,
+    request: Request,
+    user: Dict[str, Any],
+    expire_date: str = "",
+) -> Dict[str, Any]:
+    target = (robot_id or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="robot_id required")
+    params: Dict[str, Any] = {"robotId": target}
+    if expire_date:
+        params["expireDate"] = expire_date
+    audit_id = _begin_admin_audit(
+        user, request,
+        module="robot_migrate", action_key=action_key, action_name=action_name,
+        target_type="robot", target_id=target, target_name=target,
+        before={"robot_id": target, "expire_date": expire_date or None}, upstream_path=worktool_path,
+    )
+    try:
+        res = await post_worktool_renew_api(worktool_path, params)
+        _ensure_worktool_ok(res, action_name)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(
+        audit_id, status="success",
+        after={"robot_id": target, "expire_date": expire_date or None, "upstream_result": res},
+    )
+    _insert_robot_migrate_log(
+        user=user,
+        action_key=action_key,
+        action_name=action_name,
+        old_robot_id=target,
+        new_robot_id="",
+        worktool_path=worktool_path,
+        request_payload=params,
+        result_payload=res,
+    )
+    return {"ok": True, "action": action_name, "robot_id": target, "result": res}
+
+
 @app.post("/api/v1/admin/robot-migrate/wework-to-wechat")
 async def admin_robot_migrate_wework_to_wechat(
     body: RobotMigrateRequest,
@@ -8595,6 +8688,31 @@ async def admin_robot_migrate_wechat_to_new_wechat(
     return await _admin_migrate_robot(body.old_robot_id, "/robot/robotInfo/migrate/wechatToNewWechat", "wechat-to-new-wechat", "个微换新的个微ID", request, user)
 
 
+@app.post("/api/v1/admin/robot-migrate/renew")
+async def admin_robot_migrate_renew(
+    body: RobotRenewRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    expire_date = _normalize_renew_expire_date(body.expire_date)
+    return await _admin_robot_renew_operation(
+        body.robot_id, "renew", "机器人续期", "/robot/robotInfo/admin/updateAuthExpir", request, user, expire_date
+    )
+
+
+@app.post("/api/v1/admin/robot-migrate/disable")
+async def admin_robot_migrate_disable(
+    body: RobotDisableRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    return await _admin_robot_renew_operation(
+        body.robot_id, "disable", "停用机器人", "/robot/robotInfo/admin/disable", request, user
+    )
+
+
 @app.get("/api/v1/admin/robot-migrate/logs")
 async def admin_robot_migrate_logs(
     limit: int = Query(default=10, ge=1, le=100),
@@ -8607,7 +8725,7 @@ async def admin_robot_migrate_logs(
             cur.execute(
                 """
                 SELECT id,operator_user_id,operator_phone,action_key,action_name,old_robot_id,new_robot_id,
-                       worktool_path,created_at
+                       worktool_path,request_json,result_json,created_at
                 FROM robot_migrate_logs
                 ORDER BY id DESC
                 LIMIT %s
@@ -8628,6 +8746,8 @@ async def admin_robot_migrate_logs(
                     "old_robot_id": row.get("old_robot_id") or "",
                     "new_robot_id": row.get("new_robot_id") or "",
                     "worktool_path": row.get("worktool_path") or "",
+                    "request": _decode_audit_json(row.get("request_json")),
+                    "result": _decode_audit_json(row.get("result_json")),
                     "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or ""),
                 }
             )

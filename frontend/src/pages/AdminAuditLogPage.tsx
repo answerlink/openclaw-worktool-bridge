@@ -30,7 +30,7 @@ const moduleOptions = [
   { label: '站内信配置', value: 'inbox' },
   { label: 'App 管理', value: 'app_update' },
   { label: '用户管理', value: 'user_management' },
-  { label: '机器人更换', value: 'robot_migrate' },
+  { label: '机器人更换续期', value: 'robot_migrate' },
   { label: '私有化授权', value: 'private_license' },
 ];
 
