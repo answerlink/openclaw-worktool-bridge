@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
-import { Alert, Button, Card, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { CopyOutlined, DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import HoverPreviewText from '../components/HoverPreviewText';
@@ -12,6 +12,7 @@ interface AuthRow {
   isEnabled?: boolean;
   expireTime?: string;
   remark?: string;
+  deploymentType?: 'all' | 'saas' | 'private';
 }
 
 interface EnterpriseAuditRow {
@@ -458,6 +459,9 @@ export function PrivateLicenseAuthorizationPage() {
 export default function EnterpriseAuthorizationPage() {
   const [corpId, setCorpId] = useState('');
   const [corpName, setCorpName] = useState('');
+  const [deploymentType, setDeploymentType] = useState<'all' | 'saas' | 'private'>('all');
+  const [expireStatus, setExpireStatus] = useState<'all' | 'active' | 'expired'>('all');
+  const [enabledStatus, setEnabledStatus] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<AuthRow[]>([]);
   const [open, setOpen] = useState(false);
@@ -467,12 +471,18 @@ export default function EnterpriseAuthorizationPage() {
   const [auditRows, setAuditRows] = useState<EnterpriseAuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  const load = async () => {
+  const load = async (filters?: Partial<{ deploymentType: 'all' | 'saas' | 'private'; expireStatus: 'all' | 'active' | 'expired'; enabledStatus: 'all' | 'enabled' | 'disabled' }>) => {
+    const nextDeploymentType = filters?.deploymentType ?? deploymentType;
+    const nextExpireStatus = filters?.expireStatus ?? expireStatus;
+    const nextEnabledStatus = filters?.enabledStatus ?? enabledStatus;
     setLoading(true);
     try {
       const res = await api.adminWeworkAuthorizationList({
         corp_id: corpId.trim() || undefined,
         corp_name: corpName.trim() || undefined,
+        deployment_type: nextDeploymentType,
+        expire_status: nextExpireStatus,
+        enabled_status: nextEnabledStatus,
       });
       setRows(pickRows(res));
     } catch (e: any) {
@@ -507,6 +517,12 @@ export default function EnterpriseAuthorizationPage() {
       { title: '企业名称', dataIndex: 'corpName', width: 160, render: (v: string | undefined) => v || '-' },
       { title: 'AgentId', dataIndex: 'agentId', width: 120, render: (v: string | undefined) => v || '-' },
       {
+        title: '部署类型',
+        dataIndex: 'deploymentType',
+        width: 110,
+        render: (v: AuthRow['deploymentType']) => <Tag color={v === 'private' ? 'purple' : v === 'saas' ? 'blue' : 'default'}>{v === 'private' ? 'Private' : v === 'saas' ? 'SaaS' : '全部'}</Tag>,
+      },
+      {
         title: '状态',
         dataIndex: 'isEnabled',
         width: 100,
@@ -530,6 +546,7 @@ export default function EnterpriseAuthorizationPage() {
                   isEnabled: row.isEnabled !== false,
                   expireTime: row.expireTime ? dayjs(row.expireTime) : null,
                   remark: row.remark || '',
+                  deploymentType: row.deploymentType || 'all',
                 });
                 setOpen(true);
               }}
@@ -605,7 +622,7 @@ export default function EnterpriseAuthorizationPage() {
             onClick={() => {
               setEditing(null);
               form.resetFields();
-              form.setFieldsValue({ isEnabled: true });
+              form.setFieldsValue({ isEnabled: true, deploymentType: 'all' });
               setOpen(true);
             }}
           >
@@ -618,6 +635,33 @@ export default function EnterpriseAuthorizationPage() {
       )}
     >
       <Space style={{ marginBottom: 12 }} wrap>
+        <Select
+          style={{ width: 130 }}
+          value={deploymentType}
+          onChange={(value) => {
+            setDeploymentType(value);
+            void load({ deploymentType: value });
+          }}
+          options={[{ value: 'all', label: '全部部署' }, { value: 'saas', label: 'SaaS' }, { value: 'private', label: 'Private' }]}
+        />
+        <Select
+          style={{ width: 130 }}
+          value={expireStatus}
+          onChange={(value) => {
+            setExpireStatus(value);
+            void load({ expireStatus: value });
+          }}
+          options={[{ value: 'all', label: '全部期限' }, { value: 'active', label: '未过期' }, { value: 'expired', label: '已过期' }]}
+        />
+        <Select
+          style={{ width: 130 }}
+          value={enabledStatus}
+          onChange={(value) => {
+            setEnabledStatus(value);
+            void load({ enabledStatus: value });
+          }}
+          options={[{ value: 'all', label: '全部状态' }, { value: 'enabled', label: '启用' }, { value: 'disabled', label: '未启用' }]}
+        />
         <Input
           style={{ width: 260 }}
           value={corpId}
@@ -664,6 +708,7 @@ export default function EnterpriseAuthorizationPage() {
               isEnabled: Boolean(values.isEnabled),
               expireTime: values.expireTime ? `${(values.expireTime as Dayjs).format('YYYY-MM-DD')}T23:59:59` : undefined,
               remark: String(values.remark || '').trim() || undefined,
+              deploymentType: values.deploymentType || 'all',
             });
             message.success('保存成功');
             setOpen(false);
@@ -685,6 +730,9 @@ export default function EnterpriseAuthorizationPage() {
           </Form.Item>
           <Form.Item name="agentId" label="AgentId">
             <Input placeholder="1000002" />
+          </Form.Item>
+          <Form.Item name="deploymentType" label="部署类型" initialValue="all">
+            <Select options={[{ value: 'all', label: '全部' }, { value: 'saas', label: 'SaaS' }, { value: 'private', label: 'Private' }]} />
           </Form.Item>
           <Form.Item name="isEnabled" label="启用" valuePropName="checked">
             <Switch />
