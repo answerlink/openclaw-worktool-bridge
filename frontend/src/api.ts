@@ -82,7 +82,13 @@ export const api = {
   adminIpAclBlacklistQuery: () => http.get('/admin/ip-acl/blacklist').then((r) => r.data),
   adminIpAclBlacklistAdd: (ip: string) => http.post('/admin/ip-acl/blacklist/add', null, { params: { ip } }).then((r) => r.data),
   adminIpAclBlacklistDelete: (ip: string) => http.post('/admin/ip-acl/blacklist/delete', null, { params: { ip } }).then((r) => r.data),
-  adminWeworkAuthorizationList: (params?: { corp_id?: string; corp_name?: string }) =>
+  adminWeworkAuthorizationList: (params?: {
+    corp_id?: string;
+    corp_name?: string;
+    deployment_type?: 'all' | 'saas' | 'private';
+    expire_status?: 'all' | 'active' | 'expired';
+    enabled_status?: 'all' | 'enabled' | 'disabled';
+  }) =>
     http.get('/admin/wework/authorization/list', { params }).then((r) => r.data),
   adminWeworkAuthorizationSave: (payload: {
     corpId: string;
@@ -91,6 +97,7 @@ export const api = {
     isEnabled?: boolean;
     expireTime?: string;
     remark?: string;
+    deploymentType?: 'all' | 'saas' | 'private';
   }) => http.post('/admin/wework/authorization/save', payload).then((r) => r.data),
   adminWeworkAuthorizationDelete: (corpId: string) =>
     http.post('/admin/wework/authorization/delete', null, { params: { corp_id: corpId } }).then((r) => r.data),

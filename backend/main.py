@@ -714,6 +714,18 @@ def init_db() -> None:
             )
             cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS enterprise_authorization_metadata (
+                  corp_id VARCHAR(128) NOT NULL,
+                  deployment_type ENUM('all','saas','private') NOT NULL DEFAULT 'all',
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  PRIMARY KEY (corp_id),
+                  INDEX idx_eam_deployment_type (deployment_type)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS private_license_logs (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   operator_user_id BIGINT NULL,
@@ -1388,6 +1400,7 @@ class WeworkAuthorizationSaveRequest(BaseModel):
     isEnabled: Optional[bool] = None
     expireTime: Optional[str] = None
     remark: Optional[str] = None
+    deploymentType: Literal["all", "saas", "private"] = "all"
 
 
 class RobotMigrateRequest(BaseModel):
@@ -8234,10 +8247,130 @@ async def admin_ip_acl_blacklist_delete(
     return {"ok": True, "ip": target_ip}
 
 
+def _wework_authorization_rows(raw: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return []
+    candidates: List[Any] = []
+    data = raw.get("data")
+    if isinstance(data, list):
+        candidates.extend(data)
+    elif isinstance(data, dict):
+        for key in ("list", "records", "items"):
+            if isinstance(data.get(key), list):
+                candidates.extend(data[key])
+        if not candidates:
+            candidates.append(data)
+    for key in ("list", "records", "items"):
+        if isinstance(raw.get(key), list):
+            candidates.extend(raw[key])
+    return [row for row in candidates if isinstance(row, dict)]
+
+
+def _normalize_enterprise_deployment_type(value: Optional[str]) -> str:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in {"all", "saas", "private"} else "all"
+
+
+def _wework_authorization_is_enabled(row: Dict[str, Any]) -> bool:
+    value = row.get("isEnabled")
+    if value is None:
+        value = row.get("is_enabled")
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _wework_authorization_is_expired(row: Dict[str, Any]) -> bool:
+    raw = str(row.get("expireTime") or row.get("expire_time") or "").strip()
+    if not raw:
+        return False
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        expire_at = datetime.fromisoformat(normalized)
+    except ValueError:
+        match = re.search(r"\d{4}-\d{2}-\d{2}", raw)
+        if not match:
+            return False
+        try:
+            expire_at = datetime.strptime(match.group(0), "%Y-%m-%d") + timedelta(days=1)
+        except ValueError:
+            return False
+    if expire_at.tzinfo is not None:
+        expire_at = expire_at.astimezone().replace(tzinfo=None)
+    return expire_at < datetime.now()
+
+
+def _wework_authorization_expire_sort_key(row: Dict[str, Any]) -> tuple:
+    raw = str(row.get("expireTime") or row.get("expire_time") or "").strip()
+    if not raw:
+        return (0, "")
+    try:
+        expire_at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        match = re.search(r"\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2})?", raw)
+        if not match:
+            return (0, "")
+        try:
+            expire_at = datetime.fromisoformat(match.group(0).replace(" ", "T"))
+        except ValueError:
+            return (0, "")
+    if expire_at.tzinfo is not None:
+        expire_at = expire_at.astimezone().replace(tzinfo=None)
+    return (1, expire_at.strftime("%Y-%m-%dT%H:%M:%S.%f"))
+
+
+def _get_enterprise_authorization_metadata(corp_ids: List[str]) -> Dict[str, str]:
+    targets = [corp_id for corp_id in corp_ids if corp_id]
+    if not targets:
+        return {}
+    placeholders = ",".join(["%s"] * len(targets))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT corp_id,deployment_type FROM enterprise_authorization_metadata WHERE corp_id IN ({placeholders})",
+                targets,
+            )
+            rows = cur.fetchall() or []
+        return {str(row.get("corp_id") or ""): _normalize_enterprise_deployment_type(row.get("deployment_type")) for row in rows}
+    finally:
+        conn.close()
+
+
+def _save_enterprise_authorization_metadata(corp_id: str, deployment_type: str) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO enterprise_authorization_metadata(corp_id,deployment_type)
+                VALUES(%s,%s)
+                ON DUPLICATE KEY UPDATE deployment_type=VALUES(deployment_type)
+                """,
+                (corp_id, _normalize_enterprise_deployment_type(deployment_type)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_enterprise_authorization_metadata(corp_id: str) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM enterprise_authorization_metadata WHERE corp_id=%s", (corp_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @app.get("/api/v1/admin/wework/authorization/list")
 async def admin_wework_authorization_list(
     corp_id: Optional[str] = None,
     corp_name: Optional[str] = None,
+    deployment_type: Literal["all", "saas", "private"] = "all",
+    expire_status: Literal["all", "active", "expired"] = "all",
+    enabled_status: Literal["all", "enabled", "disabled"] = "all",
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
@@ -8248,7 +8381,31 @@ async def admin_wework_authorization_list(
         params["corpId"] = (corp_id or "").strip()
     if (corp_name or "").strip():
         params["corpName"] = (corp_name or "").strip()
-    return await fetch_worktool_api(list_path, params)
+    raw = await fetch_worktool_api(list_path, params)
+    rows = _wework_authorization_rows(raw)
+    metadata = _get_enterprise_authorization_metadata([
+        str(row.get("corpId") or row.get("corp_id") or "").strip() for row in rows
+    ])
+    items = []
+    for row in rows:
+        item = dict(row)
+        corp = str(item.get("corpId") or item.get("corp_id") or "").strip()
+        item["deploymentType"] = metadata.get(corp, "all")
+        expired = _wework_authorization_is_expired(item)
+        enabled = _wework_authorization_is_enabled(item)
+        if deployment_type != "all" and item["deploymentType"] != deployment_type:
+            continue
+        if expire_status == "active" and expired:
+            continue
+        if expire_status == "expired" and not expired:
+            continue
+        if enabled_status == "enabled" and not enabled:
+            continue
+        if enabled_status == "disabled" and enabled:
+            continue
+        items.append(item)
+    items.sort(key=_wework_authorization_expire_sort_key, reverse=True)
+    return {"code": raw.get("code", 200), "message": raw.get("message", "操作成功"), "data": items}
 
 
 def _find_wework_authorization_record(raw: Any, corp_id: str) -> Optional[Dict[str, Any]]:
@@ -8299,6 +8456,10 @@ async def admin_wework_authorization_save(
         "remark": (body.remark or "").strip(),
     }
     before = await _get_wework_authorization_snapshot(corp_id)
+    before_metadata = _get_enterprise_authorization_metadata([corp_id]).get(corp_id, "all")
+    before_with_metadata = dict(before or {})
+    before_with_metadata["deploymentType"] = before_metadata
+    deployment_type = _normalize_enterprise_deployment_type(body.deploymentType)
     audit_id = _begin_admin_audit(
         user,
         request,
@@ -8308,7 +8469,7 @@ async def admin_wework_authorization_save(
         target_type="wework_authorization",
         target_id=corp_id,
         target_name=str(payload.get("corpName") or (before or {}).get("corpName") or ""),
-        before=before,
+        before=before_with_metadata,
         upstream_path=save_path,
     )
     try:
@@ -8317,6 +8478,16 @@ async def admin_wework_authorization_save(
     except Exception as exc:
         _audit_failure(audit_id, exc)
         raise
+    try:
+        _save_enterprise_authorization_metadata(corp_id, deployment_type)
+    except Exception as exc:
+        _finish_admin_audit(
+            audit_id,
+            status="unknown",
+            after={"request": payload, "deploymentType": deployment_type, "upstream_result": res},
+            error_text=f"上游已返回成功，但保存部署类型失败：{exc}",
+        )
+        raise HTTPException(status_code=500, detail="企业授权已保存到上游，但部署类型保存失败") from exc
     try:
         after = await _get_wework_authorization_snapshot(corp_id)
     except Exception as exc:
@@ -8327,7 +8498,9 @@ async def admin_wework_authorization_save(
             error_text=f"上游已返回成功，但回读授权状态失败：{exc}",
         )
     else:
-        _finish_admin_audit(audit_id, status="success", after=after or payload)
+        after_with_metadata = dict(after or payload)
+        after_with_metadata["deploymentType"] = deployment_type
+        _finish_admin_audit(audit_id, status="success", after=after_with_metadata)
     return res
 
 
@@ -8344,6 +8517,9 @@ async def admin_wework_authorization_delete(
     if not target:
         raise HTTPException(status_code=400, detail="corp_id required")
     before = await _get_wework_authorization_snapshot(target)
+    before_metadata = _get_enterprise_authorization_metadata([target]).get(target, "all")
+    before_with_metadata = dict(before or {})
+    before_with_metadata["deploymentType"] = before_metadata
     audit_id = _begin_admin_audit(
         user,
         request,
@@ -8353,7 +8529,7 @@ async def admin_wework_authorization_delete(
         target_type="wework_authorization",
         target_id=target,
         target_name=str((before or {}).get("corpName") or ""),
-        before=before,
+        before=before_with_metadata,
         upstream_path=delete_path,
     )
     try:
@@ -8362,6 +8538,16 @@ async def admin_wework_authorization_delete(
     except Exception as exc:
         _audit_failure(audit_id, exc)
         raise
+    try:
+        _delete_enterprise_authorization_metadata(target)
+    except Exception as exc:
+        _finish_admin_audit(
+            audit_id,
+            status="unknown",
+            after={"delete_request": {"corpId": target}, "upstream_result": res},
+            error_text=f"上游已返回成功，但删除部署类型失败：{exc}",
+        )
+        raise HTTPException(status_code=500, detail="企业授权已从上游删除，但部署类型删除失败") from exc
     try:
         after = await _get_wework_authorization_snapshot(target)
     except Exception as exc:
