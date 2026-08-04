@@ -290,7 +290,7 @@ export default function App() {
       }
       adminItems.push({ key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户管理</Link> });
       adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
-      adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换</Link> });
+      adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换续期</Link> });
       adminItems.push({ key: '/app-management', icon: <AppstoreOutlined />, label: <Link to="/app-management">App管理</Link> });
       adminItems.push({ key: '/admin-audit-logs', icon: <FileSearchOutlined />, label: <Link to="/admin-audit-logs">管理员审计日志</Link> });
       if (enableAdminIpBlacklist) {
