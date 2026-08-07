@@ -8887,6 +8887,42 @@ async def admin_robot_migrate_renew(
     )
 
 
+@app.get("/api/v1/admin/robot-migrate/info")
+async def admin_robot_migrate_info(
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    target = (robot_id or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="robot_id required")
+    conn = worktool_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT robot_id,name,show_name,first_login,auth_expir,robot_type
+                FROM robot_info
+                WHERE robot_id=%s
+                LIMIT 1
+                """,
+                (target,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="机器人不存在")
+    return {
+        "robot_id": row.get("robot_id") or target,
+        "name": row.get("name") or "",
+        "show_name": row.get("show_name") or "",
+        "first_login": _format_worktool_datetime(row.get("first_login")) if row.get("first_login") else "",
+        "auth_expir": _format_worktool_datetime(row.get("auth_expir")) if row.get("auth_expir") else "",
+        "robot_type": row.get("robot_type"),
+    }
+
+
 @app.post("/api/v1/admin/robot-migrate/disable")
 async def admin_robot_migrate_disable(
     body: RobotDisableRequest,

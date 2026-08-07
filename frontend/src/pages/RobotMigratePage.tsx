@@ -23,12 +23,23 @@ interface MigrateLogRow {
   created_at: string;
 }
 
+interface RobotInfoResult {
+  robot_id: string;
+  name: string;
+  show_name: string;
+  first_login: string;
+  auth_expir: string;
+  robot_type: number | null;
+}
+
 export default function RobotMigratePage() {
   const [form] = Form.useForm<{ robotId: string; expireDate?: dayjs.Dayjs }>();
   const [loadingKey, setLoadingKey] = useState<string>('');
   const [resultText, setResultText] = useState('');
   const [logs, setLogs] = useState<MigrateLogRow[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [robotInfo, setRobotInfo] = useState<RobotInfoResult | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
 
   const actions = useMemo<MigrateAction[]>(
     () => [
@@ -91,6 +102,29 @@ export default function RobotMigratePage() {
     void loadLogs();
   }, []);
 
+  const queryRobotInfo = async (autoSetExpireDate = true) => {
+    const values = await form.validateFields(['robotId']);
+    const robotId = String(values.robotId || '').trim();
+    setInfoLoading(true);
+    try {
+      const res = await api.adminRobotInfo(robotId);
+      setRobotInfo(res);
+      const expireAt = res?.auth_expir ? dayjs(res.auth_expir) : null;
+      if (autoSetExpireDate && expireAt?.isValid()) {
+        form.setFieldsValue({ expireDate: expireAt.add(1, 'year') });
+        message.success(`查询成功，续期日期已自动设为 ${expireAt.add(1, 'year').format('YYYY-MM-DD')}`);
+      } else if (autoSetExpireDate) {
+        form.setFieldsValue({ expireDate: undefined });
+        message.warning('查询成功，但未找到当前到期时间，请手动选择续期日期');
+      }
+    } catch (e: any) {
+      setRobotInfo(null);
+      message.error(e?.response?.data?.detail || '查询机器人信息失败');
+    } finally {
+      setInfoLoading(false);
+    }
+  };
+
   const runAction = async (action: MigrateAction) => {
     const fields = action.requiresExpireDate ? ['robotId', 'expireDate'] : ['robotId'];
     const values = await form.validateFields(fields);
@@ -109,6 +143,9 @@ export default function RobotMigratePage() {
           const res = await action.run(robotId, expireDate);
           setResultText(JSON.stringify(res, null, 2));
           message.success('操作成功');
+          if (action.key === 'renew') {
+            await queryRobotInfo(false);
+          }
           void loadLogs();
         } catch (e: any) {
           message.error(e?.response?.data?.detail || '操作失败');
@@ -129,7 +166,7 @@ export default function RobotMigratePage() {
             message="仅管理员可用，续期和停用通过 console 后端调用 WorkTool 管理接口。"
             description="停用会立即影响机器人服务；迁移操作不会自动同步本系统内的旧 robot_id 引用。"
           />
-          <Form form={form} layout="vertical" initialValues={{ expireDate: dayjs() }}>
+          <Form form={form} layout="vertical">
             <Form.Item label="机器人ID" name="robotId" rules={[{ required: true, message: '请输入机器人ID' }]}>
               <Input placeholder="例如：wtaniwf61irnzx3mf6ra3hsgf5y8zkm4" />
             </Form.Item>
@@ -137,6 +174,17 @@ export default function RobotMigratePage() {
               <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} />
             </Form.Item>
           </Form>
+          <Button onClick={() => void queryRobotInfo()} loading={infoLoading}>查询机器人信息</Button>
+          {robotInfo ? (
+            <Card size="small" title="机器人信息">
+              <Space wrap>
+                <Typography.Text>机器人：{robotInfo.show_name || robotInfo.name || robotInfo.robot_id}</Typography.Text>
+                <Typography.Text>首次登录：{robotInfo.first_login || '-'}</Typography.Text>
+                <Typography.Text>当前到期：{robotInfo.auth_expir || '-'}</Typography.Text>
+                <Typography.Text>类型：{robotInfo.robot_type ?? '-'}</Typography.Text>
+              </Space>
+            </Card>
+          ) : null}
           <Space wrap>
             {actions.map((action) => (
               <Button
