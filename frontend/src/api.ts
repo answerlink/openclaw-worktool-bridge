@@ -111,6 +111,8 @@ export const api = {
     http.post('/admin/robot-migrate/wechat-to-new-wechat', { old_robot_id: oldRobotId }).then((r) => r.data),
   adminRobotRenew: (robotId: string, expireDate: string) =>
     http.post('/admin/robot-migrate/renew', { robot_id: robotId, expire_date: expireDate }).then((r) => r.data),
+  adminRobotInfo: (robotId: string) =>
+    http.get('/admin/robot-migrate/info', { params: { robot_id: robotId } }).then((r) => r.data),
   adminRobotDisable: (robotId: string) =>
     http.post('/admin/robot-migrate/disable', { robot_id: robotId }).then((r) => r.data),
   adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
