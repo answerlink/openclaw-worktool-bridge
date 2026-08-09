@@ -33,6 +33,7 @@ interface PrivateLicenseLogRow {
   id: number;
   operator_phone: string;
   machine_code: string;
+  remark: string;
   expire_date: string;
   expire_epoch_ms: number;
   restrict_robot: boolean;
@@ -270,6 +271,7 @@ function PrivateLicenseGenerator() {
       try {
         await api.adminPrivateLicenseLogCreate({
           machine_code: machine,
+          remark: String(values.remark || '').trim(),
           expire_date: expireDate.format('YYYY-MM-DD'),
           expire_epoch_ms: expireEpochMs,
           restrict_robot: Boolean(values.restrictRobot),
@@ -351,6 +353,9 @@ function PrivateLicenseGenerator() {
       >
         <Form.Item name="machineCode" label="机器码 MACHINE_CODE" rules={[{ required: true, message: '请输入机器码' }]}>
           <Input placeholder="例如：565d240f5343e625ae579a4d45a770f1f02c6368b5ed4d06da4fbe6f47c28866" autoComplete="off" />
+        </Form.Item>
+        <Form.Item name="remark" label="备注" rules={[{ required: true, message: '请填写备注，注明客户及用途' }, { max: 255, message: '备注不能超过 255 个字符' }]}>
+          <Input.TextArea rows={2} placeholder="例如：客户A，正式环境，用于生产部署" maxLength={255} showCount />
         </Form.Item>
         <Space size={16} align="start" wrap style={{ width: '100%' }}>
           <Form.Item label="到期日期" required>
@@ -435,6 +440,7 @@ function PrivateLicenseGenerator() {
             render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={240} popupWidth={760} />,
           },
           { title: '到期日期', dataIndex: 'expire_date', width: 130, render: (v: string) => v || '-' },
+          { title: '备注', dataIndex: 'remark', width: 240, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={220} popupWidth={640} /> },
           {
             title: '机器人范围',
             width: 260,

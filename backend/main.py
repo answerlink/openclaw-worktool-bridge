@@ -731,6 +731,7 @@ def init_db() -> None:
                   operator_user_id BIGINT NULL,
                   operator_phone VARCHAR(20) NULL,
                   machine_code VARCHAR(128) NOT NULL,
+                  remark VARCHAR(255) NULL,
                   expire_date VARCHAR(32) NOT NULL,
                   expire_epoch_ms BIGINT NOT NULL,
                   restrict_robot TINYINT(1) NOT NULL DEFAULT 1,
@@ -745,6 +746,9 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cur.execute("SHOW COLUMNS FROM private_license_logs LIKE 'remark'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE private_license_logs ADD COLUMN remark VARCHAR(255) NULL AFTER machine_code")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS admin_operation_logs (
@@ -1418,6 +1422,7 @@ class RobotDisableRequest(BaseModel):
 
 class PrivateLicenseLogCreateRequest(BaseModel):
     machine_code: str
+    remark: str
     expire_date: str
     expire_epoch_ms: int
     restrict_robot: bool = True
@@ -8626,6 +8631,7 @@ def _insert_robot_migrate_log(
 
 def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCreateRequest) -> None:
     machine_code = (body.machine_code or "").strip()
+    remark = (body.remark or "").strip()
     expire_date = (body.expire_date or "").strip()
     robot_start = (body.robot_start or "").strip() or None
     robot_end = (body.robot_end or "").strip() or None
@@ -8633,6 +8639,10 @@ def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCre
         raise HTTPException(status_code=400, detail="machine_code invalid")
     if not expire_date:
         raise HTTPException(status_code=400, detail="expire_date required")
+    if not remark:
+        raise HTTPException(status_code=400, detail="remark required")
+    if len(remark) > 255:
+        raise HTTPException(status_code=400, detail="remark too long")
     if body.expire_epoch_ms <= 0:
         raise HTTPException(status_code=400, detail="expire_epoch_ms invalid")
     if body.restrict_robot:
@@ -8650,15 +8660,16 @@ def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCre
             cur.execute(
                 """
                 INSERT INTO private_license_logs(
-                  operator_user_id,operator_phone,machine_code,expire_date,expire_epoch_ms,
+                  operator_user_id,operator_phone,machine_code,remark,expire_date,expire_epoch_ms,
                   restrict_robot,robot_start,robot_end,robot_limit
                 )
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     int(user["id"]) if user.get("id") is not None else None,
                     str(user.get("phone") or "").strip() or None,
                     machine_code,
+                    remark,
                     expire_date,
                     int(body.expire_epoch_ms),
                     1 if body.restrict_robot else 0,
@@ -9115,7 +9126,7 @@ async def admin_private_license_logs(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id,operator_user_id,operator_phone,machine_code,expire_date,expire_epoch_ms,
+                SELECT id,operator_user_id,operator_phone,machine_code,remark,expire_date,expire_epoch_ms,
                        restrict_robot,robot_start,robot_end,robot_limit,created_at
                 FROM private_license_logs
                 ORDER BY id DESC
@@ -9133,6 +9144,7 @@ async def admin_private_license_logs(
                     "operator_user_id": row.get("operator_user_id"),
                     "operator_phone": row.get("operator_phone") or "",
                     "machine_code": row.get("machine_code") or "",
+                    "remark": row.get("remark") or "",
                     "expire_date": row.get("expire_date") or "",
                     "expire_epoch_ms": int(row.get("expire_epoch_ms") or 0),
                     "restrict_robot": bool(row.get("restrict_robot")),
