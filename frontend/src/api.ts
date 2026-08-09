@@ -118,6 +118,7 @@ export const api = {
   adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
   adminPrivateLicenseLogCreate: (payload: {
     machine_code: string;
+    remark: string;
     expire_date: string;
     expire_epoch_ms: number;
     restrict_robot: boolean;
