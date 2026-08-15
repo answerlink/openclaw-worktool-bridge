@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import ipaddress
 import json
@@ -8,7 +9,7 @@ import re
 import secrets
 import shlex
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 from urllib.parse import quote
@@ -16,6 +17,8 @@ from urllib.parse import quote
 import aiohttp
 import jwt
 import pymysql
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -45,6 +48,7 @@ WORKTOOL_WEWORK_AUTH_LIST_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_LIST_PATH", "")
 WORKTOOL_WEWORK_AUTH_SAVE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_SAVE_PATH", "").strip()
 WORKTOOL_WEWORK_AUTH_DELETE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_DELETE_PATH", "").strip()
 WORKTOOL_RENEW_TOKEN = os.getenv("WORKTOOL_RENEW_TOKEN", "").strip()
+PRIVATE_LICENSE_SECRET_KEY = os.getenv("PRIVATE_LICENSE_SECRET_KEY", "")
 APP_UPLOAD_DIR = os.getenv("APP_UPLOAD_DIR", "/data/uploads").strip() or "/data/uploads"
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
 OPEN_TROUBLESHOOT_API_KEY = os.getenv("OPEN_TROUBLESHOOT_API_KEY", "").strip()
@@ -1420,7 +1424,7 @@ class RobotDisableRequest(BaseModel):
     robot_id: str
 
 
-class PrivateLicenseLogCreateRequest(BaseModel):
+class PrivateLicenseGenerateRequest(BaseModel):
     machine_code: str
     remark: str
     expire_date: str
@@ -8629,7 +8633,7 @@ def _insert_robot_migrate_log(
         conn.close()
 
 
-def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCreateRequest) -> None:
+def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseGenerateRequest) -> None:
     machine_code = (body.machine_code or "").strip()
     remark = (body.remark or "").strip()
     expire_date = (body.expire_date or "").strip()
@@ -8681,6 +8685,48 @@ def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseLogCre
         conn.commit()
     finally:
         conn.close()
+
+
+def _generate_private_license(body: PrivateLicenseGenerateRequest) -> str:
+    key = PRIVATE_LICENSE_SECRET_KEY.encode("utf-8")
+    if len(key) != 16:
+        raise HTTPException(status_code=503, detail="private license secret key not configured")
+
+    machine_code = (body.machine_code or "").strip()
+    expire_date = (body.expire_date or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", machine_code):
+        raise HTTPException(status_code=400, detail="machine_code invalid")
+    try:
+        expire_at = datetime.strptime(expire_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="expire_date invalid") from exc
+    expected_expire_epoch_ms = int((expire_at + timedelta(hours=23, minutes=59, seconds=59)).timestamp() * 1000)
+    if int(body.expire_epoch_ms) != expected_expire_epoch_ms:
+        raise HTTPException(status_code=400, detail="expire_epoch_ms does not match expire_date")
+
+    payload = f"{machine_code}|{expected_expire_epoch_ms}|worktool-official"
+    if body.restrict_robot:
+        robot_start = (body.robot_start or "").strip()
+        robot_end = (body.robot_end or "").strip()
+        if not (robot_start.isdigit() and robot_end.isdigit()):
+            raise HTTPException(status_code=400, detail="robot scope invalid")
+        if len(robot_start) != len(robot_end):
+            raise HTTPException(status_code=400, detail="robot scope length mismatch")
+        start_value = int(robot_start)
+        end_value = int(robot_end)
+        robot_limit = end_value - start_value + 1
+        if robot_limit <= 0 or robot_limit > 100000:
+            raise HTTPException(status_code=400, detail="robot scope invalid")
+        if body.robot_limit is None or int(body.robot_limit) != robot_limit:
+            raise HTTPException(status_code=400, detail="robot_limit does not match robot scope")
+        payload += f"|{robot_start}|{robot_end}|{robot_limit}"
+
+    encrypted = AES.new(key, AES.MODE_ECB).encrypt(pad(payload.encode("utf-8"), AES.block_size))
+    return json.dumps(
+        {"v": 1, "data": base64.b64encode(encrypted).decode("ascii")},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def _format_worktool_datetime(value: Any) -> str:
@@ -9091,9 +9137,9 @@ async def admin_operation_logs(
         conn.close()
 
 
-@app.post("/api/v1/admin/private-license/logs")
-async def admin_private_license_log_create(
-    body: PrivateLicenseLogCreateRequest,
+@app.post("/api/v1/admin/private-license/generate")
+async def admin_private_license_generate(
+    body: PrivateLicenseGenerateRequest,
     request: Request,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
@@ -9106,12 +9152,13 @@ async def admin_private_license_log_create(
         before=body.model_dump(),
     )
     try:
+        license_text = _generate_private_license(body)
         _insert_private_license_log(user, body)
     except Exception as exc:
         _audit_failure(audit_id, exc)
         raise
     _finish_admin_audit(audit_id, status="success", after={"expire_date": body.expire_date, "restrict_robot": body.restrict_robot})
-    return {"ok": True}
+    return {"ok": True, "license_text": license_text}
 
 
 @app.get("/api/v1/admin/private-license/logs")

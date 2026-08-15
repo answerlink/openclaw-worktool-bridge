@@ -49,6 +49,7 @@
 | `DEMO_ROBOT_IDS` | 空 | 否 | 否 | 演示机器人 ID 列表（逗号分隔）。 |
 | `ENABLE_ADMIN_IP_BLACKLIST` | `false` | 否 | 否 | 是否显示“黑名单管理”模块。 |
 | `ENABLE_ADMIN_ENTERPRISE_AUTH` | `false` | 否 | 否 | 是否显示“企业定制开通”模块。 |
+| `PRIVATE_LICENSE_SECRET_KEY` | 空 | 私有授权开启时是 | 是 | 私有 License 服务端生成密钥，必须保持 16 字节且不得进入 Git 或前端构建。 |
 | `ENABLE_OPEN_TROUBLESHOOT_API` | `false` | 否 | 否 | 是否开启开放排查 API。 |
 | `OPEN_TROUBLESHOOT_API_KEY` | 空 | 开启时是 | 是 | 开放排查 API 的访问密钥。 |
 | `OPEN_TROUBLESHOOT_ALLOWED_ROBOT_IDS` | 空 | 否 | 否 | 开放排查 API 允许查询的机器人范围。 |

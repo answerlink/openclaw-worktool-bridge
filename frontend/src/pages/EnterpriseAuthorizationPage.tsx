@@ -43,27 +43,7 @@ interface PrivateLicenseLogRow {
   created_at: string;
 }
 
-const LICENSE_SECRET_KEY = '2024053003504202';
 const MAX_ROBOT_SCOPE = 100000;
-const SBOX = [
-  99, 124, 119, 123, 242, 107, 111, 197, 48, 1, 103, 43, 254, 215, 171, 118,
-  202, 130, 201, 125, 250, 89, 71, 240, 173, 212, 162, 175, 156, 164, 114, 192,
-  183, 253, 147, 38, 54, 63, 247, 204, 52, 165, 229, 241, 113, 216, 49, 21,
-  4, 199, 35, 195, 24, 150, 5, 154, 7, 18, 128, 226, 235, 39, 178, 117,
-  9, 131, 44, 26, 27, 110, 90, 160, 82, 59, 214, 179, 41, 227, 47, 132,
-  83, 209, 0, 237, 32, 252, 177, 91, 106, 203, 190, 57, 74, 76, 88, 207,
-  208, 239, 170, 251, 67, 77, 51, 133, 69, 249, 2, 127, 80, 60, 159, 168,
-  81, 163, 64, 143, 146, 157, 56, 245, 188, 182, 218, 33, 16, 255, 243, 210,
-  205, 12, 19, 236, 95, 151, 68, 23, 196, 167, 126, 61, 100, 93, 25, 115,
-  96, 129, 79, 220, 34, 42, 144, 136, 70, 238, 184, 20, 222, 94, 11, 219,
-  224, 50, 58, 10, 73, 6, 36, 92, 194, 211, 172, 98, 145, 149, 228, 121,
-  231, 200, 55, 109, 141, 213, 78, 169, 108, 86, 244, 234, 101, 122, 174, 8,
-  186, 120, 37, 46, 28, 166, 180, 198, 232, 221, 116, 31, 75, 189, 139, 138,
-  112, 62, 181, 102, 72, 3, 246, 14, 97, 53, 87, 185, 134, 193, 29, 158,
-  225, 248, 152, 17, 105, 217, 142, 148, 155, 30, 135, 233, 206, 85, 40, 223,
-  140, 161, 137, 13, 191, 230, 66, 104, 65, 153, 45, 15, 176, 84, 187, 22,
-];
-const RCON = [0, 1, 2, 4, 8, 16, 32, 64, 128, 27, 54];
 
 function pickRows(res: any): AuthRow[] {
   const data = res?.data;
@@ -96,105 +76,6 @@ function calculateRobotLimit(startText: string, endText: string) {
   return limit;
 }
 
-function utf8Bytes(str: string) {
-  return Array.from(new TextEncoder().encode(str));
-}
-
-function base64FromBytes(bytes: number[]) {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.slice(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-function expandKey(key: number[]) {
-  const w = key.slice();
-  for (let i = 16; i < 176; i += 4) {
-    const temp = w.slice(i - 4, i);
-    if (i % 16 === 0) {
-      temp.push(temp.shift() as number);
-      for (let j = 0; j < 4; j += 1) temp[j] = SBOX[temp[j]];
-      temp[0] ^= RCON[i / 16];
-    }
-    for (let j = 0; j < 4; j += 1) {
-      w[i + j] = w[i - 16 + j] ^ temp[j];
-    }
-  }
-  return w;
-}
-
-function addRoundKey(state: number[], expandedKey: number[], offset: number) {
-  for (let i = 0; i < 16; i += 1) {
-    state[i] ^= expandedKey[offset + i];
-  }
-}
-
-function subBytes(state: number[]) {
-  for (let i = 0; i < 16; i += 1) {
-    state[i] = SBOX[state[i]];
-  }
-}
-
-function shiftRows(s: number[]) {
-  const t = s.slice();
-  s[1] = t[5]; s[5] = t[9]; s[9] = t[13]; s[13] = t[1];
-  s[2] = t[10]; s[6] = t[14]; s[10] = t[2]; s[14] = t[6];
-  s[3] = t[15]; s[7] = t[3]; s[11] = t[7]; s[15] = t[11];
-}
-
-function mul2(x: number) {
-  return ((x << 1) ^ ((x & 128) ? 27 : 0)) & 255;
-}
-
-function mixColumns(s: number[]) {
-  for (let c = 0; c < 4; c += 1) {
-    const i = c * 4;
-    const a0 = s[i];
-    const a1 = s[i + 1];
-    const a2 = s[i + 2];
-    const a3 = s[i + 3];
-    s[i] = mul2(a0) ^ (mul2(a1) ^ a1) ^ a2 ^ a3;
-    s[i + 1] = a0 ^ mul2(a1) ^ (mul2(a2) ^ a2) ^ a3;
-    s[i + 2] = a0 ^ a1 ^ mul2(a2) ^ (mul2(a3) ^ a3);
-    s[i + 3] = (mul2(a0) ^ a0) ^ a1 ^ a2 ^ mul2(a3);
-  }
-}
-
-function encryptBlock(input: number[], expandedKey: number[]) {
-  const state = input.slice();
-  addRoundKey(state, expandedKey, 0);
-  for (let round = 1; round <= 9; round += 1) {
-    subBytes(state);
-    shiftRows(state);
-    mixColumns(state);
-    addRoundKey(state, expandedKey, round * 16);
-  }
-  subBytes(state);
-  shiftRows(state);
-  addRoundKey(state, expandedKey, 160);
-  return state;
-}
-
-function aesEcbPkcs7Base64(plainText: string, keyText: string) {
-  const key = utf8Bytes(keyText);
-  if (key.length !== 16) {
-    throw new Error('AES 密钥必须是 16 字节。');
-  }
-  const expandedKey = expandKey(key);
-  const bytes = utf8Bytes(plainText);
-  const pad = 16 - (bytes.length % 16 || 16);
-  const actualPad = pad === 0 ? 16 : pad;
-  for (let i = 0; i < actualPad; i += 1) bytes.push(actualPad);
-
-  const encrypted: number[] = [];
-  for (let offset = 0; offset < bytes.length; offset += 16) {
-    encrypted.push(...encryptBlock(bytes.slice(offset, offset + 16), expandedKey));
-  }
-  return base64FromBytes(encrypted);
-}
-
 function PrivateLicenseGenerator() {
   const [form] = Form.useForm();
   const [output, setOutput] = useState('');
@@ -204,6 +85,7 @@ function PrivateLicenseGenerator() {
   });
   const [logs, setLogs] = useState<PrivateLicenseLogRow[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const restrictRobot = Form.useWatch('restrictRobot', form);
   const robotStart = Form.useWatch('robotStart', form);
   const robotEnd = Form.useWatch('robotEnd', form);
@@ -236,6 +118,7 @@ function PrivateLicenseGenerator() {
   }, []);
 
   const generate = async () => {
+    setGenerating(true);
     try {
       const values = await form.validateFields();
       const machine = String(values.machineCode || '').trim();
@@ -252,7 +135,6 @@ function PrivateLicenseGenerator() {
         throw new Error('到期日期格式不正确。');
       }
 
-      let payload = `${machine}|${expireEpochMs}|worktool-official`;
       let scopeText = '不限制';
       let robotLimit: number | undefined;
       let start = '';
@@ -261,31 +143,34 @@ function PrivateLicenseGenerator() {
         start = String(values.robotStart || '').trim();
         end = String(values.robotEnd || '').trim();
         robotLimit = calculateRobotLimit(start, end);
-        payload += `|${start}|${end}|${robotLimit}`;
         scopeText = `${start}-${end}，数量 ${robotLimit}`;
       }
 
-      const licenseText = JSON.stringify({ v: 1, data: aesEcbPkcs7Base64(payload, LICENSE_SECRET_KEY) });
+      const result = await api.adminPrivateLicenseGenerate({
+        machine_code: machine,
+        remark: String(values.remark || '').trim(),
+        expire_date: expireDate.format('YYYY-MM-DD'),
+        expire_epoch_ms: expireEpochMs,
+        restrict_robot: Boolean(values.restrictRobot),
+        robot_start: start || undefined,
+        robot_end: end || undefined,
+        robot_limit: robotLimit,
+      });
+      const licenseText = String(result?.license_text || '');
+      if (!licenseText) {
+        throw new Error('服务端未返回 license 文本。');
+      }
       setOutput(licenseText);
       setStatus({ type: 'success', text: `生成成功。到期时间戳：${expireEpochMs}；机器人范围：${scopeText}。` });
-      try {
-        await api.adminPrivateLicenseLogCreate({
-          machine_code: machine,
-          remark: String(values.remark || '').trim(),
-          expire_date: expireDate.format('YYYY-MM-DD'),
-          expire_epoch_ms: expireEpochMs,
-          restrict_robot: Boolean(values.restrictRobot),
-          robot_start: start || undefined,
-          robot_end: end || undefined,
-          robot_limit: robotLimit,
-        });
-        void loadLogs();
-      } catch (logError: any) {
-        message.warning(logError?.response?.data?.detail || 'license 已生成，但记录生成日志失败');
-      }
+      void loadLogs();
     } catch (e: any) {
       setOutput('');
-      setStatus({ type: 'error', text: e?.errorFields ? '请检查表单必填项。' : e?.message || String(e) });
+      setStatus({
+        type: 'error',
+        text: e?.errorFields ? '请检查表单必填项。' : e?.response?.data?.detail || e?.message || String(e),
+      });
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -387,7 +272,7 @@ function PrivateLicenseGenerator() {
           </Space>
         </Form.Item>
         <Space wrap>
-          <Button type="primary" onClick={() => void generate()}>
+          <Button type="primary" loading={generating} onClick={() => void generate()}>
             生成 license
           </Button>
           <Button icon={<CopyOutlined />} disabled={!output} onClick={() => void copyText()}>

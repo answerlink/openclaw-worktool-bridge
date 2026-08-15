@@ -116,7 +116,7 @@ export const api = {
   adminRobotDisable: (robotId: string) =>
     http.post('/admin/robot-migrate/disable', { robot_id: robotId }).then((r) => r.data),
   adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
-  adminPrivateLicenseLogCreate: (payload: {
+  adminPrivateLicenseGenerate: (payload: {
     machine_code: string;
     remark: string;
     expire_date: string;
@@ -125,7 +125,7 @@ export const api = {
     robot_start?: string;
     robot_end?: string;
     robot_limit?: number;
-  }) => http.post('/admin/private-license/logs', payload).then((r) => r.data),
+  }) => http.post('/admin/private-license/generate', payload).then((r) => r.data),
   adminPrivateLicenseLogs: (limit = 10) => http.get('/admin/private-license/logs', { params: { limit } }).then((r) => r.data),
   adminAuditLogs: (params?: {
     module?: string;
