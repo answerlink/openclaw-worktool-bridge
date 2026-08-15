@@ -29,6 +29,7 @@ frontend/dist/
 frontend/.vite/
 frontend/.env
 frontend/.env.*
+frontend/performance-results/**/lighthouse-*.json
 
 # IDE
 .vscode/

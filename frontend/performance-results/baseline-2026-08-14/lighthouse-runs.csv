@@ -1,0 +1,7 @@
+profile,run,fetchedAt,requestedUrl,finalUrl,performanceScore,fcpMs,lcpMs,speedIndexMs,tbtMs,cls,interactiveMs,ttfbMs,totalBytes,jsExecutionMs,mainThreadMs
+mobile,1,2026-08-14T02:42:21.759Z,https://console.worktool.ymdyes.cn/,https://console.worktool.ymdyes.cn/login?next=%2F,55,4034.3,5948.6,5922.4,425,0.013,10971.5,24.1,1797011,1148.2,2252.7
+mobile,2,2026-08-14T02:42:42.385Z,https://console.worktool.ymdyes.cn/,https://console.worktool.ymdyes.cn/login?next=%2F,62,3919.3,4462.1,5113.4,457,0.013,10712.3,20.2,1797013,1228.9,2208.9
+mobile,3,2026-08-14T02:43:02.697Z,https://console.worktool.ymdyes.cn/,https://console.worktool.ymdyes.cn/login?next=%2F,56,3823.9,4423.9,9906.7,511,0.013,10846.8,86,1797012,1330.7,2761.4
+desktop,1,2026-08-14T02:43:28.704Z,https://console.worktool.ymdyes.cn/,https://console.worktool.ymdyes.cn/login?next=%2F,92,1111.4,1252.5,1731.1,8,0.003,1606.7,28.9,1797018,232,564.1
+desktop,2,2026-08-14T02:43:48.003Z,https://console.worktool.ymdyes.cn/,https://console.worktool.ymdyes.cn/login?next=%2F,95,933.7,1058.1,1603.6,0,0.003,1058.1,21.2,1797012,224.6,585.3
+desktop,3,2026-08-14T02:44:07.280Z,https://console.worktool.ymdyes.cn/,https://console.worktool.ymdyes.cn/login?next=%2F,95,953,1077.3,1530.3,10,0.003,1539.5,24.9,1797017,229,585.9
