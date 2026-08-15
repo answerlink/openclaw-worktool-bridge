@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { Badge, Button, Drawer, Form, Input, Layout, Menu, Modal, Space, Typography, message } from 'antd';
+import { Badge, Button, Drawer, Form, Input, Layout, Menu, Modal, Space, Spin, Typography, message } from 'antd';
 import {
   DashboardOutlined,
   FileSearchOutlined,
@@ -23,28 +23,33 @@ import {
   TeamOutlined,
   TagsOutlined
 } from '@ant-design/icons';
-import DashboardPage from './pages/DashboardPage';
-import RobotPage from './pages/RobotPage';
-import MessageLogPage from './pages/MessageLogPage';
-import AIHubPage from './pages/AIHubPage';
-import ForwardPage from './pages/ForwardPage';
-import RobotInfoPage from './pages/RobotInfoPage';
-import TroubleshootPage from './pages/TroubleshootPage';
-import CommandTaskPage from './pages/CommandTaskPage';
-import GroupListPage from './pages/GroupListPage';
-import GroupTagLibraryPage from './pages/GroupTagLibraryPage';
-import TaskCenterPage from './pages/TaskCenterPage';
-import ScheduledTaskPage from './pages/ScheduledTaskPage';
-import InboxPage from './pages/InboxPage';
-import InboxAdminPage from './pages/InboxAdminPage';
 import LoginPage from './pages/LoginPage';
-import UserManagementPage from './pages/UserManagementPage';
-import IpBlacklistPage from './pages/IpBlacklistPage';
-import EnterpriseAuthorizationPage, { PrivateLicenseAuthorizationPage } from './pages/EnterpriseAuthorizationPage';
-import RobotMigratePage from './pages/RobotMigratePage';
-import AppManagementPage from './pages/AppManagementPage';
-import AdminAuditLogPage from './pages/AdminAuditLogPage';
+import ChatbotLauncher from './components/ChatbotLauncher';
 import { api, clearAccessToken, getAccessToken } from './api';
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const RobotPage = lazy(() => import('./pages/RobotPage'));
+const MessageLogPage = lazy(() => import('./pages/MessageLogPage'));
+const AIHubPage = lazy(() => import('./pages/AIHubPage'));
+const ForwardPage = lazy(() => import('./pages/ForwardPage'));
+const RobotInfoPage = lazy(() => import('./pages/RobotInfoPage'));
+const TroubleshootPage = lazy(() => import('./pages/TroubleshootPage'));
+const CommandTaskPage = lazy(() => import('./pages/CommandTaskPage'));
+const GroupListPage = lazy(() => import('./pages/GroupListPage'));
+const GroupTagLibraryPage = lazy(() => import('./pages/GroupTagLibraryPage'));
+const TaskCenterPage = lazy(() => import('./pages/TaskCenterPage'));
+const ScheduledTaskPage = lazy(() => import('./pages/ScheduledTaskPage'));
+const InboxPage = lazy(() => import('./pages/InboxPage'));
+const InboxAdminPage = lazy(() => import('./pages/InboxAdminPage'));
+const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
+const IpBlacklistPage = lazy(() => import('./pages/IpBlacklistPage'));
+const EnterpriseAuthorizationPage = lazy(() => import('./pages/EnterpriseAuthorizationPage'));
+const PrivateLicenseAuthorizationPage = lazy(() =>
+  import('./pages/EnterpriseAuthorizationPage').then((module) => ({ default: module.PrivateLicenseAuthorizationPage }))
+);
+const RobotMigratePage = lazy(() => import('./pages/RobotMigratePage'));
+const AppManagementPage = lazy(() => import('./pages/AppManagementPage'));
+const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -123,7 +128,7 @@ export default function App() {
   const [enableTroubleshoot, setEnableTroubleshoot] = useState(false);
   const [enableAdminIpBlacklist, setEnableAdminIpBlacklist] = useState(false);
   const [enableAdminEnterpriseAuth, setEnableAdminEnterpriseAuth] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
+  const [authReady, setAuthReady] = useState(() => location.pathname === '/login' || !getAccessToken());
   const [authed, setAuthed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userPhone, setUserPhone] = useState('');
@@ -341,31 +346,39 @@ export default function App() {
   }
 
   const pageRoutes = (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/robot-info" element={<RobotInfoPage />} />
-      <Route path="/robots" element={<RobotPage />} />
-      <Route path="/logs" element={<MessageLogPage />} />
-      <Route path="/group-tags" element={<GroupTagLibraryPage />} />
-      <Route path="/task-center" element={<TaskCenterPage />} />
-      <Route path="/scheduled-tasks" element={<ScheduledTaskPage />} />
-      <Route path="/groups" element={<GroupListPage />} />
-      <Route path="/inbox" element={<InboxPage />} />
-      <Route path="/command-tasks" element={<CommandTaskPage />} />
-      <Route path="/forward" element={<ForwardPage />} />
-      <Route path="/providers" element={<AIHubPage />} />
-      {enableTroubleshoot && isAdmin ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin ? <Route path="/admin-audit-logs" element={<AdminAuditLogPage />} /> : <Route path="/admin-audit-logs" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
-      {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+    <Suspense
+      fallback={(
+        <div className="route-loading" role="status" aria-label="页面加载中">
+          <Spin size="large" />
+        </div>
+      )}
+    >
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/robot-info" element={<RobotInfoPage />} />
+        <Route path="/robots" element={<RobotPage />} />
+        <Route path="/logs" element={<MessageLogPage />} />
+        <Route path="/group-tags" element={<GroupTagLibraryPage />} />
+        <Route path="/task-center" element={<TaskCenterPage />} />
+        <Route path="/scheduled-tasks" element={<ScheduledTaskPage />} />
+        <Route path="/groups" element={<GroupListPage />} />
+        <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/command-tasks" element={<CommandTaskPage />} />
+        <Route path="/forward" element={<ForwardPage />} />
+        <Route path="/providers" element={<AIHubPage />} />
+        {enableTroubleshoot && isAdmin ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin ? <Route path="/admin-audit-logs" element={<AdminAuditLogPage />} /> : <Route path="/admin-audit-logs" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Suspense>
   );
 
   if (isMobile) {
@@ -400,6 +413,7 @@ export default function App() {
           </div>
         </Drawer>
         <Content className="mobile-content-wrap">{pageRoutes}</Content>
+        <ChatbotLauncher />
       </Layout>
     );
   }
@@ -457,6 +471,7 @@ export default function App() {
         <Content className="content-wrap">
           {pageRoutes}
         </Content>
+        <ChatbotLauncher />
       </Layout>
     </Layout>
   );

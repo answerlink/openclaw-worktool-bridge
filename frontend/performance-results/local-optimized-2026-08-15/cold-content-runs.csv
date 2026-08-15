@@ -1,0 +1,7 @@
+finalUrl,title,firstBodyTextMs,fcpMs,lcpMs,cls,tbtMs,ttfbMs,domContentLoadedMs,loadMs,redirectCount,resourceCount,transferBytes,decodedBytes,bodyTextSample,profile,wallClockMs,run
+http://127.0.0.1:4173/login?next=%2F,WorkTool 管理台,161.5,208,208,0,0,4,95.4,95.4,0,6,299093,880531,WorkTool Console 登录后管理你的机器人与规则 登录 注册 手机号 密码 登 录,mobile,5111,1
+http://127.0.0.1:4173/login?next=%2F,WorkTool 管理台,157.9,212,212,0,0,2.3,91.4,91.5,0,6,299093,880531,WorkTool Console 登录后管理你的机器人与规则 登录 注册 手机号 密码 登 录,mobile,5097,2
+http://127.0.0.1:4173/login?next=%2F,WorkTool 管理台,148.9,204,204,0,0,2,82.6,82.6,0,6,299093,880531,WorkTool Console 登录后管理你的机器人与规则 登录 注册 手机号 密码 登 录,mobile,5089,3
+http://127.0.0.1:4173/login?next=%2F,WorkTool 管理台,251.9,316,316,0,9,9.2,162.9,162.9,0,6,299093,880531,WorkTool Console 登录后管理你的机器人与规则 登录 注册 手机号 密码 登 录,desktop,5195,1
+http://127.0.0.1:4173/login?next=%2F,WorkTool 管理台,169,220,220,0,0,2.8,101.5,101.5,0,6,299093,880531,WorkTool Console 登录后管理你的机器人与规则 登录 注册 手机号 密码 登 录,desktop,5107,2
+http://127.0.0.1:4173/login?next=%2F,WorkTool 管理台,166.1,216,216,0,0,3.7,99.1,99.1,0,6,299093,880531,WorkTool Console 登录后管理你的机器人与规则 登录 注册 手机号 密码 登 录,desktop,5106,3

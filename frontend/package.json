@@ -7,7 +7,9 @@
     "dev": "vite",
     "docs:build": "node scripts/build-docs.mjs",
     "build": "npm run docs:build && tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "perf:baseline": "node scripts/perf-baseline.mjs",
+    "perf:compare": "node scripts/perf-compare.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
@@ -23,7 +25,9 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.4.1",
+    "lighthouse": "^12.8.2",
     "marked": "^17.0.4",
+    "puppeteer-core": "^24.16.0",
     "typescript": "^5.8.2",
     "vite": "^6.2.4"
   }
