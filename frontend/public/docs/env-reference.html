@@ -48,6 +48,20 @@
 <td>否</td>
 <td>对外 Web 端口。</td>
 </tr>
+<tr>
+<td><code>APP_DEPLOYMENT_MODE</code></td>
+<td><code>private</code></td>
+<td>是</td>
+<td>否</td>
+<td>部署模式：源码/私有化使用 <code>private</code>，官方公版使用 <code>saas</code>。SaaS 出站 URL 仅允许解析到公网 IP。</td>
+</tr>
+<tr>
+<td><code>PRIVATE_OUTBOUND_ALLOW_LOOPBACK</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>私有化模式是否允许访问回环地址；仅在明确需要访问同容器服务时开启。</td>
+</tr>
 </tbody></table>
 <h2 id="mysql容器">MySQL（容器）</h2><table>
 <thead>

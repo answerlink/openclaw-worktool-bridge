@@ -13,6 +13,8 @@
 |---|---|---|---|---|
 | `PYTHONUNBUFFERED` | `1` | 否 | 否 | Python 日志实时输出。 |
 | `WEB_PORT` | `8080` | 否 | 否 | 对外 Web 端口。 |
+| `APP_DEPLOYMENT_MODE` | `private` | 是 | 否 | 部署模式：源码/私有化使用 `private`，官方公版使用 `saas`。SaaS 出站 URL 仅允许解析到公网 IP。 |
+| `PRIVATE_OUTBOUND_ALLOW_LOOPBACK` | `false` | 否 | 否 | 私有化模式是否允许访问回环地址；仅在明确需要访问同容器服务时开启。 |
 
 ## MySQL（容器）
 

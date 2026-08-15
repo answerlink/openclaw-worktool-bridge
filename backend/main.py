@@ -24,9 +24,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from safe_outbound_http import (
+    UnsafeOutboundUrlError,
+    get_deployment_mode,
+    read_limited_text,
+    safe_outbound_session,
+    validate_outbound_url,
+    validate_outbound_url_shape,
+)
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
 
 APP_VERSION = "4.0.0"
+APP_DEPLOYMENT_MODE = get_deployment_mode()
 WORKTOOL_API_BASE_DEFAULT = "https://api.worktool.ymdyes.cn"
 DEFAULT_MESSAGE_API_URL = f"{WORKTOOL_API_BASE_DEFAULT}/wework/sendRawMessage"
 
@@ -125,6 +134,39 @@ _qa_callback_queue: Optional[asyncio.Queue] = None
 _qa_callback_worker_tasks: List[asyncio.Task] = []
 _robot_show_name_cache: Dict[str, Dict[str, Any]] = {}
 _robot_show_name_cache_lock = asyncio.Lock()
+
+
+async def _validate_user_outbound_url(value: str) -> str:
+    try:
+        return await validate_outbound_url(value, deployment_mode=APP_DEPLOYMENT_MODE)
+    except UnsafeOutboundUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _normalize_user_outbound_url(value: str) -> str:
+    try:
+        return str(validate_outbound_url_shape(value))
+    except UnsafeOutboundUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _redact_outbound_headers(headers: Dict[str, Any]) -> Dict[str, Any]:
+    sensitive_parts = ("authorization", "token", "cookie", "api-key", "apikey", "secret")
+    return {
+        str(key): "****" if any(part in str(key).lower() for part in sensitive_parts) else value
+        for key, value in headers.items()
+    }
+
+
+async def _read_limited_json_response(response: aiohttp.ClientResponse) -> Dict[str, Any]:
+    raw = await read_limited_text(response)
+    try:
+        data = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="上游响应格式异常") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="上游响应格式异常")
+    return data
 
 
 def now_iso() -> str:
@@ -1334,7 +1376,7 @@ async def _send_sms_via_huarui(phone: str, content: str) -> Dict[str, Any]:
     timeout = aiohttp.ClientTimeout(total=5)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(SMS_HUARUI_API_URL, json=body) as resp:
-            data = await resp.json(content_type=None)
+            data = await _read_limited_json_response(resp)
             if resp.status != 200:
                 raise HTTPException(status_code=502, detail=f"sms upstream status={resp.status}")
             if not isinstance(data, dict):
@@ -2365,14 +2407,15 @@ def build_robot_callback_url(robot_id: str) -> str:
 
 async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{get_worktool_api_base()}{path}"
+    url = _normalize_user_outbound_url(url)
     # aiohttp query params do not accept None values.
     safe_params = {k: v for k, v in (params or {}).items() if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url, params=safe_params) as resp:
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.get(url, params=safe_params, allow_redirects=False) as resp:
             if resp.status != 200:
                 raise HTTPException(status_code=502, detail=f"worktool request failed: status={resp.status}")
-            raw = await resp.text()
+            raw = await read_limited_text(resp)
             if not raw.strip():
                 raise HTTPException(status_code=502, detail="worktool response empty")
             try:
@@ -2416,11 +2459,12 @@ async def _get_robot_display_name_cached(robot_id: str) -> str:
 
 async def post_worktool_api(path: str, params: Optional[Dict[str, Any]] = None, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     url = f"{get_worktool_api_base()}{path}"
+    url = _normalize_user_outbound_url(url)
     safe_params = {k: v for k, v in ((params or {}).items()) if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params=safe_params, json=body) as resp:
-            raw = await resp.text()
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, params=safe_params, json=body, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
             if resp.status != 200:
                 detail_msg = f"worktool request failed: status={resp.status}"
                 if raw.strip():
@@ -2455,12 +2499,13 @@ async def post_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[str
     if not WORKTOOL_RENEW_TOKEN:
         raise HTTPException(status_code=503, detail="WORKTOOL_RENEW_TOKEN not configured")
     url = f"{get_worktool_api_base()}{path}"
+    url = _normalize_user_outbound_url(url)
     safe_params = {k: v for k, v in (params or {}).items() if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
     headers = {"X-Worktool-Renew-Token": WORKTOOL_RENEW_TOKEN}
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params=safe_params, headers=headers) as resp:
-            raw = await resp.text()
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, params=safe_params, headers=headers, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
             if resp.status != 200:
                 detail_msg = f"worktool request failed: status={resp.status}"
                 if raw.strip():
@@ -3142,7 +3187,9 @@ def _to_ip_list(value: Any) -> List[str]:
 
 
 async def bind_message_callback(robot_id: str, callback_url: str, reply_all: int = 1) -> Dict[str, Any]:
+    callback_url = await _validate_user_outbound_url(callback_url)
     url = f"{get_worktool_api_base()}/robot/robotInfo/update"
+    url = _normalize_user_outbound_url(url)
     timeout = aiohttp.ClientTimeout(total=10)
     payload = {
         "openCallback": 1,
@@ -3150,9 +3197,9 @@ async def bind_message_callback(robot_id: str, callback_url: str, reply_all: int
         "callbackUrl": callback_url,
     }
     logger.info("bind_message_callback request robot_id=%s url=%s payload=%s", robot_id, url, payload)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params={"robotId": robot_id}, json=payload) as resp:
-            data = await resp.json(content_type=None)
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
+            data = await _read_limited_json_response(resp)
             if resp.status != 200:
                 raise HTTPException(status_code=502, detail=f"绑定失败：HTTP {resp.status}")
             if not isinstance(data, dict):
@@ -3165,12 +3212,14 @@ async def bind_message_callback(robot_id: str, callback_url: str, reply_all: int
 
 
 async def bind_callback_by_type(robot_id: str, callback_url: str, callback_type: int) -> Dict[str, Any]:
+    callback_url = await _validate_user_outbound_url(callback_url)
     url = f"{get_worktool_api_base()}/robot/robotInfo/callBack/bind"
+    url = _normalize_user_outbound_url(url)
     timeout = aiohttp.ClientTimeout(total=10)
     payload = {"type": int(callback_type), "callBackUrl": callback_url}
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params={"robotId": robot_id}, json=payload) as resp:
-            data = await resp.json(content_type=None)
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
+            data = await _read_limited_json_response(resp)
             if resp.status != 200:
                 raise HTTPException(status_code=502, detail=f"绑定失败：HTTP {resp.status}")
             if not isinstance(data, dict):
@@ -3184,11 +3233,12 @@ async def bind_callback_by_type(robot_id: str, callback_url: str, callback_type:
 
 async def delete_callback_by_type(robot_id: str, callback_type: int) -> Dict[str, Any]:
     url = f"{get_worktool_api_base()}/robot/robotInfo/callBack/deleteByType"
+    url = _normalize_user_outbound_url(url)
     timeout = aiohttp.ClientTimeout(total=10)
     payload = {"type": int(callback_type)}
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params={"robotId": robot_id}, json=payload) as resp:
-            data = await resp.json(content_type=None)
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
+            data = await _read_limited_json_response(resp)
             if resp.status != 200:
                 raise HTTPException(status_code=502, detail=f"删除回调失败：HTTP {resp.status}")
             if not isinstance(data, dict):
@@ -4206,6 +4256,8 @@ def _build_provider_http_request(rule: Dict[str, Any], prompt: str, payload_extr
         if isinstance(req_headers, dict):
             for k, v in req_headers.items():
                 if isinstance(k, str) and isinstance(v, str):
+                    if k.strip().lower() in {"host", "content-length", "connection", "proxy-authorization", "transfer-encoding", "upgrade"}:
+                        raise HTTPException(status_code=400, detail=f"不允许自定义请求头: {k}")
                     headers[k] = v
         req_body = extra_json.get("request_body")
         if isinstance(req_body, dict):
@@ -4241,6 +4293,7 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
     headers = req_cfg["headers"]
     payload = req_cfg["payload"]
     url = req_cfg["url"]
+    url = _normalize_user_outbound_url(url)
     auth_scheme = req_cfg["auth_scheme"]
 
     timeout = aiohttp.ClientTimeout(total=AI_PROVIDER_TIMEOUT_SECONDS)
@@ -4254,9 +4307,9 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
         auth_scheme,
         _short_text(prompt, 160),
     )
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=payload, headers=headers) as resp:
-            raw = await resp.text()
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, json=payload, headers=headers, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
             if resp.status >= 400:
                 logger.warning(
                     "provider_request_http_error rule_id=%s provider_id=%s status=%s cost_ms=%s body=%s",
@@ -4303,6 +4356,7 @@ async def _call_openclaw_webhook(rule: Dict[str, Any], callback_payload: Dict[st
     url = str(rule.get("base_url") or "").strip()
     if not url:
         raise HTTPException(status_code=500, detail="provider base_url empty")
+    url = _normalize_user_outbound_url(url)
 
     timeout = aiohttp.ClientTimeout(total=AI_PROVIDER_TIMEOUT_SECONDS)
     started = time.perf_counter()
@@ -4315,9 +4369,9 @@ async def _call_openclaw_webhook(rule: Dict[str, Any], callback_payload: Dict[st
         auth_scheme,
         _short_text(json.dumps(callback_payload, ensure_ascii=False), 300),
     )
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=callback_payload, headers=headers) as resp:
-            raw = await resp.text()
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, json=callback_payload, headers=headers, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
             if resp.status >= 400:
                 logger.warning(
                     "openclaw_webhook_http_error rule_id=%s provider_id=%s status=%s cost_ms=%s body=%s",
@@ -4346,6 +4400,7 @@ async def _send_worktool_text_to_target(robot_id: str, target: str, text: str) -
     if not target:
         raise HTTPException(status_code=400, detail="worktool target empty")
     url = f"{get_worktool_api_base()}/wework/sendRawMessage"
+    url = _normalize_user_outbound_url(url)
     payload = {
         "socketType": 2,
         "list": [
@@ -4364,9 +4419,9 @@ async def _send_worktool_text_to_target(robot_id: str, target: str, text: str) -
         _short_text(text, 160),
     )
     timeout = aiohttp.ClientTimeout(total=15)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params={"robotId": robot_id}, json=payload) as resp:
-            raw = await resp.text()
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
             if resp.status >= 400:
                 logger.warning(
                     "worktool_send_http_error robot_id=%s status=%s cost_ms=%s body=%s",
@@ -4843,6 +4898,8 @@ async def health() -> Dict[str, Any]:
     return {
         "status": "healthy",
         "version": APP_VERSION,
+        "deployment_mode": APP_DEPLOYMENT_MODE,
+        "outbound_private_url_allowed": APP_DEPLOYMENT_MODE == "private",
         "time": now_iso(),
         "enable_troubleshoot": ENABLE_TROUBLESHOOT,
         "enable_open_troubleshoot_api": ENABLE_OPEN_TROUBLESHOOT_API,
@@ -4870,16 +4927,21 @@ async def get_worktool_settings(user: Dict[str, Any] = Depends(get_current_user)
 
 @app.put("/api/v1/settings/worktool")
 async def update_worktool_settings(body: WorkToolSettingsUpdate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    _ = user
+    _require_admin(user)
     if not ENABLE_RUNTIME_WORKTOOL_SETTINGS:
         raise HTTPException(status_code=403, detail="runtime worktool settings disabled")
     if body.worktool_api_base is not None:
-        set_setting("worktool_api_base", normalize_worktool_api_base(body.worktool_api_base))
+        worktool_api_base = normalize_worktool_api_base(body.worktool_api_base)
+        await _validate_user_outbound_url(worktool_api_base)
+        set_setting("worktool_api_base", worktool_api_base)
     if body.callback_public_base_url is not None:
-        set_setting("callback_public_base_url", normalize_public_base_url(body.callback_public_base_url))
+        callback_public_base_url = normalize_public_base_url(body.callback_public_base_url)
+        if callback_public_base_url:
+            await _validate_user_outbound_url(callback_public_base_url)
+        set_setting("callback_public_base_url", callback_public_base_url)
     if body.auto_bind_message_callback_on_create is not None:
         set_setting("auto_bind_message_callback_on_create", "true" if body.auto_bind_message_callback_on_create else "false")
-    return await get_worktool_settings()
+    return await get_worktool_settings(user)
 
 
 @app.get("/api/v1/dashboard/overview")
@@ -5273,6 +5335,7 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
 
 @app.post("/api/v1/providers")
 async def create_provider(body: ProviderCreate, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    base_url = await _validate_user_outbound_url(body.base_url)
     extra = _normalize_extra_json(body.extra_json)
     asker_info_mode = _resolve_asker_info_mode(body.asker_info_mode, body.include_asker_info)
 
@@ -5287,7 +5350,7 @@ async def create_provider(body: ProviderCreate, user: Dict[str, Any] = Depends(g
                 (
                     int(user["id"]),
                     body.name,
-                    body.base_url,
+                    base_url,
                     body.api_token,
                     body.model,
                     body.provider_type,
@@ -5345,6 +5408,7 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
     base_url = str(cfg.get("base_url") or "").strip()
     if not base_url:
         raise HTTPException(status_code=400, detail="Base URL 不能为空")
+    base_url = await _validate_user_outbound_url(base_url)
 
     provider_type = str(cfg.get("provider_type") or "openai")
     auth_scheme = _resolve_auth_scheme(provider_type, cfg.get("auth_scheme"))
@@ -5368,13 +5432,14 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
     }
     test_prompt = "hi"
     req_cfg = _build_provider_http_request(test_rule, test_prompt)
+    debug_headers = _redact_outbound_headers(req_cfg["headers"])
     debug_request = {
         "method": "POST",
         "url": req_cfg["url"],
-        "headers": req_cfg["headers"],
+        "headers": debug_headers,
         "request_body": req_cfg["payload"],
     }
-    debug_curl = _build_request_curl("POST", req_cfg["url"], req_cfg["headers"], req_cfg["payload"])
+    debug_curl = _build_request_curl("POST", req_cfg["url"], debug_headers, req_cfg["payload"])
     started = time.perf_counter()
     if provider_type == "openclaw":
         sample_payload = {
@@ -5452,8 +5517,9 @@ async def update_provider(provider_id: int, body: ProviderUpdate, user: Dict[str
         updates.append("name=%s")
         params.append(body.name)
     if body.base_url is not None:
+        base_url = await _validate_user_outbound_url(body.base_url)
         updates.append("base_url=%s")
-        params.append(body.base_url)
+        params.append(base_url)
     if body.api_token is not None:
         updates.append("api_token=%s")
         params.append(body.api_token)
@@ -7766,6 +7832,7 @@ async def test_robot_message_callback(body: MessageCallbackPayload, user: Dict[s
     callback_url = (body.callback_url or "").strip()
     if not callback_url:
         raise HTTPException(status_code=400, detail="callback_url required")
+    callback_url = await _validate_user_outbound_url(callback_url)
 
     payload = {
         "spoken": "您好,欢迎使用WorkTool~",
@@ -7780,9 +7847,14 @@ async def test_robot_message_callback(body: MessageCallbackPayload, user: Dict[s
     }
     timeout = aiohttp.ClientTimeout(total=8)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(callback_url, json=payload, headers={"Content-Type": "application/json"}) as resp:
-                raw = await resp.text()
+        async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+            async with session.post(
+                callback_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                allow_redirects=False,
+            ) as resp:
+                raw = await read_limited_text(resp)
                 if resp.status != 200:
                     raise HTTPException(
                         status_code=400,
@@ -7804,7 +7876,8 @@ async def test_robot_message_callback(body: MessageCallbackPayload, user: Dict[s
 @app.post("/api/v1/robot-info/callbacks/test")
 async def test_robot_callback(body: CallbackTestPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     _ = user
-    return {"ok": True, "callback_url": body.callback_url}
+    callback_url = await _validate_user_outbound_url(body.callback_url)
+    return {"ok": True, "callback_url": callback_url}
 
 
 @app.post("/api/v1/robot-info/message-callback/bind")

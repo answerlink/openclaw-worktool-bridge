@@ -10,6 +10,13 @@ import pymysql
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
+from safe_outbound_http import (
+    get_deployment_mode,
+    read_limited_text,
+    safe_outbound_session,
+    validate_outbound_url_shape,
+)
+
 logger = logging.getLogger("backend.troubleshoot")
 
 
@@ -330,12 +337,21 @@ def _sanitize_robot_connect_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, A
 
 async def _fetch_worktool_api_loose(api_base: str, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{api_base.rstrip('/')}{path}"
+    deployment_mode = get_deployment_mode()
+    try:
+        url = str(validate_outbound_url_shape(url))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url, params=params) as resp:
-            data = await resp.json(content_type=None)
+    async with safe_outbound_session(timeout, deployment_mode=deployment_mode) as session:
+        async with session.get(url, params=params, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
             if resp.status != 200:
                 raise HTTPException(status_code=502, detail=f"worktool request failed: status={resp.status}")
+            try:
+                data = json.loads(raw) if raw else {}
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=502, detail="worktool response is not valid json") from exc
             return data if isinstance(data, dict) else {"data": data}
 
 
