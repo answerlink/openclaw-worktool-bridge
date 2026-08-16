@@ -7,6 +7,7 @@ interface AdminUserItem {
   account?: string;
   phone: string;
   is_admin?: boolean;
+  is_active: boolean;
   company_name?: string | null;
   created_at: string;
   last_login_at?: string | null;
@@ -126,6 +127,12 @@ export default function UserManagementPage() {
             )
           },
           { title: '企业', dataIndex: 'company_name', render: (v: string | null | undefined) => v || '-', width: 180 },
+          {
+            title: '状态',
+            dataIndex: 'is_active',
+            width: 90,
+            render: (active: boolean) => active ? <Tag color="green">已启用</Tag> : <Tag>已停用</Tag>
+          },
           { title: '注册时间', dataIndex: 'created_at', render: (v: string | null | undefined) => formatBeijingDateTime(v), width: 180 },
           { title: '最后登录', dataIndex: 'last_login_at', render: (v: string | null | undefined) => formatBeijingDateTime(v), width: 180 },
           {
@@ -139,18 +146,48 @@ export default function UserManagementPage() {
           },
           {
             title: '操作',
-            width: 110,
+            width: 190,
             fixed: 'right' as const,
             render: (_: unknown, row: AdminUserItem) => (
-              <Button
-                size="small"
-                onClick={() => {
-                  passwordForm.resetFields();
-                  setPasswordTarget(row);
-                }}
-              >
-                修改密码
-              </Button>
+              <Space>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    passwordForm.resetFields();
+                    setPasswordTarget(row);
+                  }}
+                >
+                  修改密码
+                </Button>
+                {!row.is_admin ? (
+                  <Button
+                    size="small"
+                    danger={row.is_active}
+                    onClick={() => {
+                      const nextActive = !row.is_active;
+                      Modal.confirm({
+                        title: `${nextActive ? '启用' : '停用'}用户`,
+                        content: `确认${nextActive ? '启用' : '停用'}账号“${row.account || row.phone}”吗？${nextActive ? '' : '停用后该用户会立即退出登录。'}`,
+                        okText: `确认${nextActive ? '启用' : '停用'}`,
+                        cancelText: '取消',
+                        okButtonProps: { danger: !nextActive },
+                        onOk: async () => {
+                          try {
+                            await api.adminUpdateUserStatus(row.id, nextActive);
+                            message.success(`账号已${nextActive ? '启用' : '停用'}`);
+                            await load(page, pageSize);
+                          } catch (e: any) {
+                            message.error(e?.response?.data?.detail || e?.message || `${nextActive ? '启用' : '停用'}失败`);
+                            throw e;
+                          }
+                        },
+                      });
+                    }}
+                  >
+                    {row.is_active ? '停用' : '启用'}
+                  </Button>
+                ) : null}
+              </Space>
             )
           },
         ]}

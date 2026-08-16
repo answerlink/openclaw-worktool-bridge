@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import main
+from fastapi import HTTPException
 
 
 class PrivateAccountValidationTests(unittest.TestCase):
@@ -25,6 +26,23 @@ class PrivateAccountValidationTests(unittest.TestCase):
             # Must return before opening a database connection.
             with patch.object(main, "db_conn", side_effect=AssertionError("db must not be touched")):
                 main.ensure_private_admin()
+
+    def test_admin_accounts_cannot_be_disabled(self):
+        with self.assertRaises(HTTPException) as ctx:
+            main._require_user_status_change_allowed(main.PRIVATE_ADMIN_USERNAME, False)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        with patch.object(main, "ADMIN_PHONE_WHITELIST", {"manager_user"}):
+            with self.assertRaises(HTTPException) as other_admin_ctx:
+                main._require_user_status_change_allowed("manager_user", False)
+        self.assertEqual(other_admin_ctx.exception.status_code, 403)
+
+    def test_normal_users_can_be_disabled_or_enabled(self):
+        main._require_user_status_change_allowed("normal_user", False)
+        main._require_user_status_change_allowed("normal_user", True)
+
+    def test_admin_accounts_can_remain_enabled(self):
+        main._require_user_status_change_allowed(main.PRIVATE_ADMIN_USERNAME, True)
 
 
 if __name__ == "__main__":

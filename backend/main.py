@@ -1349,6 +1349,11 @@ def _require_admin(user: Dict[str, Any]) -> None:
         raise HTTPException(status_code=403, detail="仅管理员可访问")
 
 
+def _require_user_status_change_allowed(target_account: str, is_active: bool) -> None:
+    if not is_active and _is_admin_phone(target_account):
+        raise HTTPException(status_code=403, detail="管理员账号不可停用")
+
+
 def _require_feature_enabled(enabled: bool, feature_name: str) -> None:
     if not enabled:
         raise HTTPException(status_code=404, detail=f"{feature_name} disabled")
@@ -1490,6 +1495,10 @@ class AdminCreateUserRequest(BaseModel):
 
 class AdminUpdateUserPasswordRequest(BaseModel):
     new_password: str
+
+
+class AdminUpdateUserStatusRequest(BaseModel):
+    is_active: bool
 
 
 class WeworkAuthorizationSaveRequest(BaseModel):
@@ -9640,13 +9649,13 @@ async def admin_list_users(
                 cur.execute(
                     """
                     SELECT
-                      u.id,u.phone,u.company_name,u.created_at,u.last_login_at,
+                      u.id,u.phone,u.company_name,u.is_active,u.created_at,u.last_login_at,
                       GROUP_CONCAT(DISTINCT r.robot_id ORDER BY r.robot_id SEPARATOR ',') AS robot_ids
                     FROM users u
                     LEFT JOIN user_robots ur ON ur.user_id=u.id
                     LEFT JOIN robots r ON r.id=ur.robot_pk
                     WHERE u.phone LIKE %s
-                    GROUP BY u.id,u.phone,u.company_name,u.created_at,u.last_login_at
+                    GROUP BY u.id,u.phone,u.company_name,u.is_active,u.created_at,u.last_login_at
                     ORDER BY u.created_at DESC
                     LIMIT %s OFFSET %s
                     """,
@@ -9656,12 +9665,12 @@ async def admin_list_users(
                 cur.execute(
                     """
                     SELECT
-                      u.id,u.phone,u.company_name,u.created_at,u.last_login_at,
+                      u.id,u.phone,u.company_name,u.is_active,u.created_at,u.last_login_at,
                       GROUP_CONCAT(DISTINCT r.robot_id ORDER BY r.robot_id SEPARATOR ',') AS robot_ids
                     FROM users u
                     LEFT JOIN user_robots ur ON ur.user_id=u.id
                     LEFT JOIN robots r ON r.id=ur.robot_pk
-                    GROUP BY u.id,u.phone,u.company_name,u.created_at,u.last_login_at
+                    GROUP BY u.id,u.phone,u.company_name,u.is_active,u.created_at,u.last_login_at
                     ORDER BY u.created_at DESC
                     LIMIT %s OFFSET %s
                     """,
@@ -9680,6 +9689,7 @@ async def admin_list_users(
                 "account": row["phone"],
                 "phone": row["phone"],
                 "is_admin": _is_admin_phone(str(row["phone"])),
+                "is_active": bool(row.get("is_active")),
                 "company_name": row.get("company_name"),
                 "created_at": str(row["created_at"]),
                 "last_login_at": str(row["last_login_at"]) if row.get("last_login_at") else None,
@@ -9779,6 +9789,88 @@ async def admin_update_user_password(
                 after={"id": int(user_id), "phone": target_phone, "sessions_revoked": True},
             )
             return {"ok": True, "message": "密码已修改，用户需重新登录"}
+        except Exception as exc:
+            conn.rollback()
+            _audit_failure(audit_id, exc)
+            raise
+    finally:
+        conn.close()
+
+
+@app.put("/api/v1/admin/users/{user_id}/status")
+async def admin_update_user_status(
+    user_id: int,
+    body: AdminUpdateUserStatusRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id,phone,company_name,is_active FROM users WHERE id=%s LIMIT 1",
+                (int(user_id),),
+            )
+            target = cur.fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        target_account = str(target.get("phone") or "")
+        _require_user_status_change_allowed(target_account, body.is_active)
+        current_active = bool(target.get("is_active"))
+        if current_active == body.is_active:
+            return {
+                "ok": True,
+                "id": int(user_id),
+                "is_active": body.is_active,
+                "message": "账号状态未变化",
+            }
+
+        target_name = str(target.get("company_name") or target_account)
+        action_key = "enable" if body.is_active else "disable"
+        action_name = "启用用户" if body.is_active else "停用用户"
+        audit_id = _begin_admin_audit(
+            user,
+            request,
+            module="user_management",
+            action_key=action_key,
+            action_name=action_name,
+            target_type="user",
+            target_id=str(user_id),
+            target_name=target_name,
+            before={
+                "id": int(user_id),
+                "phone": target_account,
+                "company_name": target.get("company_name"),
+                "is_active": current_active,
+            },
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET is_active=%s, token_version=token_version+1 WHERE id=%s",
+                    (1 if body.is_active else 0, int(user_id)),
+                )
+                if cur.rowcount != 1:
+                    raise HTTPException(status_code=404, detail="用户不存在")
+            conn.commit()
+            _finish_admin_audit(
+                audit_id,
+                status="success",
+                after={
+                    "id": int(user_id),
+                    "phone": target_account,
+                    "is_active": body.is_active,
+                    "sessions_revoked": True,
+                },
+            )
+            return {
+                "ok": True,
+                "id": int(user_id),
+                "is_active": body.is_active,
+                "message": f"账号已{action_name[:2]}，原登录态已失效",
+            }
         except Exception as exc:
             conn.rollback()
             _audit_failure(audit_id, exc)

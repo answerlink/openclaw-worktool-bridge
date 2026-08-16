@@ -169,6 +169,8 @@ export const api = {
     http.post('/admin/users', payload).then((r) => r.data),
   adminUpdateUserPassword: (userId: number, payload: { new_password: string }) =>
     http.put(`/admin/users/${userId}/password`, payload).then((r) => r.data),
+  adminUpdateUserStatus: (userId: number, isActive: boolean) =>
+    http.put(`/admin/users/${userId}/status`, { is_active: isActive }).then((r) => r.data),
   health: () => http.get('/health').then((r) => r.data),
   getOverview: () => http.get('/dashboard/overview').then((r) => r.data),
   getTrends: (days = 7) => http.get('/dashboard/trends', { params: { days } }).then((r) => r.data),
