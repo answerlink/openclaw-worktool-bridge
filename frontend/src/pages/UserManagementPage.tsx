@@ -4,7 +4,9 @@ import { api } from '../api';
 
 interface AdminUserItem {
   id: number;
+  account?: string;
   phone: string;
+  is_admin?: boolean;
   company_name?: string | null;
   created_at: string;
   last_login_at?: string | null;
@@ -56,7 +58,7 @@ export default function UserManagementPage() {
     setLoading(true);
     try {
       const res = await api.adminListUsers({
-        phone: keyword.trim() || undefined,
+        account: keyword.trim() || undefined,
         page: nextPage,
         page_size: nextPageSize
       });
@@ -95,7 +97,7 @@ export default function UserManagementPage() {
       <Space style={{ marginBottom: 12 }}>
         <Input
           style={{ width: 260 }}
-          placeholder="手机号搜索"
+          placeholder="账号搜索"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onPressEnter={() => void load(1, pageSize)}
@@ -115,7 +117,14 @@ export default function UserManagementPage() {
           onChange: (p, ps) => void load(p, ps),
         }}
         columns={[
-          { title: '手机号', dataIndex: 'phone', width: 150 },
+          {
+            title: '账号',
+            dataIndex: 'account',
+            width: 170,
+            render: (value: string | undefined, row: AdminUserItem) => (
+              <Space>{value || row.phone}{row.is_admin ? <Tag color="red">管理员</Tag> : null}</Space>
+            )
+          },
           { title: '企业', dataIndex: 'company_name', render: (v: string | null | undefined) => v || '-', width: 180 },
           { title: '注册时间', dataIndex: 'created_at', render: (v: string | null | undefined) => formatBeijingDateTime(v), width: 180 },
           { title: '最后登录', dataIndex: 'last_login_at', render: (v: string | null | undefined) => formatBeijingDateTime(v), width: 180 },
@@ -156,7 +165,7 @@ export default function UserManagementPage() {
           setCreateLoading(true);
           try {
             await api.adminCreateUser({
-              phone: String(values.phone || '').trim(),
+              account: String(values.account || '').trim(),
               password: String(values.password || ''),
               company_name: String(values.company_name || '').trim() || undefined,
             });
@@ -172,14 +181,14 @@ export default function UserManagementPage() {
       >
         <Form form={createForm} layout="vertical">
           <Form.Item
-            name="phone"
-            label="手机号"
+            name="account"
+            label="账号"
             rules={[
-              { required: true, message: '请输入手机号' },
-              { pattern: /^1\d{10}$/, message: '手机号格式不合法' },
+              { required: true, message: '请输入账号' },
+              { pattern: /^(?:[A-Za-z][A-Za-z0-9_.-]{2,19}|1\d{10})$/, message: '3-20位字母开头，支持字母、数字、._-' },
             ]}
           >
-            <Input placeholder="11位手机号" />
+            <Input placeholder="例如：zhangsan" maxLength={20} />
           </Form.Item>
           <Form.Item
             name="password"

@@ -46,6 +46,7 @@ frontend/*.tsbuildinfo
 .docker/
 docker-compose.override.yml
 mysql_data/
+backups/
 mysql_data_backup/
 recreate.sh
 

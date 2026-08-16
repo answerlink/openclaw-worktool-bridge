@@ -7,6 +7,10 @@ function isValidPhone(phone: string) {
   return /^1\d{10}$/.test(phone) && !phone.startsWith('170');
 }
 
+function isValidAccount(account: string) {
+  return /^[A-Za-z][A-Za-z0-9_.-]{2,19}$/.test(account) || isValidPhone(account);
+}
+
 type TabKey = 'login' | 'register';
 
 export default function LoginPage() {
@@ -18,6 +22,8 @@ export default function LoginPage() {
   const [cooldown, setCooldown] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
   const [smsAuthEnabled, setSmsAuthEnabled] = useState(false);
+  const [accountLoginEnabled, setAccountLoginEnabled] = useState(false);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
 
   const [loginForm] = Form.useForm();
   const [registerForm] = Form.useForm();
@@ -34,8 +40,12 @@ export default function LoginPage() {
       try {
         const res = await api.authConfig();
         setSmsAuthEnabled(!!res?.sms_auth_enabled);
+        setAccountLoginEnabled(!!res?.account_login_enabled);
+        setRegistrationEnabled(!!res?.registration_enabled);
       } catch {
         setSmsAuthEnabled(false);
+        setAccountLoginEnabled(false);
+        setRegistrationEnabled(false);
       }
     };
     void loadAuthConfig();
@@ -76,7 +86,7 @@ export default function LoginPage() {
     const values = await loginForm.validateFields();
     setSubmitting(true);
     try {
-      const res = await api.authLogin({ phone: values.phone, password: values.password });
+      const res = await api.authLogin({ account: values.phone, password: values.password });
       const token = res?.access_token || '';
       if (!token) {
         throw new Error('登录成功但未返回 token');
@@ -142,6 +152,15 @@ export default function LoginPage() {
         !value || isValidPhone(String(value)) ? Promise.resolve() : Promise.reject(new Error('手机号格式不合法'))
     }
   ];
+  const loginRules = accountLoginEnabled
+    ? [
+        { required: true, message: '请输入账号' },
+        {
+          validator: (_: any, value: string) =>
+            !value || isValidAccount(String(value)) ? Promise.resolve() : Promise.reject(new Error('账号格式不合法'))
+        }
+      ]
+    : phoneRules;
 
   return (
     <div className="login-shell">
@@ -161,8 +180,8 @@ export default function LoginPage() {
               label: '登录',
               children: (
                 <Form form={loginForm} layout="vertical">
-                  <Form.Item name="phone" label="手机号" rules={phoneRules}>
-                    <Input placeholder="请输入11位手机号" maxLength={11} />
+                  <Form.Item name="phone" label={accountLoginEnabled ? '账号' : '手机号'} rules={loginRules}>
+                    <Input placeholder={accountLoginEnabled ? '请输入账号' : '请输入11位手机号'} maxLength={accountLoginEnabled ? 20 : 11} autoComplete="username" />
                   </Form.Item>
                   <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
                     <Input.Password placeholder="请输入密码" />
@@ -191,7 +210,7 @@ export default function LoginPage() {
                 </Form>
               )
             },
-            {
+            registrationEnabled ? {
               key: 'register',
               label: '注册',
               children: (
@@ -222,8 +241,8 @@ export default function LoginPage() {
                   </Button>
                 </Form>
               )
-            }
-          ]}
+            } : null
+          ].filter(Boolean) as any}
         />
       </Card>
 

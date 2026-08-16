@@ -44,6 +44,9 @@
 | `AUTH_JWT_EXPIRE_DAYS` | `30` | 否 | 否 | 登录态有效天数。 |
 | `AUTH_PBKDF2_ITERATIONS` | `390000` | 否 | 否 | 密码哈希迭代次数。 |
 | `AUTH_SMS_ENABLED` | `false` | 否 | 否 | 是否启用短信注册/找回。 |
+| `PRIVATE_ADMIN_USERNAME` | `admin` | Private 是 | 否 | Private 首次启动自动创建的管理员账号。 |
+| `PRIVATE_ADMIN_PASSWORD` | 自动生成 | Private 是 | 是 | Private 管理员初始密码，至少 12 位且可修改；首次创建后不会在重启时覆盖数据库密码，SaaS 模式不生效。 |
+| `PRIVATE_SELF_REGISTRATION_ENABLED` | `false` | 否 | 否 | 是否允许 Private 用户自助注册；交付客户时建议关闭，由管理员创建账号。 |
 | `ENABLE_RUNTIME_WORKTOOL_SETTINGS` | `false` | 否 | 否 | 是否开放运行时修改 WorkTool 基础配置。 |
 | `WORKTOOL_API_BASE` | `https://api.worktool.ymdyes.cn` | 否 | 否 | WorkTool API 基础地址。 |
 | `CALLBACK_PUBLIC_BASE_URL` | 空 | 否 | 否 | 平台公开回调域名前缀。 |
@@ -105,6 +108,7 @@
 ## 生产建议
 
 1. `AUTH_JWT_SECRET`、`MYSQL_PASSWORD`、`APP_MYSQL_PASSWORD`、各类 `*_KEY/*_SECRET` 必须替换成强随机值。
-2. 开源场景建议默认关闭：`ENABLE_ADMIN_IP_BLACKLIST`、`ENABLE_ADMIN_ENTERPRISE_AUTH`、`ENABLE_OPEN_TROUBLESHOOT_API`。
-3. 小流量先用：`QA_CALLBACK_WORKER_CONCURRENCY=8~16`；高峰再按监控调优。
-4. 上下文记忆建议保持轻量：`CHAT_CONTEXT_MAX_MESSAGES=20`、`CHAT_CONTEXT_RETENTION_DAYS=7`。
+2. Private 交付建议保持 `PRIVATE_SELF_REGISTRATION_ENABLED=false`，由管理员统一创建账号。
+3. 开源场景建议默认关闭：`ENABLE_ADMIN_IP_BLACKLIST`、`ENABLE_ADMIN_ENTERPRISE_AUTH`、`ENABLE_OPEN_TROUBLESHOOT_API`。
+4. 小流量先用：`QA_CALLBACK_WORKER_CONCURRENCY=8~16`；高峰再按监控调优。
+5. 上下文记忆建议保持轻量：`CHAT_CONTEXT_MAX_MESSAGES=20`、`CHAT_CONTEXT_RETENTION_DAYS=7`。

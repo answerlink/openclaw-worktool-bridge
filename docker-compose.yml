@@ -1,7 +1,6 @@
 services:
   mysql:
     image: mysql:8.4
-    container_name: worktool-mysql
     restart: unless-stopped
     command:
       - --character-set-server=utf8mb4
@@ -33,7 +32,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: worktool-backend
     depends_on:
       mysql:
         condition: service_healthy
@@ -48,10 +46,14 @@ services:
       APP_MYSQL_USER: ${APP_MYSQL_USER:-}
       APP_MYSQL_PASSWORD: ${APP_MYSQL_PASSWORD:-}
       APP_MYSQL_DATABASE: ${APP_MYSQL_DATABASE:-}
+      APP_MYSQL_TIME_ZONE: ${APP_MYSQL_TIME_ZONE:-+08:00}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
       AUTH_JWT_EXPIRE_DAYS: ${AUTH_JWT_EXPIRE_DAYS:-30}
       AUTH_PBKDF2_ITERATIONS: ${AUTH_PBKDF2_ITERATIONS:-390000}
       AUTH_SMS_ENABLED: ${AUTH_SMS_ENABLED:-false}
+      PRIVATE_ADMIN_USERNAME: ${PRIVATE_ADMIN_USERNAME:-admin}
+      PRIVATE_ADMIN_PASSWORD: ${PRIVATE_ADMIN_PASSWORD:-}
+      PRIVATE_SELF_REGISTRATION_ENABLED: ${PRIVATE_SELF_REGISTRATION_ENABLED:-false}
       ENABLE_TROUBLESHOOT: ${ENABLE_TROUBLESHOOT:-false}
       ENABLE_RUNTIME_WORKTOOL_SETTINGS: ${ENABLE_RUNTIME_WORKTOOL_SETTINGS:-false}
       ENABLE_ADMIN_IP_BLACKLIST: ${ENABLE_ADMIN_IP_BLACKLIST:-false}
@@ -91,8 +93,20 @@ services:
       AI_PROVIDER_TIMEOUT_SECONDS: ${AI_PROVIDER_TIMEOUT_SECONDS:-60}
       QA_CALLBACK_WORKER_CONCURRENCY: ${QA_CALLBACK_WORKER_CONCURRENCY:-16}
       QA_CALLBACK_QUEUE_MAXSIZE: ${QA_CALLBACK_QUEUE_MAXSIZE:-2000}
+      ROBOT_SHOW_NAME_CACHE_TTL_SECONDS: ${ROBOT_SHOW_NAME_CACHE_TTL_SECONDS:-600}
+      CHAT_CONTEXT_ENABLED: ${CHAT_CONTEXT_ENABLED:-true}
+      CHAT_CONTEXT_MAX_MESSAGES: ${CHAT_CONTEXT_MAX_MESSAGES:-20}
+      CHAT_CONTEXT_RETENTION_DAYS: ${CHAT_CONTEXT_RETENTION_DAYS:-7}
     volumes:
       - ./uploads:/data/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     logging:
       driver: json-file
       options:
@@ -105,12 +119,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: worktool-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-18080}:80"
     logging:
       driver: json-file
       options:
@@ -123,7 +136,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: worktool-scheduler
     depends_on:
       mysql:
         condition: service_healthy
@@ -140,10 +152,14 @@ services:
       APP_MYSQL_USER: ${APP_MYSQL_USER:-}
       APP_MYSQL_PASSWORD: ${APP_MYSQL_PASSWORD:-}
       APP_MYSQL_DATABASE: ${APP_MYSQL_DATABASE:-}
+      APP_MYSQL_TIME_ZONE: ${APP_MYSQL_TIME_ZONE:-+08:00}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
       AUTH_JWT_EXPIRE_DAYS: ${AUTH_JWT_EXPIRE_DAYS:-30}
       AUTH_PBKDF2_ITERATIONS: ${AUTH_PBKDF2_ITERATIONS:-390000}
       AUTH_SMS_ENABLED: ${AUTH_SMS_ENABLED:-false}
+      PRIVATE_ADMIN_USERNAME: ${PRIVATE_ADMIN_USERNAME:-admin}
+      PRIVATE_ADMIN_PASSWORD: ${PRIVATE_ADMIN_PASSWORD:-}
+      PRIVATE_SELF_REGISTRATION_ENABLED: ${PRIVATE_SELF_REGISTRATION_ENABLED:-false}
       ENABLE_TROUBLESHOOT: ${ENABLE_TROUBLESHOOT:-false}
       ENABLE_RUNTIME_WORKTOOL_SETTINGS: ${ENABLE_RUNTIME_WORKTOOL_SETTINGS:-false}
       ENABLE_ADMIN_IP_BLACKLIST: ${ENABLE_ADMIN_IP_BLACKLIST:-false}
@@ -157,6 +173,7 @@ services:
       WORKTOOL_WEWORK_AUTH_LIST_PATH: ${WORKTOOL_WEWORK_AUTH_LIST_PATH:-}
       WORKTOOL_WEWORK_AUTH_SAVE_PATH: ${WORKTOOL_WEWORK_AUTH_SAVE_PATH:-}
       WORKTOOL_WEWORK_AUTH_DELETE_PATH: ${WORKTOOL_WEWORK_AUTH_DELETE_PATH:-}
+      PRIVATE_LICENSE_SECRET_KEY: ${PRIVATE_LICENSE_SECRET_KEY:-}
       WORKTOOL_API_BASE: ${WORKTOOL_API_BASE:-}
       CALLBACK_PUBLIC_BASE_URL: ${CALLBACK_PUBLIC_BASE_URL:-}
       ADMIN_PHONE_WHITELIST: ${ADMIN_PHONE_WHITELIST:-}
@@ -179,6 +196,11 @@ services:
       AI_PROVIDER_TIMEOUT_SECONDS: ${AI_PROVIDER_TIMEOUT_SECONDS:-60}
       SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-2}
       SCHEDULER_BATCH_LIMIT: ${SCHEDULER_BATCH_LIMIT:-20}
+      CHAT_CONTEXT_ENABLED: ${CHAT_CONTEXT_ENABLED:-true}
+      CHAT_CONTEXT_MAX_MESSAGES: ${CHAT_CONTEXT_MAX_MESSAGES:-20}
+      CHAT_CONTEXT_RETENTION_DAYS: ${CHAT_CONTEXT_RETENTION_DAYS:-7}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     logging:
       driver: json-file
       options:

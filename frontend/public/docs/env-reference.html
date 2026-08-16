@@ -194,6 +194,27 @@
 <td>是否启用短信注册/找回。</td>
 </tr>
 <tr>
+<td><code>PRIVATE_ADMIN_USERNAME</code></td>
+<td><code>admin</code></td>
+<td>Private 是</td>
+<td>否</td>
+<td>Private 首次启动自动创建的管理员账号。</td>
+</tr>
+<tr>
+<td><code>PRIVATE_ADMIN_PASSWORD</code></td>
+<td>自动生成</td>
+<td>Private 是</td>
+<td>是</td>
+<td>Private 管理员初始密码，至少 12 位且可修改；首次创建后不会在重启时覆盖数据库密码，SaaS 模式不生效。</td>
+</tr>
+<tr>
+<td><code>PRIVATE_SELF_REGISTRATION_ENABLED</code></td>
+<td><code>false</code></td>
+<td>否</td>
+<td>否</td>
+<td>是否允许 Private 用户自助注册；交付客户时建议关闭，由管理员创建账号。</td>
+</tr>
+<tr>
 <td><code>ENABLE_RUNTIME_WORKTOOL_SETTINGS</code></td>
 <td><code>false</code></td>
 <td>否</td>
@@ -499,6 +520,7 @@
 </tbody></table>
 <h2 id="生产建议">生产建议</h2><ol>
 <li><code>AUTH_JWT_SECRET</code>、<code>MYSQL_PASSWORD</code>、<code>APP_MYSQL_PASSWORD</code>、各类 <code>*_KEY/*_SECRET</code> 必须替换成强随机值。</li>
+<li>Private 交付建议保持 <code>PRIVATE_SELF_REGISTRATION_ENABLED=false</code>，由管理员统一创建账号。</li>
 <li>开源场景建议默认关闭：<code>ENABLE_ADMIN_IP_BLACKLIST</code>、<code>ENABLE_ADMIN_ENTERPRISE_AUTH</code>、<code>ENABLE_OPEN_TROUBLESHOOT_API</code>。</li>
 <li>小流量先用：<code>QA_CALLBACK_WORKER_CONCURRENCY=8~16</code>；高峰再按监控调优。</li>
 <li>上下文记忆建议保持轻量：<code>CHAT_CONTEXT_MAX_MESSAGES=20</code>、<code>CHAT_CONTEXT_RETENTION_DAYS=7</code>。</li>

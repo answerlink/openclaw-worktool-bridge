@@ -128,6 +128,7 @@ export default function App() {
   const [enableTroubleshoot, setEnableTroubleshoot] = useState(false);
   const [enableAdminIpBlacklist, setEnableAdminIpBlacklist] = useState(false);
   const [enableAdminEnterpriseAuth, setEnableAdminEnterpriseAuth] = useState(false);
+  const [deploymentMode, setDeploymentMode] = useState<'private' | 'saas' | ''>('');
   const [authReady, setAuthReady] = useState(() => location.pathname === '/login' || !getAccessToken());
   const [authed, setAuthed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -195,6 +196,8 @@ export default function App() {
       .health()
       .then((d) => {
         if (mounted) {
+          const mode = String(d?.deployment_mode || '').toLowerCase();
+          setDeploymentMode(mode === 'private' || mode === 'saas' ? mode : '');
           setEnableTroubleshoot(Boolean(d?.enable_troubleshoot));
           setEnableAdminIpBlacklist(Boolean(d?.enable_admin_ip_blacklist));
           setEnableAdminEnterpriseAuth(Boolean(d?.enable_admin_enterprise_auth));
@@ -202,6 +205,7 @@ export default function App() {
       })
       .catch(() => {
         if (mounted) {
+          setDeploymentMode('');
           setEnableTroubleshoot(false);
           setEnableAdminIpBlacklist(false);
           setEnableAdminEnterpriseAuth(false);
@@ -211,6 +215,8 @@ export default function App() {
       mounted = false;
     };
   }, [authed]);
+
+  const isSaasDeployment = deploymentMode === 'saas';
 
   useEffect(() => {
     if (!authed) return;
@@ -289,28 +295,31 @@ export default function App() {
     ];
 
     if (isAdmin) {
-      const adminItems: any[] = [];
-      if (enableTroubleshoot) {
-        adminItems.push({ key: '/troubleshoot', icon: <SearchOutlined />, label: <Link to="/troubleshoot">机器人排查</Link> });
-      }
-      adminItems.push({ key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户管理</Link> });
-      adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
-      adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换续期</Link> });
-      adminItems.push({ key: '/app-management', icon: <AppstoreOutlined />, label: <Link to="/app-management">App管理</Link> });
-      adminItems.push({ key: '/admin-audit-logs', icon: <FileSearchOutlined />, label: <Link to="/admin-audit-logs">管理员审计日志</Link> });
-      if (enableAdminIpBlacklist) {
-        adminItems.push({ key: '/ip-blacklist', icon: <StopOutlined />, label: <Link to="/ip-blacklist">黑名单管理</Link> });
-      }
-      if (enableAdminEnterpriseAuth) {
-        adminItems.push({ key: '/enterprise-authorization', icon: <BuildOutlined />, label: <Link to="/enterprise-authorization">企业定制开通</Link> });
-        adminItems.push({ key: '/private-license', icon: <SafetyCertificateOutlined />, label: <Link to="/private-license">私有化授权</Link> });
+      const adminItems: any[] = [
+        { key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户管理</Link> }
+      ];
+      if (isSaasDeployment) {
+        if (enableTroubleshoot) {
+          adminItems.push({ key: '/troubleshoot', icon: <SearchOutlined />, label: <Link to="/troubleshoot">机器人排查</Link> });
+        }
+        adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
+        adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换续期</Link> });
+        adminItems.push({ key: '/app-management', icon: <AppstoreOutlined />, label: <Link to="/app-management">App管理</Link> });
+        adminItems.push({ key: '/admin-audit-logs', icon: <FileSearchOutlined />, label: <Link to="/admin-audit-logs">管理员审计日志</Link> });
+        if (enableAdminIpBlacklist) {
+          adminItems.push({ key: '/ip-blacklist', icon: <StopOutlined />, label: <Link to="/ip-blacklist">黑名单管理</Link> });
+        }
+        if (enableAdminEnterpriseAuth) {
+          adminItems.push({ key: '/enterprise-authorization', icon: <BuildOutlined />, label: <Link to="/enterprise-authorization">企业定制开通</Link> });
+          adminItems.push({ key: '/private-license', icon: <SafetyCertificateOutlined />, label: <Link to="/private-license">私有化授权</Link> });
+        }
       }
 
       baseItems.push({ type: 'divider' });
       baseItems.push(...adminItems);
     }
     return baseItems;
-  }, [enableTroubleshoot, isAdmin, enableAdminIpBlacklist, enableAdminEnterpriseAuth]);
+  }, [enableTroubleshoot, isAdmin, isSaasDeployment, enableAdminIpBlacklist, enableAdminEnterpriseAuth]);
 
   const handleLogout = async () => {
     try {
@@ -367,15 +376,15 @@ export default function App() {
         <Route path="/command-tasks" element={<CommandTaskPage />} />
         <Route path="/forward" element={<ForwardPage />} />
         <Route path="/providers" element={<AIHubPage />} />
-        {enableTroubleshoot && isAdmin ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
+        {enableTroubleshoot && isAdmin && isSaasDeployment ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin ? <Route path="/admin-audit-logs" element={<AdminAuditLogPage />} /> : <Route path="/admin-audit-logs" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
-        {isAdmin && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment ? <Route path="/admin-audit-logs" element={<AdminAuditLogPage />} /> : <Route path="/admin-audit-logs" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>

@@ -56,7 +56,7 @@ http.interceptors.response.use(
 
 export const api = {
   authConfig: () => http.get('/auth/config').then((r) => r.data),
-  authLogin: (payload: { phone: string; password: string }) => http.post('/auth/login', payload).then((r) => r.data),
+  authLogin: (payload: { account: string; password: string }) => http.post('/auth/login', payload).then((r) => r.data),
   authMe: () => http.get('/auth/me').then((r) => r.data),
   authLogoutAll: () => http.post('/auth/logout-all').then((r) => r.data),
   authSendSms: (payload: { phone: string; scene: 'register' | 'reset_password' | 'login' }) =>
@@ -163,9 +163,9 @@ export const api = {
     enable?: boolean;
   }) => http.post('/admin/app-updates', payload).then((r) => r.data),
   adminAppUpdateEnable: (id: number) => http.post(`/admin/app-updates/${id}/enable`).then((r) => r.data),
-  adminListUsers: (params: { phone?: string; page?: number; page_size?: number }) =>
+  adminListUsers: (params: { account?: string; page?: number; page_size?: number }) =>
     http.get('/admin/users', { params }).then((r) => r.data),
-  adminCreateUser: (payload: { phone: string; password: string; company_name?: string }) =>
+  adminCreateUser: (payload: { account: string; password: string; company_name?: string }) =>
     http.post('/admin/users', payload).then((r) => r.data),
   adminUpdateUserPassword: (userId: number, payload: { new_password: string }) =>
     http.put(`/admin/users/${userId}/password`, payload).then((r) => r.data),

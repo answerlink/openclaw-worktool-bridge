@@ -43,6 +43,9 @@ AUTH_PBKDF2_ITERATIONS = int(os.getenv("AUTH_PBKDF2_ITERATIONS", "390000"))
 AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "").strip()
 AUTH_JWT_EXPIRE_DAYS = int(os.getenv("AUTH_JWT_EXPIRE_DAYS", "30"))
 AUTH_SMS_ENABLED = os.getenv("AUTH_SMS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+PRIVATE_ADMIN_USERNAME = os.getenv("PRIVATE_ADMIN_USERNAME", "admin").strip().lower()
+PRIVATE_ADMIN_PASSWORD = os.getenv("PRIVATE_ADMIN_PASSWORD", "")
+PRIVATE_SELF_REGISTRATION_ENABLED = os.getenv("PRIVATE_SELF_REGISTRATION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 ENABLE_TROUBLESHOOT = os.getenv("ENABLE_TROUBLESHOOT", "false").strip().lower() in {"1", "true", "yes", "on"}
 ENABLE_RUNTIME_WORKTOOL_SETTINGS = os.getenv("ENABLE_RUNTIME_WORKTOOL_SETTINGS", "false").strip().lower() in {"1", "true", "yes", "on"}
 WORKTOOL_API_BASE_FIXED_RAW = os.getenv("WORKTOOL_API_BASE", "").strip()
@@ -1207,6 +1210,22 @@ def _is_valid_phone(phone: str) -> bool:
     return bool(re.fullmatch(r"1\d{10}", p)) and not p.startswith("170")
 
 
+def _is_valid_private_account(account: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{2,19}", (account or "").strip()))
+
+
+def _normalize_login_account(account: str) -> str:
+    value = (account or "").strip()
+    return value if _is_valid_phone(value) else value.lower()
+
+
+def _is_valid_login_account(account: str) -> bool:
+    value = (account or "").strip()
+    if _is_valid_phone(value):
+        return True
+    return APP_DEPLOYMENT_MODE == "private" and _is_valid_private_account(value)
+
+
 def _hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, AUTH_PBKDF2_ITERATIONS)
@@ -1294,7 +1313,35 @@ def _decode_access_token(token: str) -> Dict[str, Any]:
 
 def _is_admin_phone(phone: str) -> bool:
     p = (phone or "").strip()
-    return bool(p) and p in ADMIN_PHONE_WHITELIST
+    if not p:
+        return False
+    if APP_DEPLOYMENT_MODE == "private" and PRIVATE_ADMIN_USERNAME and p.lower() == PRIVATE_ADMIN_USERNAME:
+        return True
+    return p in ADMIN_PHONE_WHITELIST
+
+
+def ensure_private_admin() -> None:
+    if APP_DEPLOYMENT_MODE != "private":
+        return
+    username = _normalize_login_account(PRIVATE_ADMIN_USERNAME)
+    if not _is_valid_private_account(username):
+        raise RuntimeError("PRIVATE_ADMIN_USERNAME must be 3-20 characters: letters, numbers, dot, underscore or hyphen")
+    if len(PRIVATE_ADMIN_PASSWORD) < 12:
+        raise RuntimeError("PRIVATE_ADMIN_PASSWORD must be at least 12 characters")
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE phone=%s LIMIT 1", (username,))
+            if cur.fetchone():
+                return
+            cur.execute(
+                "INSERT INTO users(phone,password_hash,company_name,token_version,is_active) VALUES(%s,%s,%s,0,1)",
+                (username, _hash_password(PRIVATE_ADMIN_PASSWORD), "系统管理员"),
+            )
+        conn.commit()
+        logger.info("private admin initialized username=%s", username)
+    finally:
+        conn.close()
 
 
 def _require_admin(user: Dict[str, Any]) -> None:
@@ -1418,7 +1465,8 @@ class AuthRegisterRequest(BaseModel):
 
 
 class AuthLoginRequest(BaseModel):
-    phone: str
+    account: Optional[str] = None
+    phone: Optional[str] = None
     password: str
 
 
@@ -1434,7 +1482,8 @@ class AuthChangePasswordRequest(BaseModel):
 
 
 class AdminCreateUserRequest(BaseModel):
-    phone: str
+    account: Optional[str] = None
+    phone: Optional[str] = None
     password: str
     company_name: Optional[str] = None
 
@@ -4466,6 +4515,7 @@ async def _send_worktool_text(robot_id: str, scene: str, req: QARequest, text: s
 async def startup() -> None:
     global _qa_callback_queue, _qa_callback_worker_tasks
     init_db()
+    ensure_private_admin()
     try:
         await _run_chat_context_cleanup_if_needed()
     except Exception:
@@ -4499,7 +4549,7 @@ async def shutdown() -> None:
 # ----- auth -----
 @app.post("/api/v1/auth/sms/send")
 async def auth_sms_send(body: SmsSendRequest, request: Request) -> Dict[str, Any]:
-    if not AUTH_SMS_ENABLED:
+    if APP_DEPLOYMENT_MODE == "private" or not AUTH_SMS_ENABLED:
         raise HTTPException(status_code=404, detail="sms auth disabled")
     phone = (body.phone or "").strip()
     if not _is_valid_phone(phone):
@@ -4569,6 +4619,8 @@ async def auth_sms_send(body: SmsSendRequest, request: Request) -> Dict[str, Any
 
 @app.post("/api/v1/auth/register")
 async def auth_register(body: AuthRegisterRequest) -> Dict[str, Any]:
+    if APP_DEPLOYMENT_MODE == "private" and not PRIVATE_SELF_REGISTRATION_ENABLED:
+        raise HTTPException(status_code=404, detail="私有化部署已关闭自助注册，请联系管理员创建账号")
     phone = (body.phone or "").strip()
     code = (body.sms_code or "").strip()
     password = body.password or ""
@@ -4613,10 +4665,10 @@ async def auth_register(body: AuthRegisterRequest) -> Dict[str, Any]:
 
 @app.post("/api/v1/auth/login")
 async def auth_login(body: AuthLoginRequest) -> Dict[str, Any]:
-    phone = (body.phone or "").strip()
+    phone = _normalize_login_account(body.account or body.phone or "")
     password = body.password or ""
-    if not _is_valid_phone(phone):
-        raise HTTPException(status_code=400, detail="手机号格式不合法")
+    if not _is_valid_login_account(phone):
+        raise HTTPException(status_code=400, detail="账号格式不合法")
 
     conn = db_conn()
     try:
@@ -4627,7 +4679,7 @@ async def auth_login(body: AuthLoginRequest) -> Dict[str, Any]:
             )
             user = cur.fetchone()
             if not user or int(user["is_active"]) != 1 or not _verify_password(password, str(user["password_hash"])):
-                raise HTTPException(status_code=401, detail="手机号或密码错误")
+                raise HTTPException(status_code=401, detail="账号或密码错误")
             cur.execute("UPDATE users SET last_login_at=CURRENT_TIMESTAMP() WHERE id=%s", (int(user["id"]),))
         conn.commit()
         token = _create_access_token(int(user["id"]), int(user["token_version"]))
@@ -4637,6 +4689,7 @@ async def auth_login(body: AuthLoginRequest) -> Dict[str, Any]:
             "expires_in_days": AUTH_JWT_EXPIRE_DAYS,
             "user": {
                 "id": int(user["id"]),
+                "account": user["phone"],
                 "phone": user["phone"],
                 "company_name": user["company_name"],
                 "is_admin": _is_admin_phone(str(user["phone"])),
@@ -4648,7 +4701,7 @@ async def auth_login(body: AuthLoginRequest) -> Dict[str, Any]:
 
 @app.post("/api/v1/auth/password/reset")
 async def auth_reset_password(body: AuthResetPasswordRequest) -> Dict[str, Any]:
-    if not AUTH_SMS_ENABLED:
+    if APP_DEPLOYMENT_MODE == "private" or not AUTH_SMS_ENABLED:
         raise HTTPException(status_code=404, detail="password reset disabled")
     phone = (body.phone or "").strip()
     code = (body.sms_code or "").strip()
@@ -4740,6 +4793,7 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str,
         pass
     return {
         "id": int(user["id"]),
+        "account": user["phone"],
         "phone": user["phone"],
         "company_name": user["company_name"],
         "is_active": bool(user["is_active"]),
@@ -4753,8 +4807,11 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str,
 @app.get("/api/v1/auth/config")
 async def auth_config() -> Dict[str, Any]:
     return {
-        "sms_auth_enabled": AUTH_SMS_ENABLED,
-        "password_reset_enabled": AUTH_SMS_ENABLED,
+        "deployment_mode": APP_DEPLOYMENT_MODE,
+        "account_login_enabled": APP_DEPLOYMENT_MODE == "private",
+        "registration_enabled": APP_DEPLOYMENT_MODE != "private" or PRIVATE_SELF_REGISTRATION_ENABLED,
+        "sms_auth_enabled": APP_DEPLOYMENT_MODE != "private" and AUTH_SMS_ENABLED,
+        "password_reset_enabled": APP_DEPLOYMENT_MODE != "private" and AUTH_SMS_ENABLED,
     }
 
 
@@ -9561,13 +9618,14 @@ async def admin_app_update_enable(
 
 @app.get("/api/v1/admin/users")
 async def admin_list_users(
+    account: Optional[str] = None,
     phone: Optional[str] = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    kw = (phone or "").strip()
+    kw = (account or phone or "").strip()
     like = f"%{kw}%"
     conn = db_conn()
     try:
@@ -9619,7 +9677,9 @@ async def admin_list_users(
         items.append(
             {
                 "id": int(row["id"]),
+                "account": row["phone"],
                 "phone": row["phone"],
+                "is_admin": _is_admin_phone(str(row["phone"])),
                 "company_name": row.get("company_name"),
                 "created_at": str(row["created_at"]),
                 "last_login_at": str(row["last_login_at"]) if row.get("last_login_at") else None,
@@ -9636,11 +9696,11 @@ async def admin_create_user(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    phone = (body.phone or "").strip()
+    phone = _normalize_login_account(body.account or body.phone or "")
     password = body.password or ""
     company_name = (body.company_name or "").strip() or None
-    if not _is_valid_phone(phone):
-        raise HTTPException(status_code=400, detail="手机号格式不合法")
+    if not _is_valid_login_account(phone):
+        raise HTTPException(status_code=400, detail="账号格式不合法")
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="密码长度至少8位")
 
@@ -9656,7 +9716,7 @@ async def admin_create_user(
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM users WHERE phone=%s LIMIT 1", (phone,))
             if cur.fetchone():
-                raise HTTPException(status_code=409, detail="手机号已存在")
+                raise HTTPException(status_code=409, detail="账号已存在")
             cur.execute(
                 "INSERT INTO users(phone,password_hash,company_name,token_version,is_active) VALUES(%s,%s,%s,0,1)",
                 (phone, _hash_password(password), company_name),
@@ -9668,7 +9728,7 @@ async def admin_create_user(
             after={"id": uid, "phone": phone, "company_name": company_name, "is_active": True},
             target_id=str(uid), target_name=company_name or phone,
         )
-        return {"ok": True, "id": uid, "phone": phone}
+        return {"ok": True, "id": uid, "account": phone, "phone": phone}
     except Exception as exc:
         conn.rollback()
         _audit_failure(audit_id, exc)

@@ -18,6 +18,7 @@ MySQL 和应用统一使用 `Asia/Shanghai`，便于日志和数据库对齐。
 重点关注：
 
 - WorkTool API Base
+- Private 管理员账号与关闭自助注册
 - 短信服务配置
 - 默认测试 AI 引擎开关与参数
 - `DEMO_ROBOT_IDS`：演示机器人 ID 列表（逗号分隔）

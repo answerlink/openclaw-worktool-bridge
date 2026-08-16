@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+mysql_data
+uploads
+backups
+frontend/node_modules
+frontend/dist
+frontend/performance-results
+__pycache__
+*.py[cod]
+*.log
