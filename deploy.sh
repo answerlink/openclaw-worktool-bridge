@@ -100,7 +100,7 @@ if [[ ! -f .env ]]; then
   mysql_password="$(openssl rand -hex 24)"
   jwt_secret="$(openssl rand -hex 32)"
   private_license_secret="$(openssl rand -base64 12)"
-  private_admin_password="$(openssl rand -hex 12)"
+  private_admin_password="123456"
   cat > .env <<EOF
 COMPOSE_PROJECT_NAME=openclaw-worktool-bridge
 PYTHONUNBUFFERED=1
@@ -157,9 +157,9 @@ elif (( ${#private_license_secret} != 16 )); then
 fi
 private_admin_password="$(env_value PRIVATE_ADMIN_PASSWORD)"
 if [[ -z "$private_admin_password" ]]; then
-  set_env_value PRIVATE_ADMIN_PASSWORD "$(openssl rand -hex 12)"
-elif (( ${#private_admin_password} < 12 )); then
-  echo "ERROR: PRIVATE_ADMIN_PASSWORD must be at least 12 characters." >&2
+  set_env_value PRIVATE_ADMIN_PASSWORD "123456"
+elif (( ${#private_admin_password} < 6 )); then
+  echo "ERROR: PRIVATE_ADMIN_PASSWORD must be at least 6 characters." >&2
   exit 1
 fi
 chmod 600 .env

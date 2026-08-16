@@ -1326,8 +1326,8 @@ def ensure_private_admin() -> None:
     username = _normalize_login_account(PRIVATE_ADMIN_USERNAME)
     if not _is_valid_private_account(username):
         raise RuntimeError("PRIVATE_ADMIN_USERNAME must be 3-20 characters: letters, numbers, dot, underscore or hyphen")
-    if len(PRIVATE_ADMIN_PASSWORD) < 12:
-        raise RuntimeError("PRIVATE_ADMIN_PASSWORD must be at least 12 characters")
+    if len(PRIVATE_ADMIN_PASSWORD) < 6:
+        raise RuntimeError("PRIVATE_ADMIN_PASSWORD must be at least 6 characters")
     conn = db_conn()
     try:
         with conn.cursor() as cur:

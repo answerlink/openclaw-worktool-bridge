@@ -45,7 +45,7 @@
 | `AUTH_PBKDF2_ITERATIONS` | `390000` | 否 | 否 | 密码哈希迭代次数。 |
 | `AUTH_SMS_ENABLED` | `false` | 否 | 否 | 是否启用短信注册/找回。 |
 | `PRIVATE_ADMIN_USERNAME` | `admin` | Private 是 | 否 | Private 首次启动自动创建的管理员账号。 |
-| `PRIVATE_ADMIN_PASSWORD` | 自动生成 | Private 是 | 是 | Private 管理员初始密码，至少 12 位且可修改；首次创建后不会在重启时覆盖数据库密码，SaaS 模式不生效。 |
+| `PRIVATE_ADMIN_PASSWORD` | `123456` | Private 是 | 是 | Private 管理员初始密码，至少 6 位且登录后可修改；首次创建后不会在重启时覆盖数据库密码，SaaS 模式不生效。 |
 | `PRIVATE_SELF_REGISTRATION_ENABLED` | `false` | 否 | 否 | 是否允许 Private 用户自助注册；交付客户时建议关闭，由管理员创建账号。 |
 | `ENABLE_RUNTIME_WORKTOOL_SETTINGS` | `false` | 否 | 否 | 是否开放运行时修改 WorkTool 基础配置。 |
 | `WORKTOOL_API_BASE` | `https://api.worktool.ymdyes.cn` | 否 | 否 | WorkTool API 基础地址。 |

@@ -12,7 +12,7 @@ WorkTool 企业微信机器人桥接服务。
 
 ## Quick Start
 
-1. 一键部署（自动生成强密码并完成 WorkTool 连通性检查）
+1. 一键部署（自动生成部署密钥并完成 WorkTool 连通性检查）
 
 ```bash
 PUBLIC_BASE_URL=http://YOUR_PUBLIC_IP:18080 ./deploy.sh
@@ -35,7 +35,7 @@ PUBLIC_BASE_URL=https://bridge.example.com \
 Private 模式首次启动会根据 `.env` 自动创建管理员账号：
 
 - `PRIVATE_ADMIN_USERNAME`：默认 `admin`
-- `PRIVATE_ADMIN_PASSWORD`：首次部署时自动生成，交付后可修改
+- `PRIVATE_ADMIN_PASSWORD`：默认 `123456`，管理员登录后可自行修改
 - `PRIVATE_SELF_REGISTRATION_ENABLED=false`：关闭自助注册，后续账号由管理员在“用户管理”中创建
 
 管理员首次登录后可修改密码；服务重启不会重置已存在管理员的密码。
