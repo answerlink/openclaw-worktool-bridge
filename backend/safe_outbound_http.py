@@ -174,9 +174,14 @@ async def read_limited_text(response: aiohttp.ClientResponse, max_bytes: int = D
     content_length = response.content_length
     if content_length is not None and content_length > max_bytes:
         raise UnsafeOutboundUrlError("上游响应体过大")
-    data = await response.content.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise UnsafeOutboundUrlError("上游响应体过大")
+    chunks: List[bytes] = []
+    total_bytes = 0
+    async for chunk in response.content.iter_chunked(64 * 1024):
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise UnsafeOutboundUrlError("上游响应体过大")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     encoding = response.charset or "utf-8"
     try:
         return data.decode(encoding, errors="replace")
