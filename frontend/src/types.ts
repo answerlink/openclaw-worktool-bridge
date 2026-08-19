@@ -17,7 +17,7 @@ export interface Provider {
   name: string;
   base_url: string;
   model?: string | null;
-  provider_type: 'openai' | 'openclaw';
+  provider_type: 'openai' | 'openclaw' | 'worktool_callback';
   auth_scheme: 'bearer' | 'x-openclaw-token' | 'none';
   extra_json?: string | null;
   system_prompt_template?: string | null;

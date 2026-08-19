@@ -30,7 +30,7 @@ export default function AIHubPage() {
   const [items, setItems] = useState<Provider[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
-  const [providerType, setProviderType] = useState<'openai' | 'openclaw'>('openai');
+  const [providerType, setProviderType] = useState<'openai' | 'openclaw' | 'worktool_callback'>('openai');
   const [useCustomOpenaiUrl, setUseCustomOpenaiUrl] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -315,7 +315,7 @@ export default function AIHubPage() {
           </Form.Item>
           <Form.Item name="provider_type" label="引擎类型" rules={[{ required: true }]}>
             <Select
-              onChange={(v: 'openai' | 'openclaw') => {
+              onChange={(v: 'openai' | 'openclaw' | 'worktool_callback') => {
                 setProviderType(v);
                 if (v === 'openai') {
                   const current = form.getFieldValue('base_url_openai') || '';
@@ -334,7 +334,8 @@ export default function AIHubPage() {
               }}
               options={[
                 { label: 'openai(大模型)', value: 'openai' },
-                { label: 'openclaw(小龙虾)', value: 'openclaw' }
+                { label: 'openclaw(小龙虾)', value: 'openclaw' },
+                { label: 'WorkTool 消息回调', value: 'worktool_callback' }
               ]}
             />
           </Form.Item>
@@ -408,13 +409,15 @@ export default function AIHubPage() {
               >
                 <Input placeholder={OPENCLAW_WEBHOOK_HINT} />
               </Form.Item>
-              <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 8 }}>
+              {providerType === 'openclaw' ? <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 8 }}>
                 容器化部署小龙虾（官方一键脚本，含 WorkTool 插件）：
                 {' '}
                 <a href="https://github.com/answerlink/openclaw-worktool" target="_blank" rel="noopener noreferrer">
                   github.com/answerlink/openclaw-worktool
                 </a>
-              </Typography.Text>
+              </Typography.Text> : <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 8 }}>
+                Console 会先完成消息记录、规则匹配和群聊判定，再将 WorkTool 原始回调 JSON 原样 POST 到此地址。
+              </Typography.Text>}
             </>
           )}
           <Form.Item

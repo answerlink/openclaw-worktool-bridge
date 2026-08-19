@@ -166,10 +166,12 @@ chmod 600 .env
 
 "${compose_cmd[@]}" up -d --build --remove-orphans
 
-set -a
-# shellcheck disable=SC1091
-source .env
-set +a
+WEB_PORT="$(env_value WEB_PORT)"
+CALLBACK_PUBLIC_BASE_URL="$(env_value CALLBACK_PUBLIC_BASE_URL)"
+if [[ -z "$WEB_PORT" || -z "$CALLBACK_PUBLIC_BASE_URL" ]]; then
+  echo "ERROR: WEB_PORT and CALLBACK_PUBLIC_BASE_URL must be set in .env." >&2
+  exit 1
+fi
 
 health_url="http://127.0.0.1:${WEB_PORT}/api/v1/health"
 for _ in $(seq 1 60); do

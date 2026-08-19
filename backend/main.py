@@ -479,7 +479,7 @@ def init_db() -> None:
                   base_url VARCHAR(512) NOT NULL,
                   api_token TEXT NOT NULL,
                   model VARCHAR(128) NULL,
-                  provider_type ENUM('openai','openclaw') NOT NULL DEFAULT 'openai',
+                  provider_type ENUM('openai','openclaw','worktool_callback') NOT NULL DEFAULT 'openai',
                   auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                   extra_json JSON NULL,
                   system_prompt_template TEXT NULL,
@@ -525,7 +525,7 @@ def init_db() -> None:
                       base_url VARCHAR(512) NOT NULL,
                       api_token TEXT NOT NULL,
                       model VARCHAR(128) NULL,
-                      provider_type ENUM('openai','openclaw') NOT NULL DEFAULT 'openai',
+                      provider_type ENUM('openai','openclaw','worktool_callback') NOT NULL DEFAULT 'openai',
                       auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                       extra_json JSON NULL,
                       system_prompt_template TEXT NULL,
@@ -603,6 +603,14 @@ def init_db() -> None:
             cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'is_system'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE ai_providers ADD COLUMN is_system TINYINT(1) NOT NULL DEFAULT 0")
+            # Existing deployments created this as an ENUM before callback providers existed.
+            cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'provider_type'")
+            provider_type_column = cur.fetchone() or {}
+            if "worktool_callback" not in str(provider_type_column.get("Type") or ""):
+                cur.execute(
+                    "ALTER TABLE ai_providers MODIFY COLUMN provider_type "
+                    "ENUM('openai','openclaw','worktool_callback') NOT NULL DEFAULT 'openai'"
+                )
             cur.execute("SHOW COLUMNS FROM routing_rules LIKE 'content_pattern'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE routing_rules ADD COLUMN content_pattern VARCHAR(1024) NULL AFTER pattern")
@@ -1586,7 +1594,7 @@ class ProviderCreate(BaseModel):
     base_url: str
     api_token: str
     model: Optional[str] = None
-    provider_type: Literal["openai", "openclaw"] = "openai"
+    provider_type: Literal["openai", "openclaw", "worktool_callback"] = "openai"
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
     system_prompt_template: Optional[str] = None
@@ -1600,7 +1608,7 @@ class ProviderUpdate(BaseModel):
     base_url: Optional[str] = None
     api_token: Optional[str] = None
     model: Optional[str] = None
-    provider_type: Optional[Literal["openai", "openclaw"]] = None
+    provider_type: Optional[Literal["openai", "openclaw", "worktool_callback"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
     system_prompt_template: Optional[str] = None
@@ -1614,7 +1622,7 @@ class ProviderTestRequest(BaseModel):
     base_url: Optional[str] = None
     api_token: Optional[str] = None
     model: Optional[str] = None
-    provider_type: Optional[Literal["openai", "openclaw"]] = None
+    provider_type: Optional[Literal["openai", "openclaw", "worktool_callback"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
 
@@ -4402,7 +4410,7 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
             return text
 
 
-async def _call_openclaw_webhook(rule: Dict[str, Any], callback_payload: Dict[str, Any]) -> Dict[str, Any]:
+def _build_callback_provider_http_request(rule: Dict[str, Any], callback_payload: Dict[str, Any]) -> Dict[str, Any]:
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     auth_scheme = str(rule.get("auth_scheme") or "bearer")
     api_token = str(rule.get("api_token") or "")
@@ -4414,36 +4422,46 @@ async def _call_openclaw_webhook(rule: Dict[str, Any], callback_payload: Dict[st
     url = str(rule.get("base_url") or "").strip()
     if not url:
         raise HTTPException(status_code=500, detail="provider base_url empty")
-    url = _normalize_user_outbound_url(url)
+    return {"url": url, "headers": headers, "payload": callback_payload, "auth_scheme": auth_scheme}
+
+
+async def _call_callback_provider(rule: Dict[str, Any], callback_payload: Dict[str, Any]) -> Dict[str, Any]:
+    req_cfg = _build_callback_provider_http_request(rule, callback_payload)
+    headers = req_cfg["headers"]
+    url = _normalize_user_outbound_url(req_cfg["url"])
+    auth_scheme = req_cfg["auth_scheme"]
 
     timeout = aiohttp.ClientTimeout(total=AI_PROVIDER_TIMEOUT_SECONDS)
     started = time.perf_counter()
     logger.info(
-        "openclaw_webhook_start rule_id=%s provider_id=%s provider_name=%s url=%s auth_scheme=%s payload=%s",
+        "callback_provider_start rule_id=%s provider_id=%s provider_name=%s provider_type=%s url=%s auth_scheme=%s payload=%s",
         rule.get("id"),
         rule.get("provider_id"),
         rule.get("provider_name"),
+        rule.get("provider_type"),
         url,
         auth_scheme,
-        _short_text(json.dumps(callback_payload, ensure_ascii=False), 300),
+        _short_text(json.dumps(req_cfg["payload"], ensure_ascii=False), 300),
     )
     async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
-        async with session.post(url, json=callback_payload, headers=headers, allow_redirects=False) as resp:
+        async with session.post(url, json=req_cfg["payload"], headers=headers, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status >= 400:
                 logger.warning(
-                    "openclaw_webhook_http_error rule_id=%s provider_id=%s status=%s cost_ms=%s body=%s",
+                    "callback_provider_http_error rule_id=%s provider_id=%s provider_type=%s status=%s cost_ms=%s body=%s",
                     rule.get("id"),
                     rule.get("provider_id"),
+                    rule.get("provider_type"),
                     resp.status,
                     int((time.perf_counter() - started) * 1000),
                     _short_text(raw, 300),
                 )
                 raise HTTPException(status_code=502, detail=f"openclaw webhook status={resp.status}")
             logger.info(
-                "openclaw_webhook_success rule_id=%s provider_id=%s cost_ms=%s response=%s",
+                "callback_provider_success rule_id=%s provider_id=%s provider_type=%s cost_ms=%s response=%s",
                 rule.get("id"),
                 rule.get("provider_id"),
+                rule.get("provider_type"),
                 int((time.perf_counter() - started) * 1000),
                 _short_text(raw, 200),
             )
@@ -5479,7 +5497,7 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
     provider_type = str(cfg.get("provider_type") or "openai")
     auth_scheme = _resolve_auth_scheme(provider_type, cfg.get("auth_scheme"))
     api_token = str(cfg.get("api_token") or "").strip()
-    if provider_type != "openclaw" and not api_token:
+    if provider_type not in {"openclaw", "worktool_callback"} and not api_token:
         raise HTTPException(status_code=400, detail="API Token 不能为空")
     extra_json = cfg.get("extra_json")
     if isinstance(extra_json, dict):
@@ -5496,8 +5514,21 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
         "auth_scheme": auth_scheme,
         "extra_json": extra_json,
     }
-    test_prompt = "hi"
-    req_cfg = _build_provider_http_request(test_rule, test_prompt)
+    sample_payload = {
+        "spoken": "您好,欢迎使用WorkTool~",
+        "rawSpoken": "@小明 您好,欢迎使用WorkTool~",
+        "receivedName": "WorkTool",
+        "groupName": "WorkTool",
+        "groupRemark": "小明参与的WorkTool",
+        "roomType": 1,
+        "atMe": True,
+        "textType": 1,
+        "fileBase64": "",
+    }
+    if provider_type in {"openclaw", "worktool_callback"}:
+        req_cfg = _build_callback_provider_http_request(test_rule, sample_payload)
+    else:
+        req_cfg = _build_provider_http_request(test_rule, "hi")
     debug_headers = _redact_outbound_headers(req_cfg["headers"])
     debug_request = {
         "method": "POST",
@@ -5507,20 +5538,9 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
     }
     debug_curl = _build_request_curl("POST", req_cfg["url"], debug_headers, req_cfg["payload"])
     started = time.perf_counter()
-    if provider_type == "openclaw":
-        sample_payload = {
-            "spoken": "您好,欢迎使用WorkTool~",
-            "rawSpoken": "@小明 您好,欢迎使用WorkTool~",
-            "receivedName": "WorkTool",
-            "groupName": "WorkTool",
-            "groupRemark": "小明参与的WorkTool",
-            "roomType": 1,
-            "atMe": True,
-            "textType": 1,
-            "fileBase64": "",
-        }
+    if provider_type in {"openclaw", "worktool_callback"}:
         try:
-            resp = await _call_openclaw_webhook(test_rule, sample_payload)
+            resp = await _call_callback_provider(test_rule, sample_payload)
             elapsed = round(time.perf_counter() - started, 3)
             return {
                 "ok": True,
@@ -6294,6 +6314,7 @@ async def _process_qa_callback_task(
     req_payload: Dict[str, Any],
     callback_url: str,
     callback_payload: Dict[str, Any],
+    raw_callback_payload: Dict[str, Any],
     local_log_id: int,
 ) -> None:
     started_at = time.perf_counter()
@@ -6449,9 +6470,10 @@ async def _process_qa_callback_task(
     try:
         provider_type = str(selected_rule.get("provider_type") or "openai").strip().lower()
         provider_name = str(selected_rule.get("provider_name") or "").strip() or None
-        if provider_type == "openclaw":
-            openclaw_res = await _call_openclaw_webhook(selected_rule, callback_payload)
-            reply_text = f"[openclaw passthrough] {str(openclaw_res.get('messageId') or openclaw_res.get('message') or 'accepted')}"
+        if provider_type in {"openclaw", "worktool_callback"}:
+            payload_to_forward = raw_callback_payload if provider_type == "worktool_callback" else callback_payload
+            callback_res = await _call_callback_provider(selected_rule, payload_to_forward)
+            reply_text = f"[{provider_type} passthrough] {str(callback_res.get('messageId') or callback_res.get('message') or 'accepted')}"
             _insert_message_log(robot_pk, "outbound", scene, reply_text, "success")
             _update_qa_monitor_log(
                 local_log_id,
@@ -6585,7 +6607,7 @@ async def _process_qa_callback_task(
         _insert_message_log(robot_pk, "outbound", scene, str(e), "failed")
         provider_type = str(selected_rule.get("provider_type") or "openai").strip().lower()
         provider_name = str(selected_rule.get("provider_name") or "").strip() or None
-        if provider_type == "openclaw":
+        if provider_type in {"openclaw", "worktool_callback"}:
             _update_qa_monitor_log(
                 local_log_id,
                 str(e),
@@ -6673,7 +6695,8 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
     inbound_text = _pick_inbound_text(req)
     match_target = _rule_match_target(scene, req)
     callback_message_id = _pick_message_id(req)
-    callback_payload: Dict[str, Any] = dict(raw_payload)
+    raw_callback_payload: Dict[str, Any] = dict(raw_payload)
+    callback_payload: Dict[str, Any] = dict(raw_callback_payload)
     callback_payload.setdefault("spoken", req.spoken)
     callback_payload.setdefault("rawSpoken", req.rawSpoken)
     callback_payload.setdefault("receivedName", req.receivedName)
@@ -6738,6 +6761,7 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
         "req_payload": req.dict(),
         "callback_url": callback_url,
         "callback_payload": callback_payload,
+        "raw_callback_payload": raw_callback_payload,
         "local_log_id": int(local_log_id),
     }
     try:

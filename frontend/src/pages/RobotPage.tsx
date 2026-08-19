@@ -55,6 +55,7 @@ export default function RobotPage() {
   const [selectedRobotId, setSelectedRobotId] = useState<string | undefined>(() => getLastSelectedRobotId());
   const [providers, setProviders] = useState<Provider[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [customCallbackWarning, setCustomCallbackWarning] = useState(false);
   const [ruleScene, setRuleScene] = useState<'group' | 'private'>('group');
 
   const [robotOpen, setRobotOpen] = useState(false);
@@ -84,10 +85,23 @@ export default function RobotPage() {
     if (!robotId) {
       setRules([]);
       setProviders([]);
+      setCustomCallbackWarning(false);
       return;
     }
-    const providerRes = await api.listProviders(robotId);
+    const [providerRes, callbackRes, settingsRes] = await Promise.all([
+      api.listProviders(robotId),
+      api.getRobotInfoCallbacks(robotId).catch(() => null),
+      api.getWorktoolSettings().catch(() => null),
+    ]);
     setProviders(providerRes);
+    const callbackRows = Array.isArray(callbackRes?.data) ? callbackRes.data : [];
+    const messageCallback = callbackRows.find((row: any) => Number(row?.type) === 11);
+    const currentUrl = String(messageCallback?.callBackUrl || messageCallback?.callbackUrl || '').trim().replace(/\/+$/, '');
+    const configuredTemplate = String(settingsRes?.callback_example_url || '').trim();
+    const expectedUrl = configuredTemplate
+      .replace(/\{robot_id\}/g, robotId)
+      .replace(/\/+$/, '');
+    setCustomCallbackWarning(!currentUrl || !expectedUrl || currentUrl !== expectedUrl);
     try {
       const ruleRes = await api.listRules(robotId);
       setRules(ruleRes);
@@ -458,7 +472,16 @@ export default function RobotPage() {
       />
 
       <Card
-        title={`规则管理${selectedRobotId ? `（${selectedRobotId}）` : ''}`}
+        title={(
+          <div>
+            <div>规则管理{selectedRobotId ? `（${selectedRobotId}）` : ''}</div>
+            {customCallbackWarning ? (
+              <Typography.Text type="danger" style={{ display: 'block', marginTop: 4, fontSize: 13, fontWeight: 400 }}>
+                当前机器人使用自定义消息回调，本页规则均不生效
+              </Typography.Text>
+            ) : null}
+          </div>
+        )}
         extra={(
           <Space>
                 <Select

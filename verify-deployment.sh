@@ -14,10 +14,17 @@ if [[ ! -f .env ]]; then
   echo "ERROR: .env is missing; run ./deploy.sh first." >&2
   exit 1
 fi
-set -a
-# shellcheck disable=SC1091
-source .env
-set +a
+env_value() {
+  local key="$1"
+  awk -v key="$key" 'index($0, key "=") == 1 { print substr($0, length(key) + 2); exit }' .env
+}
+
+WEB_PORT="$(env_value WEB_PORT)"
+CALLBACK_PUBLIC_BASE_URL="$(env_value CALLBACK_PUBLIC_BASE_URL)"
+if [[ -z "$WEB_PORT" || -z "$CALLBACK_PUBLIC_BASE_URL" ]]; then
+  echo "ERROR: WEB_PORT and CALLBACK_PUBLIC_BASE_URL must be set in .env." >&2
+  exit 1
+fi
 
 echo "[1/4] Container status"
 "${compose_cmd[@]}" ps
