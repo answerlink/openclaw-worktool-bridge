@@ -5525,10 +5525,11 @@ async def test_provider(body: ProviderTestRequest, user: Dict[str, Any] = Depend
         "textType": 1,
         "fileBase64": "",
     }
+    test_prompt = "hi"
     if provider_type in {"openclaw", "worktool_callback"}:
         req_cfg = _build_callback_provider_http_request(test_rule, sample_payload)
     else:
-        req_cfg = _build_provider_http_request(test_rule, "hi")
+        req_cfg = _build_provider_http_request(test_rule, test_prompt)
     debug_headers = _redact_outbound_headers(req_cfg["headers"])
     debug_request = {
         "method": "POST",
