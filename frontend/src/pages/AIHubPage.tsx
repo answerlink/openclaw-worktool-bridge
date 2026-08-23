@@ -335,7 +335,7 @@ export default function AIHubPage() {
               options={[
                 { label: 'openai(大模型)', value: 'openai' },
                 { label: 'openclaw(小龙虾)', value: 'openclaw' },
-                { label: 'WorkTool 消息回调', value: 'worktool_callback' }
+                { label: 'WorkTool 消息回调格式', value: 'worktool_callback' }
               ]}
             />
           </Form.Item>
