@@ -119,6 +119,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_ANALYTICS_ENABLED: ${VITE_ANALYTICS_ENABLED:-false}
+        VITE_ANALYTICS_URL: ${VITE_ANALYTICS_URL:-https://analytics.ymdyes.cn}
+        VITE_ANALYTICS_WEBSITE_ID: ${VITE_ANALYTICS_WEBSITE_ID:-}
     restart: unless-stopped
     depends_on:
       - backend

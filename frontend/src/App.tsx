@@ -26,6 +26,7 @@ import {
 import LoginPage from './pages/LoginPage';
 import ChatbotLauncher from './components/ChatbotLauncher';
 import { api, clearAccessToken, getAccessToken } from './api';
+import { track, trackPage } from './analytics';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const RobotPage = lazy(() => import('./pages/RobotPage'));
@@ -254,6 +255,18 @@ export default function App() {
       window.removeEventListener('inbox-unread-updated', onUnreadUpdate as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    if (!authed || location.pathname === '/login') return;
+    const startedAt = Date.now();
+    trackPage(`${location.pathname}${location.search}`);
+    return () => {
+      track('page_leave', {
+        path: `${location.pathname}${location.search}`,
+        duration_seconds: Math.round((Date.now() - startedAt) / 1000),
+      });
+    };
+  }, [authed, location.pathname, location.search]);
 
   useEffect(() => {
     if (!authed || location.pathname === '/login' || robotInitChecked) {
