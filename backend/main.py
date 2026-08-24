@@ -4385,7 +4385,11 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
                     int((time.perf_counter() - started) * 1000),
                     _short_text(raw, 300),
                 )
-                raise HTTPException(status_code=502, detail=f"provider upstream status={resp.status}")
+                upstream_preview = _short_text(raw, 500)
+                detail = f"provider upstream status={resp.status}"
+                if upstream_preview:
+                    detail = f"{detail}: {upstream_preview}"
+                raise HTTPException(status_code=502, detail=detail)
             try:
                 data = json.loads(raw) if raw else {}
             except Exception:
