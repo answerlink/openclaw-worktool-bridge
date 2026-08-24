@@ -98,7 +98,7 @@ export default function UserManagementPage() {
       <Space style={{ marginBottom: 12 }}>
         <Input
           style={{ width: 260 }}
-          placeholder="账号搜索"
+          placeholder="手机号或机器人ID搜索"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onPressEnter={() => void load(1, pageSize)}

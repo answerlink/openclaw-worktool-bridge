@@ -9669,7 +9669,16 @@ async def admin_list_users(
     try:
         with conn.cursor() as cur:
             if kw:
-                cur.execute("SELECT COUNT(1) AS c FROM users WHERE phone LIKE %s", (like,))
+                cur.execute(
+                    """
+                    SELECT COUNT(DISTINCT u.id) AS c
+                    FROM users u
+                    LEFT JOIN user_robots ur ON ur.user_id=u.id
+                    LEFT JOIN robots r ON r.id=ur.robot_pk
+                    WHERE u.phone LIKE %s OR r.robot_id LIKE %s
+                    """,
+                    (like, like),
+                )
             else:
                 cur.execute("SELECT COUNT(1) AS c FROM users")
             total = int((cur.fetchone() or {}).get("c") or 0)
@@ -9683,12 +9692,12 @@ async def admin_list_users(
                     FROM users u
                     LEFT JOIN user_robots ur ON ur.user_id=u.id
                     LEFT JOIN robots r ON r.id=ur.robot_pk
-                    WHERE u.phone LIKE %s
+                    WHERE u.phone LIKE %s OR r.robot_id LIKE %s
                     GROUP BY u.id,u.phone,u.company_name,u.is_active,u.created_at,u.last_login_at
                     ORDER BY u.created_at DESC
                     LIMIT %s OFFSET %s
                     """,
-                    (like, page_size, offset),
+                    (like, like, page_size, offset),
                 )
             else:
                 cur.execute(
