@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, AutoComplete, Button, Card, Descriptions, Space, Spin, Typography, message } from 'antd';
+import { Alert, AutoComplete, Button, Card, Descriptions, Input, Space, Spin, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { api } from '../api';
 
@@ -39,6 +39,13 @@ export default function ClientLogPage() {
   });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [logText, setLogText] = useState('');
+  const [logSearch, setLogSearch] = useState('');
+
+  useEffect(() => {
+    setLogText(result ? formatClientLog(result.data) : '');
+    setLogSearch('');
+  }, [result]);
 
   useEffect(() => {
     try { localStorage.setItem(RECENT_MESSAGE_IDS_KEY, JSON.stringify(recentMessageIds)); } catch { /* ignore storage errors */ }
@@ -129,10 +136,29 @@ export default function ClientLogPage() {
               description="请确认机器人在线、客户端版本支持该功能，并检查 messageId 是否对应正确的指令。"
             />
           ) : null}
-          <Typography.Title level={5} style={{ marginTop: 18 }}>客户端日志</Typography.Title>
-          <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap', background: '#f7f7f7', padding: 12, borderRadius: 4 }}>
-            {formatClientLog(result.data)}
-          </pre>
+          <Typography.Title level={5} style={{ marginTop: 18, marginBottom: 10 }}>客户端日志</Typography.Title>
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Input
+                allowClear
+                value={logSearch}
+                onChange={(event) => setLogSearch(event.target.value)}
+                placeholder="在日志正文中搜索关键词"
+                prefix={<SearchOutlined />}
+                style={{ maxWidth: 420 }}
+              />
+              <Typography.Text type="secondary">
+                {logSearch.trim() ? `${logText.toLowerCase().split(logSearch.trim().toLowerCase()).length - 1} 处匹配` : '临时编辑，不会保存'}
+              </Typography.Text>
+            </Space>
+            <Input.TextArea
+              value={logText}
+              onChange={(event) => setLogText(event.target.value)}
+              autoSize={{ minRows: 16, maxRows: 32 }}
+              spellCheck={false}
+              style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', whiteSpace: 'pre', lineHeight: 1.5 }}
+            />
+          </Space>
         </Card>
       ) : null}
     </Space>
