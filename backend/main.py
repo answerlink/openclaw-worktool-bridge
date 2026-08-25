@@ -2598,6 +2598,9 @@ def _client_log_result_available(response: Any) -> bool:
         value = response.get(key)
         if isinstance(value, (dict, list, str)) and bool(value):
             return True
+    message = response.get("message")
+    if isinstance(message, str) and message.strip() and message.strip() not in {"记录不存在", "暂无记录"}:
+        return True
     return response.get("success") is True and data is not None
 
 

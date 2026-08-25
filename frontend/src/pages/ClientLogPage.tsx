@@ -12,6 +12,15 @@ type QueryResult = {
   data?: unknown;
 };
 
+function formatClientLog(data: unknown) {
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const messageText = (data as Record<string, unknown>).message;
+    if (typeof messageText === 'string') return messageText;
+  }
+  if (typeof data === 'string') return data;
+  return JSON.stringify(data ?? {}, null, 2);
+}
+
 export default function ClientLogPage() {
   const [messageId, setMessageId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -98,9 +107,9 @@ export default function ClientLogPage() {
               description="请确认机器人在线、客户端版本支持该功能，并检查 messageId 是否对应正确的指令。"
             />
           ) : null}
-          <Typography.Title level={5} style={{ marginTop: 18 }}>原始返回</Typography.Title>
+          <Typography.Title level={5} style={{ marginTop: 18 }}>客户端日志</Typography.Title>
           <pre style={{ maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap', background: '#f7f7f7', padding: 12, borderRadius: 4 }}>
-            {JSON.stringify(result.data ?? {}, null, 2)}
+            {formatClientLog(result.data)}
           </pre>
         </Card>
       ) : null}
