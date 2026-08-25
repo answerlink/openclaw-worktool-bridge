@@ -613,7 +613,7 @@ export default function RobotPage() {
             <Input.TextArea
               disabled={!!editingRobotId}
               autoSize={{ minRows: 1, maxRows: 5 }}
-              placeholder={editingRobotId ? 'Robot ID' : '支持输入多个，使用换行或中英文逗号分隔'}
+              placeholder={editingRobotId ? 'Robot ID' : '支持输入多个，使用换行或逗号分隔'}
             />
           </Form.Item>
           <Form.Item name="name" label="名称（选填）">
