@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDownOutlined, ArrowUpOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Popover, Select, Space, Switch, Table, Tabs, Tag, Tour, Typography, message } from 'antd';
+import { ArrowDownOutlined, ArrowUpOutlined, DownloadOutlined, QuestionCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Popover, Select, Space, Switch, Table, Tabs, Tag, Tour, Typography, Upload, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { Provider, Robot, Rule } from '../types';
 import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
+import { createRobotCsvTemplate, parseRobotCsv, type RobotCsvRow } from '../robotCsvImport';
 
 function splitLines(text: string): string[] {
   return String(text || '')
@@ -60,6 +61,9 @@ export default function RobotPage() {
 
   const [robotOpen, setRobotOpen] = useState(false);
   const [editingRobotId, setEditingRobotId] = useState<string | null>(null);
+  const [csvRows, setCsvRows] = useState<RobotCsvRow[]>([]);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<RobotCsvRow[]>([]);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
   const [robotForm] = Form.useForm();
 
   const [ruleOpen, setRuleOpen] = useState(false);
@@ -192,6 +196,7 @@ export default function RobotPage() {
 
   const onCreateRobot = () => {
     setEditingRobotId(null);
+    setCsvRows([]);
     robotForm.resetFields();
     robotForm.setFieldsValue({
       name: '机器人',
@@ -212,6 +217,7 @@ export default function RobotPage() {
     try {
       const res = await api.getRobot(robotId);
       setEditingRobotId(robotId);
+      setCsvRows([]);
       const groupReplyMode = res?.group_reply_mode || (res?.group_reply_only_when_mentioned ? 'mention_only' : 'always');
       robotForm.resetFields();
       robotForm.setFieldsValue({
@@ -269,13 +275,16 @@ export default function RobotPage() {
         if (!robotIds.length) {
           throw new Error('请输入至少一个 Robot ID');
         }
+        const entries = csvRows.length
+          ? csvRows.map((row) => ({ robotId: row.robotId, name: row.name }))
+          : robotIds.map((robotId) => ({ robotId, name: values.name }));
         const results: Array<{ robotId: string; response?: any; error?: string }> = [];
-        for (const robotId of robotIds) {
+        for (const entry of entries) {
           try {
-            const response = await api.createRobot({ ...values, robot_id: robotId });
-            results.push({ robotId, response });
+            const response = await api.createRobot({ ...values, robot_id: entry.robotId, name: entry.name });
+            results.push({ robotId: entry.robotId, response });
           } catch (error: any) {
-            results.push({ robotId, error: error?.response?.data?.detail || error?.message || '创建失败' });
+            results.push({ robotId: entry.robotId, error: error?.response?.data?.detail || error?.message || '创建失败' });
           }
         }
         await loadRobots();
@@ -287,6 +296,7 @@ export default function RobotPage() {
             title: `批量添加完成：成功 ${succeeded.length} 个，失败 ${failed.length} 个`,
             content: <Space direction="vertical" size={4}>{failed.map((item) => <Typography.Text key={item.robotId}><Typography.Text code>{item.robotId}</Typography.Text>：{item.error}</Typography.Text>)}</Space>,
           });
+          if (!succeeded.length) return;
         } else if (succeeded.length > 1) {
           message.success(`已批量添加 ${succeeded.length} 个机器人`);
         } else {
@@ -302,6 +312,31 @@ export default function RobotPage() {
         content: e?.response?.data?.detail || e?.message || '未知错误',
       });
     }
+  };
+
+  const downloadRobotCsvTemplate = () => {
+    const blob = new Blob([createRobotCsvTemplate()], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = '机器人批量导入模板.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const readRobotCsv = async (file: File) => {
+    if (file.size > 1024 * 1024) {
+      message.error('CSV 文件不能超过 1 MB');
+      return false;
+    }
+    try {
+      const rows = parseRobotCsv(await file.text());
+      setCsvPreviewRows(rows);
+      setCsvPreviewOpen(true);
+    } catch (error: any) {
+      message.error(error?.message || 'CSV 解析失败');
+    }
+    return false;
   };
 
   const onCreateRule = () => {
@@ -614,10 +649,20 @@ export default function RobotPage() {
               disabled={!!editingRobotId}
               autoSize={{ minRows: 1, maxRows: 5 }}
               placeholder={editingRobotId ? 'Robot ID' : '支持输入多个，使用换行或逗号分隔'}
+              onChange={() => { if (csvRows.length) setCsvRows([]); }}
             />
           </Form.Item>
+          {!editingRobotId ? (
+            <Space wrap style={{ marginTop: -12, marginBottom: 16 }}>
+              <Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={(file) => readRobotCsv(file as File)}>
+                <Button icon={<UploadOutlined />}>导入 CSV</Button>
+              </Upload>
+              <Button icon={<DownloadOutlined />} onClick={downloadRobotCsvTemplate}>下载模板</Button>
+              {csvRows.length ? <Tag color="blue">已读取 {csvRows.length} 个机器人，名称将按 CSV 导入</Tag> : null}
+            </Space>
+          ) : null}
           <Form.Item name="name" label="名称（选填）">
-            <Input />
+            <Input disabled={csvRows.length > 0} placeholder={csvRows.length ? '机器人名称将使用 CSV 中的内容' : undefined} />
           </Form.Item>
           <Form.Item name="group_default_reply" label="群聊默认回复">
             <Input.TextArea rows={2} />
@@ -725,6 +770,41 @@ export default function RobotPage() {
             <Input.TextArea rows={4} placeholder={'例如:\n张三\n李四'} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="确认 CSV 导入内容"
+        open={csvPreviewOpen}
+        width={760}
+        okText="使用此文件"
+        cancelText="取消"
+        okButtonProps={{ disabled: csvPreviewRows.some((row) => Boolean(row.error)) }}
+        onCancel={() => setCsvPreviewOpen(false)}
+        onOk={() => {
+          const validRows = csvPreviewRows.filter((row) => !row.error);
+          setCsvRows(validRows);
+          robotForm.setFieldsValue({ robot_id: validRows.map((row) => row.robotId).join('\n') });
+          setCsvPreviewOpen(false);
+        }}
+      >
+        <Alert
+          type={csvPreviewRows.some((row) => Boolean(row.error)) ? 'warning' : 'success'}
+          showIcon
+          message={csvPreviewRows.some((row) => Boolean(row.error)) ? '请修正 CSV 后重新选择文件' : `已识别 ${csvPreviewRows.length} 个机器人`}
+          style={{ marginBottom: 12 }}
+        />
+        <Table
+          rowKey={(row) => String(row.rowNumber)}
+          size="small"
+          pagination={{ pageSize: 10, hideOnSinglePage: true }}
+          dataSource={csvPreviewRows}
+          columns={[
+            { title: '行号', dataIndex: 'rowNumber', width: 70 },
+            { title: '机器人 ID', dataIndex: 'robotId', ellipsis: true },
+            { title: '机器人名称', dataIndex: 'name', ellipsis: true },
+            { title: '校验', dataIndex: 'error', width: 170, render: (value: string) => value ? <Tag color="red">{value}</Tag> : <Tag color="green">可导入</Tag> },
+          ]}
+        />
       </Modal>
 
       <Modal
