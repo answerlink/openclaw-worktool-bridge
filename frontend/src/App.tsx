@@ -35,6 +35,7 @@ const AIHubPage = lazy(() => import('./pages/AIHubPage'));
 const ForwardPage = lazy(() => import('./pages/ForwardPage'));
 const RobotInfoPage = lazy(() => import('./pages/RobotInfoPage'));
 const TroubleshootPage = lazy(() => import('./pages/TroubleshootPage'));
+const ClientLogPage = lazy(() => import('./pages/ClientLogPage'));
 const CommandTaskPage = lazy(() => import('./pages/CommandTaskPage'));
 const GroupListPage = lazy(() => import('./pages/GroupListPage'));
 const GroupTagLibraryPage = lazy(() => import('./pages/GroupTagLibraryPage'));
@@ -314,6 +315,7 @@ export default function App() {
       if (isSaasDeployment) {
         if (enableTroubleshoot) {
           adminItems.push({ key: '/troubleshoot', icon: <SearchOutlined />, label: <Link to="/troubleshoot">机器人排查</Link> });
+          adminItems.push({ key: '/client-logs', icon: <FileSearchOutlined />, label: <Link to="/client-logs">客户端日志</Link> });
         }
         adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
         adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换续期</Link> });
@@ -390,6 +392,7 @@ export default function App() {
         <Route path="/forward" element={<ForwardPage />} />
         <Route path="/providers" element={<AIHubPage />} />
         {enableTroubleshoot && isAdmin && isSaasDeployment ? <Route path="/troubleshoot" element={<TroubleshootPage />} /> : <Route path="/troubleshoot" element={<Navigate to="/dashboard" replace />} />}
+        {enableTroubleshoot && isAdmin && isSaasDeployment ? <Route path="/client-logs" element={<ClientLogPage />} /> : <Route path="/client-logs" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin ? <Route path="/users" element={<UserManagementPage />} /> : <Route path="/users" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}

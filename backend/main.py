@@ -1627,6 +1627,10 @@ class ProviderTestRequest(BaseModel):
     extra_json: Optional[str] = None
 
 
+class ClientLogSnippetRequest(BaseModel):
+    message_id: str
+
+
 class RuleCreate(BaseModel):
     robot_id: str
     scene: Literal["group", "private"]
@@ -2559,6 +2563,77 @@ async def post_worktool_api(path: str, params: Optional[Dict[str, Any]] = None, 
                 )
                 raise HTTPException(status_code=502, detail="worktool response is not valid json")
             return data if isinstance(data, dict) else {"data": data}
+
+
+def _resolve_robot_id_from_raw_message_record(message_id: str) -> Optional[str]:
+    mid = (message_id or "").strip()
+    if not mid:
+        return None
+    conn = worktool_db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT robot_id
+                FROM raw_message_record
+                WHERE message_id=%s AND robot_id IS NOT NULL AND robot_id <> ''
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (mid,),
+            )
+            row = cur.fetchone()
+            return str(row.get("robot_id") or "").strip() if row else None
+    finally:
+        conn.close()
+
+
+def _client_log_result_available(response: Any) -> bool:
+    if not isinstance(response, dict):
+        return bool(response)
+    data = response.get("data")
+    if isinstance(data, (dict, list, str)):
+        return bool(data)
+    for key in ("result", "logs", "log", "content", "snippet"):
+        value = response.get(key)
+        if isinstance(value, (dict, list, str)) and bool(value):
+            return True
+    return response.get("success") is True and data is not None
+
+
+async def _query_client_log_snippet(message_id: str, robot_id: str) -> Dict[str, Any]:
+    started = time.perf_counter()
+    await asyncio.sleep(5)
+    last_response: Dict[str, Any] = {}
+    for attempt in range(1, 13):
+        try:
+            last_response = await fetch_worktool_api(
+                "/robot/clientLogSnippet/detail",
+                {"robotId": robot_id, "targetMessageId": message_id},
+            )
+            if _client_log_result_available(last_response):
+                return {
+                    "status": "success",
+                    "message_id": message_id,
+                    "robot_id": robot_id,
+                    "attempts": attempt,
+                    "elapsed_seconds": round(time.perf_counter() - started, 1),
+                    "data": last_response,
+                }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("client_log_detail_poll_failed robot_id=%s message_id=%s err=%s", robot_id, message_id, exc)
+        if attempt < 12:
+            await asyncio.sleep(5)
+    return {
+        "status": "timeout",
+        "message_id": message_id,
+        "robot_id": robot_id,
+        "attempts": 12,
+        "elapsed_seconds": round(time.perf_counter() - started, 1),
+        "data": last_response,
+    }
 
 
 async def post_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -8012,6 +8087,32 @@ async def troubleshoot_search(body: TroubleshootSearchPayload, user: Dict[str, A
         fetch_worktool_api=fetch_worktool_api,
         db_conn_factory=db_conn,
     )
+
+
+@app.post("/api/v1/admin/client-log-snippet/query")
+async def admin_client_log_snippet(
+    body: ClientLogSnippetRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    message_id = (body.message_id or "").strip()
+    if not message_id:
+        raise HTTPException(status_code=400, detail="message_id required")
+    try:
+        robot_id = _resolve_robot_id_from_raw_message_record(message_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("client_log_robot_resolve_failed message_id=%s", message_id)
+        raise HTTPException(status_code=503, detail=f"WorkTool 数据库查询失败：{exc}") from exc
+    if not robot_id:
+        raise HTTPException(status_code=404, detail="未找到该指令 messageId 对应的机器人，请确认 messageId 是否正确。")
+
+    await post_worktool_api(
+        "/robot/clientLogSnippet/request",
+        body={"robotId": robot_id, "targetMessageId": message_id},
+    )
+    return await _query_client_log_snippet(message_id, robot_id)
 
 
 @app.post("/api/v1/open/troubleshoot/search")
