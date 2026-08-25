@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { Alert, Button, Card, Descriptions, Input, Space, Spin, Typography, message } from 'antd';
+import { useEffect, useState } from 'react';
+import { Alert, AutoComplete, Button, Card, Descriptions, Space, Spin, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { api } from '../api';
+
+const RECENT_MESSAGE_IDS_KEY = 'client_log_recent_message_ids';
+const MAX_RECENT_MESSAGE_IDS = 10;
 
 type QueryResult = {
   status: 'success' | 'timeout';
@@ -22,9 +25,24 @@ function formatClientLog(data: unknown) {
 }
 
 export default function ClientLogPage() {
-  const [messageId, setMessageId] = useState('');
+  const [messageId, setMessageId] = useState(() => {
+    try {
+      const ids = JSON.parse(localStorage.getItem(RECENT_MESSAGE_IDS_KEY) || '[]');
+      return Array.isArray(ids) && typeof ids[0] === 'string' ? ids[0] : '';
+    } catch { return ''; }
+  });
+  const [recentMessageIds, setRecentMessageIds] = useState<string[]>(() => {
+    try {
+      const ids = JSON.parse(localStorage.getItem(RECENT_MESSAGE_IDS_KEY) || '[]');
+      return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(0, MAX_RECENT_MESSAGE_IDS) : [];
+    } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(RECENT_MESSAGE_IDS_KEY, JSON.stringify(recentMessageIds)); } catch { /* ignore storage errors */ }
+  }, [recentMessageIds]);
 
   const query = async () => {
     const value = messageId.trim();
@@ -32,6 +50,7 @@ export default function ClientLogPage() {
       message.warning('请输入 messageId');
       return;
     }
+    setRecentMessageIds((ids) => [value, ...ids.filter((id) => id !== value)].slice(0, MAX_RECENT_MESSAGE_IDS));
     setLoading(true);
     setResult(null);
     try {
@@ -65,12 +84,15 @@ export default function ClientLogPage() {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Card title="客户端日志查询">
         <Space.Compact style={{ width: '100%', maxWidth: 680 }}>
-          <Input
+          <AutoComplete
             value={messageId}
-            onChange={(e) => setMessageId(e.target.value)}
-            onPressEnter={() => void query()}
+            onChange={(value) => setMessageId(value)}
+            onInputKeyDown={(event) => { if (event.key === 'Enter') void query(); }}
             placeholder="请输入指令 messageId"
             disabled={loading}
+            options={recentMessageIds.map((id) => ({ value: id, label: `最近使用：${id}` }))}
+            filterOption={(input, option) => String(option?.value || '').includes(input)}
+            style={{ flex: 1 }}
           />
           <Button type="primary" icon={<SearchOutlined />} loading={loading} onClick={() => void query()}>
             查询
