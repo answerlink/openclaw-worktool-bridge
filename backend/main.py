@@ -2601,16 +2601,41 @@ def _client_log_result_available(response: Any) -> bool:
     return response.get("success") is True and data is not None
 
 
+async def _request_client_log_snippet(robot_id: str, message_id: str) -> None:
+    url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/request")
+    async with safe_outbound_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(
+            url,
+            json={"robotId": robot_id, "targetMessageId": message_id},
+            allow_redirects=False,
+        ) as resp:
+            raw = await read_limited_text(resp)
+            if resp.status != 200:
+                preview = _short_text(raw, 200)
+                raise HTTPException(status_code=502, detail=f"客户端日志拉取请求失败：HTTP {resp.status}{(': ' + preview) if preview else ''}")
+
+
 async def _query_client_log_snippet(message_id: str, robot_id: str) -> Dict[str, Any]:
     started = time.perf_counter()
     await asyncio.sleep(5)
     last_response: Dict[str, Any] = {}
     for attempt in range(1, 13):
         try:
-            last_response = await fetch_worktool_api(
-                "/robot/clientLogSnippet/detail",
-                {"robotId": robot_id, "targetMessageId": message_id},
-            )
+            url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/detail")
+            async with safe_outbound_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+                async with session.get(url, params={"robotId": robot_id, "targetMessageId": message_id}, allow_redirects=False) as resp:
+                    raw = await read_limited_text(resp)
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail=f"客户端日志查询失败：HTTP {resp.status}")
+                    if not raw.strip():
+                        last_response = {}
+                    else:
+                        try:
+                            parsed = json.loads(raw)
+                            last_response = parsed if isinstance(parsed, dict) else {"data": parsed}
+                        except json.JSONDecodeError:
+                            # WorkTool returns this while the client has not uploaded the snippet yet.
+                            last_response = {"message": raw.strip()}
             if _client_log_result_available(last_response):
                 return {
                     "status": "success",
@@ -8108,10 +8133,7 @@ async def admin_client_log_snippet(
     if not robot_id:
         raise HTTPException(status_code=404, detail="未找到该指令 messageId 对应的机器人，请确认 messageId 是否正确。")
 
-    await post_worktool_api(
-        "/robot/clientLogSnippet/request",
-        body={"robotId": robot_id, "targetMessageId": message_id},
-    )
+    await _request_client_log_snippet(robot_id, message_id)
     return await _query_client_log_snippet(message_id, robot_id)
 
 
