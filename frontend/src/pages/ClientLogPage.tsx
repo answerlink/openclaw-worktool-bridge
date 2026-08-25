@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Alert, AutoComplete, Button, Card, Descriptions, Input, Space, Spin, Typography, message } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AutoComplete, Button, Card, Descriptions, Input, Space, Spin, Tooltip, Typography, message } from 'antd';
+import { CopyOutlined, DownOutlined, SearchOutlined, UpOutlined, CloseOutlined } from '@ant-design/icons';
 import { api } from '../api';
 
 const RECENT_MESSAGE_IDS_KEY = 'client_log_recent_message_ids';
@@ -41,11 +41,64 @@ export default function ClientLogPage() {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [logText, setLogText] = useState('');
   const [logSearch, setLogSearch] = useState('');
+  const [findOpen, setFindOpen] = useState(false);
+  const [findIndex, setFindIndex] = useState(0);
+  const findInputRef = useRef<any>(null);
+  const logTextAreaRef = useRef<any>(null);
+
+  const matches = useMemo(() => {
+    const needle = logSearch.trim().toLowerCase();
+    if (!needle) return [] as number[];
+    const haystack = logText.toLowerCase();
+    const positions: number[] = [];
+    let from = 0;
+    while (from < haystack.length) {
+      const index = haystack.indexOf(needle, from);
+      if (index < 0) break;
+      positions.push(index);
+      from = index + Math.max(needle.length, 1);
+    }
+    return positions;
+  }, [logSearch, logText]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && result) {
+        event.preventDefault();
+        setFindOpen(true);
+        window.setTimeout(() => findInputRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [result]);
 
   useEffect(() => {
     setLogText(result ? formatClientLog(result.data) : '');
     setLogSearch('');
+    setFindOpen(false);
+    setFindIndex(0);
   }, [result]);
+
+  const selectMatch = (direction: 1 | -1) => {
+    if (!matches.length) return;
+    const next = (findIndex + direction + matches.length) % matches.length;
+    setFindIndex(next);
+    const start = matches[next];
+    const end = start + logSearch.trim().length;
+    const textarea = logTextAreaRef.current?.resizableTextArea?.textArea;
+    textarea?.focus();
+    textarea?.setSelectionRange(start, end);
+  };
+
+  const copyLog = async () => {
+    try {
+      await navigator.clipboard.writeText(logText);
+      message.success('日志已复制');
+    } catch {
+      message.error('复制失败，请检查浏览器权限');
+    }
+  };
 
   useEffect(() => {
     try { localStorage.setItem(RECENT_MESSAGE_IDS_KEY, JSON.stringify(recentMessageIds)); } catch { /* ignore storage errors */ }
@@ -139,19 +192,30 @@ export default function ClientLogPage() {
           <Typography.Title level={5} style={{ marginTop: 18, marginBottom: 10 }}>客户端日志</Typography.Title>
           <Space direction="vertical" style={{ width: '100%' }} size={8}>
             <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Input
-                allowClear
-                value={logSearch}
-                onChange={(event) => setLogSearch(event.target.value)}
-                placeholder="在日志正文中搜索关键词"
-                prefix={<SearchOutlined />}
-                style={{ maxWidth: 420 }}
-              />
-              <Typography.Text type="secondary">
-                {logSearch.trim() ? `${logText.toLowerCase().split(logSearch.trim().toLowerCase()).length - 1} 处匹配` : '临时编辑，不会保存'}
-              </Typography.Text>
+              <Space>
+                <Tooltip title="查找（Ctrl+F / ⌘F）"><Button icon={<SearchOutlined />} onClick={() => { setFindOpen(true); window.setTimeout(() => findInputRef.current?.focus(), 0); }} /></Tooltip>
+                <Tooltip title="复制全文"><Button icon={<CopyOutlined />} onClick={() => void copyLog()} /></Tooltip>
+                <Typography.Text type="secondary">临时编辑，不会保存</Typography.Text>
+              </Space>
+              {findOpen ? (
+                <Space.Compact>
+                  <Input
+                    ref={findInputRef}
+                    value={logSearch}
+                    onChange={(event) => { setLogSearch(event.target.value); setFindIndex(0); }}
+                    onPressEnter={(event) => selectMatch(event.shiftKey ? -1 : 1)}
+                    placeholder="查找"
+                    style={{ width: 220 }}
+                  />
+                  <Button icon={<UpOutlined />} disabled={!matches.length} onClick={() => selectMatch(-1)} />
+                  <Button icon={<DownOutlined />} disabled={!matches.length} onClick={() => selectMatch(1)} />
+                  <Button icon={<CloseOutlined />} onClick={() => { setFindOpen(false); setLogSearch(''); }} />
+                </Space.Compact>
+              ) : null}
+              {findOpen ? <Typography.Text type="secondary">{matches.length ? `${findIndex + 1}/${matches.length}` : '无匹配'}</Typography.Text> : null}
             </Space>
             <Input.TextArea
+              ref={logTextAreaRef}
               value={logText}
               onChange={(event) => setLogText(event.target.value)}
               autoSize={{ minRows: 16, maxRows: 32 }}
