@@ -1565,6 +1565,7 @@ class WorkToolSettingsUpdate(BaseModel):
 class RobotCreate(BaseModel):
     robot_id: str
     name: str = "机器人"
+    update_name_if_exists: bool = False
     private_chat_enabled: bool = True
     group_chat_enabled: bool = True
     group_reply_only_when_mentioned: bool = False
@@ -5309,6 +5310,11 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
             row = cur.fetchone()
             if row:
                 existed = True
+                if body.update_name_if_exists:
+                    cur.execute(
+                        "UPDATE robots SET name=%s WHERE id=%s",
+                        ((body.name or "机器人").strip() or "机器人", int(row["id"])),
+                    )
                 cur.execute(
                     "INSERT INTO user_robots(user_id,robot_pk) VALUES(%s,%s) ON DUPLICATE KEY UPDATE robot_pk=robot_pk",
                     (int(user["id"]), int(row["id"])),
@@ -5351,7 +5357,7 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
             default_callback_url=callback_url,
             auto_bind_enabled=auto_bind,
         )
-        return {"ok": True, "existed": existed, **callback_result}
+        return {"ok": True, "existed": existed, "name_updated": bool(existed and body.update_name_if_exists), **callback_result}
     except Exception:
         try:
             conn.rollback()

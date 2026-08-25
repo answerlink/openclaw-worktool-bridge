@@ -281,7 +281,12 @@ export default function RobotPage() {
         const results: Array<{ robotId: string; response?: any; error?: string }> = [];
         for (const entry of entries) {
           try {
-            const response = await api.createRobot({ ...values, robot_id: entry.robotId, name: entry.name });
+            const response = await api.createRobot({
+              ...values,
+              robot_id: entry.robotId,
+              name: entry.name,
+              update_name_if_exists: csvRows.length > 0,
+            });
             results.push({ robotId: entry.robotId, response });
           } catch (error: any) {
             results.push({ robotId: entry.robotId, error: error?.response?.data?.detail || error?.message || '创建失败' });
