@@ -2617,7 +2617,7 @@ async def _request_client_log_snippet(robot_id: str, message_id: str) -> None:
 
 async def _fetch_client_log_detail(message_id: str, robot_id: str) -> Dict[str, Any]:
     url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/detail")
-    async with safe_outbound_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with safe_outbound_session(aiohttp.ClientTimeout(total=3), deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.get(url, params={"robotId": robot_id, "targetMessageId": message_id}, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status != 200:
@@ -2635,7 +2635,7 @@ async def _query_client_log_snippet(message_id: str, robot_id: str, initial_resp
     started = time.perf_counter()
     await asyncio.sleep(5)
     last_response: Dict[str, Any] = initial_response or {}
-    for attempt in range(1, 13):
+    for attempt in range(1, 11):
         try:
             last_response = await _fetch_client_log_detail(message_id, robot_id)
             if _client_log_result_available(last_response):
@@ -2651,13 +2651,13 @@ async def _query_client_log_snippet(message_id: str, robot_id: str, initial_resp
             raise
         except Exception as exc:
             logger.warning("client_log_detail_poll_failed robot_id=%s message_id=%s err=%s", robot_id, message_id, exc)
-        if attempt < 12:
-            await asyncio.sleep(5)
+        if attempt < 10:
+            await asyncio.sleep(2)
     return {
         "status": "timeout",
         "message_id": message_id,
         "robot_id": robot_id,
-        "attempts": 12,
+        "attempts": 10,
         "elapsed_seconds": round(time.perf_counter() - started, 1),
         "data": last_response,
     }
