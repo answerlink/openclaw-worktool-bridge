@@ -26,7 +26,22 @@ export default function ClientLogPage() {
     setLoading(true);
     setResult(null);
     try {
-      const data = await api.queryClientLogSnippet(value);
+      let data = await api.requestClientLogSnippet(value);
+      if (data?.status === 'pending') {
+        for (let attempt = 1; attempt <= 12; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 5000));
+          data = await api.getClientLogSnippetDetail(value, String(data.robot_id || ''));
+          if (data?.status === 'success') {
+            data = { ...data, attempts: attempt, elapsed_seconds: attempt * 5 };
+            break;
+          }
+          if (attempt === 12) {
+            data = { ...data, status: 'timeout', attempts: attempt, elapsed_seconds: attempt * 5 };
+          }
+        }
+      } else {
+        data = { ...data, attempts: 0, elapsed_seconds: 0 };
+      }
       setResult(data);
       if (data?.status === 'success') message.success('客户端日志获取成功');
       else message.warning('等待 60 秒仍未收到客户端日志');

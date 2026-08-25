@@ -264,4 +264,8 @@ export const api = {
   troubleshootSearch: (payload: any) => http.post('/troubleshoot/search', payload).then((r) => r.data),
   queryClientLogSnippet: (messageId: string) =>
     http.post('/admin/client-log-snippet/query', { message_id: messageId }, { timeout: 70000 }).then((r) => r.data)
+  ,requestClientLogSnippet: (messageId: string) =>
+    http.post('/admin/client-log-snippet/request', { message_id: messageId }, { timeout: 15000 }).then((r) => r.data)
+  ,getClientLogSnippetDetail: (messageId: string, robotId: string) =>
+    http.get('/admin/client-log-snippet/detail', { params: { message_id: messageId, robot_id: robotId }, timeout: 15000 }).then((r) => r.data)
 };

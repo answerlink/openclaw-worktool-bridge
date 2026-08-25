@@ -8151,6 +8151,40 @@ async def admin_client_log_snippet(
     return await _query_client_log_snippet(message_id, robot_id)
 
 
+@app.post("/api/v1/admin/client-log-snippet/request")
+async def admin_client_log_snippet_request(
+    body: ClientLogSnippetRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    message_id = (body.message_id or "").strip()
+    if not message_id:
+        raise HTTPException(status_code=400, detail="message_id required")
+    robot_id = _resolve_robot_id_from_raw_message_record(message_id)
+    if not robot_id:
+        raise HTTPException(status_code=404, detail="未找到该指令 messageId 对应的机器人，请确认 messageId 是否正确。")
+    existing = await _fetch_client_log_detail(message_id, robot_id)
+    if _client_log_result_available(existing):
+        return {"status": "success", "source": "existing", "message_id": message_id, "robot_id": robot_id, "data": existing}
+    await _request_client_log_snippet(robot_id, message_id)
+    return {"status": "pending", "message_id": message_id, "robot_id": robot_id}
+
+
+@app.get("/api/v1/admin/client-log-snippet/detail")
+async def admin_client_log_snippet_detail(
+    message_id: str,
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    mid = (message_id or "").strip()
+    rid = (robot_id or "").strip()
+    if not mid or not rid:
+        raise HTTPException(status_code=400, detail="message_id and robot_id required")
+    data = await _fetch_client_log_detail(mid, rid)
+    return {"status": "success" if _client_log_result_available(data) else "pending", "message_id": mid, "robot_id": rid, "data": data}
+
+
 @app.post("/api/v1/open/troubleshoot/search")
 async def open_troubleshoot_search(
     body: TroubleshootSearchPayload,
