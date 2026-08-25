@@ -604,7 +604,7 @@ export default function RobotPage() {
                 <div>这是啥：WorkTool 里的机器人唯一编号。</div>
                 <div>为什么填：系统靠它识别你要配置哪台机器人。</div>
                 <div>怎么填：去 WorkTool 机器人详情页复制后粘贴。</div>
-                <div>支持批量添加：多个 Robot ID 可用换行、英文逗号或中文逗号分隔。</div>
+                <div>支持批量添加：多个 Robot ID 用换行或逗号分隔。</div>
                 <div>示例：wtxxxx</div>
               </Space>
             )}
