@@ -42,7 +42,7 @@ export default function ClientLogPage() {
   const [logText, setLogText] = useState('');
   const [logSearch, setLogSearch] = useState('');
   const [findOpen, setFindOpen] = useState(false);
-  const [findIndex, setFindIndex] = useState(0);
+  const [findIndex, setFindIndex] = useState(-1);
   const findInputRef = useRef<any>(null);
   const logTextAreaRef = useRef<any>(null);
 
@@ -77,19 +77,29 @@ export default function ClientLogPage() {
     setLogText(result ? formatClientLog(result.data) : '');
     setLogSearch('');
     setFindOpen(false);
-    setFindIndex(0);
+    setFindIndex(-1);
   }, [result]);
 
   const selectMatch = (direction: 1 | -1) => {
     if (!matches.length) return;
-    const next = (findIndex + direction + matches.length) % matches.length;
+    const next = findIndex < 0
+      ? (direction > 0 ? 0 : matches.length - 1)
+      : (findIndex + direction + matches.length) % matches.length;
     setFindIndex(next);
-    const start = matches[next];
-    const end = start + logSearch.trim().length;
-    const textarea = logTextAreaRef.current?.resizableTextArea?.textArea;
-    textarea?.focus();
-    textarea?.setSelectionRange(start, end);
   };
+
+  useEffect(() => {
+    if (!findOpen || findIndex < 0 || !matches.length) return;
+    const textarea = logTextAreaRef.current?.resizableTextArea?.textArea as HTMLTextAreaElement | undefined;
+    if (!textarea) return;
+    const start = matches[findIndex];
+    const end = start + logSearch.trim().length;
+    textarea.focus();
+    textarea.setSelectionRange(start, end);
+    const lineNumber = logText.slice(0, start).split('\n').length - 1;
+    const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight) || 22;
+    textarea.scrollTop = Math.max(0, lineNumber * lineHeight - textarea.clientHeight / 2);
+  }, [findOpen, findIndex, matches, logSearch, logText]);
 
   const copyLog = async () => {
     try {
@@ -202,7 +212,7 @@ export default function ClientLogPage() {
                   <Input
                     ref={findInputRef}
                     value={logSearch}
-                    onChange={(event) => { setLogSearch(event.target.value); setFindIndex(0); }}
+                    onChange={(event) => { setLogSearch(event.target.value); setFindIndex(-1); }}
                     onPressEnter={(event) => selectMatch(event.shiftKey ? -1 : 1)}
                     placeholder="查找"
                     style={{ width: 220 }}
@@ -212,7 +222,7 @@ export default function ClientLogPage() {
                   <Button icon={<CloseOutlined />} onClick={() => { setFindOpen(false); setLogSearch(''); }} />
                 </Space.Compact>
               ) : null}
-              {findOpen ? <Typography.Text type="secondary">{matches.length ? `${findIndex + 1}/${matches.length}` : '无匹配'}</Typography.Text> : null}
+              {findOpen ? <Typography.Text type="secondary">{matches.length ? `${Math.max(findIndex + 1, 0)}/${matches.length}` : '无匹配'}</Typography.Text> : null}
             </Space>
             <Input.TextArea
               ref={logTextAreaRef}
