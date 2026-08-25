@@ -2615,27 +2615,29 @@ async def _request_client_log_snippet(robot_id: str, message_id: str) -> None:
                 raise HTTPException(status_code=502, detail=f"客户端日志拉取请求失败：HTTP {resp.status}{(': ' + preview) if preview else ''}")
 
 
-async def _query_client_log_snippet(message_id: str, robot_id: str) -> Dict[str, Any]:
+async def _fetch_client_log_detail(message_id: str, robot_id: str) -> Dict[str, Any]:
+    url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/detail")
+    async with safe_outbound_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.get(url, params={"robotId": robot_id, "targetMessageId": message_id}, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
+            if resp.status != 200:
+                raise HTTPException(status_code=502, detail=f"客户端日志查询失败：HTTP {resp.status}")
+            if not raw.strip():
+                return {}
+            try:
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, dict) else {"data": parsed}
+            except json.JSONDecodeError:
+                return {"message": raw.strip()}
+
+
+async def _query_client_log_snippet(message_id: str, robot_id: str, initial_response: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     started = time.perf_counter()
     await asyncio.sleep(5)
-    last_response: Dict[str, Any] = {}
+    last_response: Dict[str, Any] = initial_response or {}
     for attempt in range(1, 13):
         try:
-            url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/detail")
-            async with safe_outbound_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
-                async with session.get(url, params={"robotId": robot_id, "targetMessageId": message_id}, allow_redirects=False) as resp:
-                    raw = await read_limited_text(resp)
-                    if resp.status != 200:
-                        raise HTTPException(status_code=502, detail=f"客户端日志查询失败：HTTP {resp.status}")
-                    if not raw.strip():
-                        last_response = {}
-                    else:
-                        try:
-                            parsed = json.loads(raw)
-                            last_response = parsed if isinstance(parsed, dict) else {"data": parsed}
-                        except json.JSONDecodeError:
-                            # WorkTool returns this while the client has not uploaded the snippet yet.
-                            last_response = {"message": raw.strip()}
+            last_response = await _fetch_client_log_detail(message_id, robot_id)
             if _client_log_result_available(last_response):
                 return {
                     "status": "success",
@@ -8132,6 +8134,18 @@ async def admin_client_log_snippet(
         raise HTTPException(status_code=503, detail=f"WorkTool 数据库查询失败：{exc}") from exc
     if not robot_id:
         raise HTTPException(status_code=404, detail="未找到该指令 messageId 对应的机器人，请确认 messageId 是否正确。")
+
+    existing = await _fetch_client_log_detail(message_id, robot_id)
+    if _client_log_result_available(existing):
+        return {
+            "status": "success",
+            "message_id": message_id,
+            "robot_id": robot_id,
+            "attempts": 0,
+            "elapsed_seconds": 0,
+            "data": existing,
+            "source": "existing",
+        }
 
     await _request_client_log_snippet(robot_id, message_id)
     return await _query_client_log_snippet(message_id, robot_id)
