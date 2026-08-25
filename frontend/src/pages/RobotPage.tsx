@@ -261,20 +261,37 @@ export default function RobotPage() {
         message.success('机器人更新成功');
       } else {
         values.name = (values.name || '').trim() || '机器人';
-        const res = await api.createRobot(values);
+        const robotIds = String(values.robot_id || '')
+          .split(/[,，\n]+/)
+          .map((id) => id.trim())
+          .filter(Boolean)
+          .filter((id, index, all) => all.indexOf(id) === index);
+        if (!robotIds.length) {
+          throw new Error('请输入至少一个 Robot ID');
+        }
+        const results: Array<{ robotId: string; response?: any; error?: string }> = [];
+        for (const robotId of robotIds) {
+          try {
+            const response = await api.createRobot({ ...values, robot_id: robotId });
+            results.push({ robotId, response });
+          } catch (error: any) {
+            results.push({ robotId, error: error?.response?.data?.detail || error?.message || '创建失败' });
+          }
+        }
         await loadRobots();
-        selectRobot(values.robot_id);
-        const baseText = res?.existed ? '机器人已存在，已添加到当前账号' : '机器人创建成功';
-        const callbackStatus = String(res?.callback_status || '');
-        if (callbackStatus === 'bound' && res?.callback_url) {
-          message.success(`${baseText}，已自动绑定默认消息回调：${res.callback_url}`);
-        } else if (callbackStatus === 'already_bound') {
-          message.success(`${baseText}，检测到已有消息回调，已保持原配置不变。`);
-        } else if (callbackStatus === 'no_default_url') {
-          message.warning(`${baseText}。系统未配置默认消息回调地址，请到“机器人信息”页手动绑定回调。`);
-        } else if (callbackStatus === 'bind_failed') {
-          message.warning(`${baseText}，但自动绑定回调失败。请到“机器人信息”页点击测试并手动绑定。`);
+        const succeeded = results.filter((item) => !item.error);
+        const failed = results.filter((item) => item.error);
+        if (succeeded.length) selectRobot(succeeded[0].robotId);
+        if (failed.length) {
+          Modal.warning({
+            title: `批量添加完成：成功 ${succeeded.length} 个，失败 ${failed.length} 个`,
+            content: <Space direction="vertical" size={4}>{failed.map((item) => <Typography.Text key={item.robotId}><Typography.Text code>{item.robotId}</Typography.Text>：{item.error}</Typography.Text>)}</Space>,
+          });
+        } else if (succeeded.length > 1) {
+          message.success(`已批量添加 ${succeeded.length} 个机器人`);
         } else {
+          const res = succeeded[0]?.response;
+          const baseText = res?.existed ? '机器人已存在，已添加到当前账号' : '机器人创建成功';
           message.success(baseText);
         }
       }
@@ -587,12 +604,17 @@ export default function RobotPage() {
                 <div>这是啥：WorkTool 里的机器人唯一编号。</div>
                 <div>为什么填：系统靠它识别你要配置哪台机器人。</div>
                 <div>怎么填：去 WorkTool 机器人详情页复制后粘贴。</div>
+                <div>支持批量添加：多个 Robot ID 可用换行、英文逗号或中文逗号分隔。</div>
                 <div>示例：wtxxxx</div>
               </Space>
             )}
-            rules={[{ required: true }]}
+            rules={[{ required: true, message: '请输入 Robot ID' }]}
           >
-            <Input disabled={!!editingRobotId} />
+            <Input.TextArea
+              disabled={!!editingRobotId}
+              autoSize={{ minRows: 1, maxRows: 5 }}
+              placeholder={editingRobotId ? 'Robot ID' : '支持输入多个，使用换行或中英文逗号分隔'}
+            />
           </Form.Item>
           <Form.Item name="name" label="名称（选填）">
             <Input />
