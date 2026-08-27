@@ -200,8 +200,8 @@ export default function RobotPage() {
     robotForm.resetFields();
     robotForm.setFieldsValue({
       name: '机器人',
-      group_default_reply: '收到',
-      private_default_reply: '收到',
+      group_default_reply: '收到! (来自console默认配置)',
+      private_default_reply: '收到! (来自console默认配置)',
       private_chat_enabled: true,
       group_chat_enabled: true,
       group_reply_only_when_mentioned: false,
