@@ -689,6 +689,33 @@ def init_db() -> None:
             )
             cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS manual_order_records (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  order_no VARCHAR(64) NOT NULL,
+                  customer_name VARCHAR(128) NOT NULL,
+                  customer_contact VARCHAR(128) NULL,
+                  company_name VARCHAR(255) NULL,
+                  product_name VARCHAR(255) NOT NULL,
+                  specification VARCHAR(255) NULL,
+                  unit_price DECIMAL(12,2) NOT NULL,
+                  quantity INT NOT NULL DEFAULT 1,
+                  status ENUM('unpaid','pending_delivery','delivered','completed','closed') NOT NULL DEFAULT 'completed',
+                  payment_method ENUM('corporate_transfer','bank_card','wechat','alipay','balance','other') NOT NULL DEFAULT 'corporate_transfer',
+                  ordered_at DATETIME NOT NULL,
+                  paid_at DATETIME NULL,
+                  remark VARCHAR(1000) NULL,
+                  created_by BIGINT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uk_manual_order_no (order_no),
+                  INDEX idx_manual_order_status_time (status, ordered_at),
+                  INDEX idx_manual_order_customer (customer_name),
+                  CONSTRAINT fk_manual_order_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS inbox_messages (
                   id BIGINT PRIMARY KEY AUTO_INCREMENT,
                   category ENUM('system','ops') NOT NULL DEFAULT 'ops',
@@ -1507,6 +1534,22 @@ class AdminUpdateUserPasswordRequest(BaseModel):
 
 class AdminUpdateUserStatusRequest(BaseModel):
     is_active: bool
+
+
+class ManualOrderUpsertRequest(BaseModel):
+    order_no: str
+    customer_name: str
+    customer_contact: Optional[str] = None
+    company_name: Optional[str] = None
+    product_name: str
+    specification: Optional[str] = None
+    unit_price: float
+    quantity: int = 1
+    status: Literal["unpaid", "pending_delivery", "delivered", "completed", "closed"] = "completed"
+    payment_method: Literal["corporate_transfer", "bank_card", "wechat", "alipay", "balance", "other"] = "corporate_transfer"
+    ordered_at: str
+    paid_at: Optional[str] = None
+    remark: Optional[str] = None
 
 
 class WeworkAuthorizationSaveRequest(BaseModel):
@@ -9825,6 +9868,235 @@ async def admin_app_update_enable(
         conn.commit()
         _finish_admin_audit(audit_id, status="success", after={"enabled_version": _normalize_app_update_row(row or {"id": int(update_id)})})
         return {"ok": True, "item": _normalize_app_update_row(row or {"id": int(update_id)})}
+    except Exception as exc:
+        conn.rollback()
+        if "audit_id" in locals():
+            _audit_failure(audit_id, exc)
+        raise
+    finally:
+        conn.close()
+
+
+_MANUAL_ORDER_STATUS_LABELS = {
+    "unpaid": "未支付",
+    "pending_delivery": "待交付",
+    "delivered": "已交付",
+    "completed": "已完成",
+    "closed": "交易关闭",
+}
+
+
+def _parse_manual_order_datetime(value: Optional[str], field_name: str, required: bool = False) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field_name}不能为空")
+        return None
+    normalized = text.replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"{field_name}格式错误")
+
+
+def _manual_order_payload(body: ManualOrderUpsertRequest) -> Dict[str, Any]:
+    order_no = body.order_no.strip()
+    customer_name = body.customer_name.strip()
+    product_name = body.product_name.strip()
+    if not order_no or not customer_name or not product_name:
+        raise HTTPException(status_code=400, detail="订单号、客户名称、商品名称不能为空")
+    if len(order_no) > 64 or len(customer_name) > 128 or len(product_name) > 255:
+        raise HTTPException(status_code=400, detail="输入内容超过长度限制")
+    if body.unit_price < 0 or body.unit_price > 99999999.99:
+        raise HTTPException(status_code=400, detail="商品单价不合法")
+    if body.quantity < 1 or body.quantity > 99999:
+        raise HTTPException(status_code=400, detail="购买数量应在 1 到 99999 之间")
+    return {
+        "order_no": order_no,
+        "customer_name": customer_name,
+        "customer_contact": (body.customer_contact or "").strip()[:128] or None,
+        "company_name": (body.company_name or "").strip()[:255] or None,
+        "product_name": product_name,
+        "specification": (body.specification or "").strip()[:255] or None,
+        "unit_price": round(float(body.unit_price), 2),
+        "quantity": int(body.quantity),
+        "status": body.status,
+        "payment_method": body.payment_method,
+        "ordered_at": _parse_manual_order_datetime(body.ordered_at, "下单时间", required=True),
+        "paid_at": _parse_manual_order_datetime(body.paid_at, "支付时间"),
+        "remark": (body.remark or "").strip()[:1000] or None,
+    }
+
+
+def _serialize_manual_order(row: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(row)
+    for key in ("ordered_at", "paid_at", "created_at", "updated_at"):
+        value = result.get(key)
+        if isinstance(value, datetime):
+            result[key] = value.strftime("%Y-%m-%d %H:%M:%S")
+    result["unit_price"] = float(result.get("unit_price") or 0)
+    result["amount"] = round(result["unit_price"] * int(result.get("quantity") or 0), 2)
+    result["status_label"] = _MANUAL_ORDER_STATUS_LABELS.get(str(result.get("status") or ""), "-")
+    return result
+
+
+@app.get("/api/v1/admin/manual-orders")
+async def admin_list_manual_orders(
+    keyword: str = "",
+    status: Literal["all", "unpaid", "pending_delivery", "delivered", "completed", "closed"] = "all",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    kw = keyword.strip()
+    where_sql = ""
+    params: List[Any] = []
+    where_parts: List[str] = []
+    if status != "all":
+        where_parts.append("status=%s")
+        params.append(status)
+    if kw:
+        like = f"%{kw}%"
+        where_parts.append("(order_no LIKE %s OR customer_name LIKE %s OR customer_contact LIKE %s OR company_name LIKE %s OR product_name LIKE %s)")
+        params.extend([like] * 5)
+    if where_parts:
+        where_sql = " WHERE " + " AND ".join(where_parts)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(1) AS c FROM manual_order_records{where_sql}", tuple(params))
+            total = int((cur.fetchone() or {}).get("c") or 0)
+            cur.execute(
+                f"""
+                SELECT id,order_no,customer_name,customer_contact,company_name,product_name,specification,
+                       unit_price,quantity,status,payment_method,ordered_at,paid_at,remark,created_at,updated_at
+                FROM manual_order_records{where_sql}
+                ORDER BY ordered_at DESC,id DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(params + [page_size, (page - 1) * page_size]),
+            )
+            rows = [_serialize_manual_order(row) for row in (cur.fetchall() or [])]
+        return {"items": rows, "total": total, "page": page, "page_size": page_size}
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/admin/manual-orders")
+async def admin_create_manual_order(
+    body: ManualOrderUpsertRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    payload = _manual_order_payload(body)
+    audit_id = _begin_admin_audit(
+        user, request, module="manual_order", action_key="create", action_name="新增线下订单登记",
+        target_type="manual_order", target_id=payload["order_no"], target_name=payload["customer_name"], before=None,
+    )
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO manual_order_records(
+                  order_no,customer_name,customer_contact,company_name,product_name,specification,unit_price,quantity,
+                  status,payment_method,ordered_at,paid_at,remark,created_by
+                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (*payload.values(), int(user["id"])),
+            )
+            record_id = int(cur.lastrowid)
+            cur.execute("SELECT * FROM manual_order_records WHERE id=%s", (record_id,))
+            row = cur.fetchone() or {}
+        conn.commit()
+        item = _serialize_manual_order(row)
+        _finish_admin_audit(audit_id, status="success", after=item, target_id=str(record_id), target_name=payload["customer_name"])
+        return {"ok": True, "item": item}
+    except Exception as exc:
+        conn.rollback()
+        _audit_failure(audit_id, exc)
+        if isinstance(exc, pymysql.err.IntegrityError):
+            raise HTTPException(status_code=409, detail="订单号已存在") from exc
+        raise
+    finally:
+        conn.close()
+
+
+@app.put("/api/v1/admin/manual-orders/{order_id}")
+async def admin_update_manual_order(
+    order_id: int,
+    body: ManualOrderUpsertRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    payload = _manual_order_payload(body)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM manual_order_records WHERE id=%s", (int(order_id),))
+            before = cur.fetchone()
+        if not before:
+            raise HTTPException(status_code=404, detail="订单不存在")
+        audit_id = _begin_admin_audit(
+            user, request, module="manual_order", action_key="update", action_name="编辑线下订单登记",
+            target_type="manual_order", target_id=str(order_id), target_name=payload["customer_name"], before=_serialize_manual_order(before),
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE manual_order_records
+                SET order_no=%s,customer_name=%s,customer_contact=%s,company_name=%s,product_name=%s,specification=%s,
+                    unit_price=%s,quantity=%s,status=%s,payment_method=%s,ordered_at=%s,paid_at=%s,remark=%s
+                WHERE id=%s
+                """,
+                (*payload.values(), int(order_id)),
+            )
+            cur.execute("SELECT * FROM manual_order_records WHERE id=%s", (int(order_id),))
+            row = cur.fetchone() or {}
+        conn.commit()
+        item = _serialize_manual_order(row)
+        _finish_admin_audit(audit_id, status="success", after=item)
+        return {"ok": True, "item": item}
+    except Exception as exc:
+        conn.rollback()
+        if "audit_id" in locals():
+            _audit_failure(audit_id, exc)
+        if isinstance(exc, pymysql.err.IntegrityError):
+            raise HTTPException(status_code=409, detail="订单号已存在") from exc
+        raise
+    finally:
+        conn.close()
+
+
+@app.delete("/api/v1/admin/manual-orders/{order_id}")
+async def admin_delete_manual_order(
+    order_id: int,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM manual_order_records WHERE id=%s", (int(order_id),))
+            before = cur.fetchone()
+        if not before:
+            raise HTTPException(status_code=404, detail="订单不存在")
+        audit_id = _begin_admin_audit(
+            user, request, module="manual_order", action_key="delete", action_name="删除线下订单登记",
+            target_type="manual_order", target_id=str(order_id), target_name=str(before.get("customer_name") or ""),
+            before=_serialize_manual_order(before),
+        )
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM manual_order_records WHERE id=%s", (int(order_id),))
+        conn.commit()
+        _finish_admin_audit(audit_id, status="success", after={"deleted": True, "id": int(order_id)})
+        return {"ok": True}
     except Exception as exc:
         conn.rollback()
         if "audit_id" in locals():

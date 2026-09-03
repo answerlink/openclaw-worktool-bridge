@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Descriptions, Input, InputNumber, Row, Space, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, AutoComplete, Button, Card, Col, Descriptions, Input, InputNumber, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import HoverPreviewText from '../components/HoverPreviewText';
@@ -11,9 +11,36 @@ type ResultData = {
   diagnostics: string[];
 } | null;
 
+const RECENT_TROUBLESHOOT_QUERIES_KEY = 'troubleshoot_recent_queries';
+const MAX_RECENT_TROUBLESHOOT_QUERIES = 10;
+
+type RecentTroubleshootQuery = { robot_id: string; message_id: string };
+
+function readRecentQueries(): RecentTroubleshootQuery[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(RECENT_TROUBLESHOOT_QUERIES_KEY) || '[]');
+    if (!Array.isArray(value)) return [];
+    const normalized = value
+      .filter((item): item is RecentTroubleshootQuery => Boolean(item && typeof item === 'object' && (item.robot_id || item.message_id)))
+      .map((item) => ({ robot_id: String(item.robot_id || ''), message_id: String(item.message_id || '') }))
+    const seen = new Set<string>();
+    return normalized.filter((item) => {
+      // A messageId identifies one troubleshooting query. Older versions could
+      // leave both the pre-resolve and post-resolve records behind.
+      const key = item.message_id ? `message:${item.message_id}` : `robot:${item.robot_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, MAX_RECENT_TROUBLESHOOT_QUERIES);
+  } catch {
+    return [];
+  }
+}
+
 export default function TroubleshootPage() {
-  const [robotId, setRobotId] = useState('');
-  const [messageId, setMessageId] = useState('');
+  const [recentQueries, setRecentQueries] = useState<RecentTroubleshootQuery[]>(() => readRecentQueries());
+  const [robotId, setRobotId] = useState(() => readRecentQueries()[0]?.robot_id || '');
+  const [messageId, setMessageId] = useState(() => readRecentQueries()[0]?.message_id || '');
   const [keyword, setKeyword] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
@@ -21,18 +48,55 @@ export default function TroubleshootPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ResultData>(null);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_TROUBLESHOOT_QUERIES_KEY, JSON.stringify(recentQueries));
+    } catch {
+      // Ignore storage errors (private browsing, quota, etc.).
+    }
+  }, [recentQueries]);
+
+  const rememberQuery = (nextRobotId: string, nextMessageId: string) => {
+    const robot = nextRobotId.trim();
+    const message = nextMessageId.trim();
+    if (!robot && !message) return;
+    setRecentQueries((items) => {
+      const next = { robot_id: robot, message_id: message };
+      const filtered = items.filter((item) => message
+        ? item.message_id !== message
+        : !(item.robot_id === robot && !item.message_id));
+      return [next, ...filtered].slice(0, MAX_RECENT_TROUBLESHOOT_QUERIES);
+    });
+  };
+
+  const recentRobotOptions = useMemo(
+    () => Array.from(new Set(recentQueries.map((item) => item.robot_id).filter(Boolean)))
+      .map((value) => ({ value, label: `最近使用：${value}` })),
+    [recentQueries]
+  );
+  const recentMessageOptions = useMemo(
+    () => Array.from(new Set(recentQueries.map((item) => item.message_id).filter(Boolean)))
+      .map((value) => ({ value, label: `最近使用：${value}` })),
+    [recentQueries]
+  );
+
   const runSearch = async () => {
+    const inputRobotId = robotId.trim();
+    const inputMessageId = messageId.trim();
+    rememberQuery(inputRobotId, inputMessageId);
     setLoading(true);
     try {
       const data = await api.troubleshootSearch({
-        robot_id: robotId.trim(),
-        message_id: messageId.trim(),
+        robot_id: inputRobotId,
+        message_id: inputMessageId,
         keyword: keyword.trim(),
         start_time: startTime.trim(),
         end_time: endTime.trim(),
         limit
       });
       setResult(data);
+      const resolvedRobotId = String(data?.resolved?.robot_id || inputRobotId).trim();
+      if (resolvedRobotId !== inputRobotId) rememberQuery(resolvedRobotId, inputMessageId);
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '查询失败');
       setResult(null);
@@ -55,10 +119,26 @@ export default function TroubleshootPage() {
       <Card title="机器人排查">
         <Row gutter={12}>
           <Col span={8}>
-            <Input value={robotId} onChange={(e) => setRobotId(e.target.value)} placeholder="robot_id（可选）" />
+            <AutoComplete
+              value={robotId}
+              onChange={setRobotId}
+              options={recentRobotOptions}
+              filterOption={(input, option) => String(option?.value || '').toLowerCase().includes(input.toLowerCase())}
+              style={{ width: '100%' }}
+            >
+              <Input placeholder="robot_id（可选）" />
+            </AutoComplete>
           </Col>
           <Col span={8}>
-            <Input value={messageId} onChange={(e) => setMessageId(e.target.value)} placeholder="message_id（可选）" />
+            <AutoComplete
+              value={messageId}
+              onChange={setMessageId}
+              options={recentMessageOptions}
+              filterOption={(input, option) => String(option?.value || '').includes(input)}
+              style={{ width: '100%' }}
+            >
+              <Input placeholder="message_id（可选）" />
+            </AutoComplete>
           </Col>
           <Col span={8}>
             <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="关键词（可选）" />

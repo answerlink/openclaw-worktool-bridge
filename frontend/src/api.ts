@@ -171,6 +171,11 @@ export const api = {
     http.put(`/admin/users/${userId}/password`, payload).then((r) => r.data),
   adminUpdateUserStatus: (userId: number, isActive: boolean) =>
     http.put(`/admin/users/${userId}/status`, { is_active: isActive }).then((r) => r.data),
+  adminManualOrders: (params?: { keyword?: string; status?: string; page?: number; page_size?: number }) =>
+    http.get('/admin/manual-orders', { params: params || {} }).then((r) => r.data),
+  adminCreateManualOrder: (payload: any) => http.post('/admin/manual-orders', payload).then((r) => r.data),
+  adminUpdateManualOrder: (id: number, payload: any) => http.put(`/admin/manual-orders/${id}`, payload).then((r) => r.data),
+  adminDeleteManualOrder: (id: number) => http.delete(`/admin/manual-orders/${id}`).then((r) => r.data),
   health: () => http.get('/health').then((r) => r.data),
   getOverview: () => http.get('/dashboard/overview').then((r) => r.data),
   getTrends: (days = 7) => http.get('/dashboard/trends', { params: { days } }).then((r) => r.data),

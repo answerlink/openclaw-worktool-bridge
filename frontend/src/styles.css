@@ -179,6 +179,120 @@ html, body, #root {
   min-height: 0;
 }
 
+.manual-order-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.manual-order-form-wide {
+  grid-column: 1 / -1;
+}
+
+.manual-order-preview {
+  padding: 8px;
+}
+
+.manual-order-preview-head,
+.manual-order-preview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manual-order-preview-head {
+  margin-bottom: 20px;
+}
+
+.manual-order-preview-head .ant-typography {
+  margin: 0;
+}
+
+.manual-order-preview-product,
+.manual-order-preview-total,
+.manual-order-preview-remark {
+  border: 1px solid #e7e1d8;
+  background: #faf8f4;
+  padding: 16px;
+}
+
+.manual-order-preview-product {
+  margin-bottom: 16px;
+}
+
+.manual-order-preview-product .ant-typography {
+  margin: 4px 0;
+}
+
+.manual-order-preview-total {
+  margin-top: 16px;
+  text-align: right;
+}
+
+.manual-order-preview-total .ant-typography {
+  margin: 2px 0;
+}
+
+.manual-order-preview-remark {
+  margin-top: 16px;
+  line-height: 1.65;
+}
+
+.manual-order-preview-remark > div {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.manual-order-preview-foot {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #eee8df;
+}
+
+@media (max-width: 640px) {
+  .manual-order-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-order-form-wide {
+    grid-column: auto;
+  }
+
+  .manual-order-preview-head,
+  .manual-order-preview-foot {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .manual-order-preview-modal,
+  .manual-order-preview-modal * {
+    visibility: visible;
+  }
+
+  .manual-order-preview-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+  }
+
+  .manual-order-preview-modal .ant-modal-content {
+    box-shadow: none !important;
+  }
+
+  .manual-order-preview-modal .ant-modal-close,
+  .manual-order-preview-foot .ant-space {
+    display: none !important;
+  }
+}
+
 .robot-info-matrix {
   width: 100%;
   border-collapse: collapse;

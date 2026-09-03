@@ -4,6 +4,7 @@ import { Badge, Button, Drawer, Form, Input, Layout, Menu, Modal, Space, Spin, T
 import {
   DashboardOutlined,
   FileSearchOutlined,
+  FileDoneOutlined,
   RobotOutlined,
   FileTextOutlined,
   ApiOutlined,
@@ -52,6 +53,7 @@ const PrivateLicenseAuthorizationPage = lazy(() =>
 const RobotMigratePage = lazy(() => import('./pages/RobotMigratePage'));
 const AppManagementPage = lazy(() => import('./pages/AppManagementPage'));
 const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'));
+const ManualOrderPage = lazy(() => import('./pages/ManualOrderPage'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -320,6 +322,7 @@ export default function App() {
         adminItems.push({ key: '/inbox-admin', icon: <NotificationOutlined />, label: <Link to="/inbox-admin">站内信配置</Link> });
         adminItems.push({ key: '/robot-migrate', icon: <BuildOutlined />, label: <Link to="/robot-migrate">机器人更换续期</Link> });
         adminItems.push({ key: '/app-management', icon: <AppstoreOutlined />, label: <Link to="/app-management">App管理</Link> });
+        adminItems.push({ key: '/manual-orders', icon: <FileDoneOutlined />, label: <Link to="/manual-orders">线下订单登记</Link> });
         adminItems.push({ key: '/admin-audit-logs', icon: <FileSearchOutlined />, label: <Link to="/admin-audit-logs">管理员审计日志</Link> });
         if (enableAdminIpBlacklist) {
           adminItems.push({ key: '/ip-blacklist', icon: <StopOutlined />, label: <Link to="/ip-blacklist">黑名单管理</Link> });
@@ -397,6 +400,7 @@ export default function App() {
         {isAdmin && isSaasDeployment ? <Route path="/inbox-admin" element={<InboxAdminPage />} /> : <Route path="/inbox-admin" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment ? <Route path="/robot-migrate" element={<RobotMigratePage />} /> : <Route path="/robot-migrate" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment ? <Route path="/app-management" element={<AppManagementPage />} /> : <Route path="/app-management" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment ? <Route path="/manual-orders" element={<ManualOrderPage />} /> : <Route path="/manual-orders" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment ? <Route path="/admin-audit-logs" element={<AdminAuditLogPage />} /> : <Route path="/admin-audit-logs" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
