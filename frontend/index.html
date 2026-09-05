@@ -11,9 +11,55 @@
     <link rel="alternate" type="text/plain" href="/llms.txt" title="LLMs Manifest" />
     <link rel="alternate" type="text/plain" href="/llms-full.txt" title="LLMs Full Manifest" />
     <title>WorkTool 管理台</title>
+    <meta name="worktool-app-version" content="__WORKTOOL_APP_VERSION__" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-boot-fallback" style="min-height:100vh;display:grid;place-items:center;background:#f6f3ed;color:#66757b;font-family:'PingFang SC','Microsoft YaHei',sans-serif">
+        <div style="text-align:center">
+          <div style="width:34px;height:34px;margin:0 auto 14px;border:3px solid #d5dfdd;border-top-color:#5f8f98;border-radius:50%;animation:worktool-spin .8s linear infinite"></div>
+          <div id="app-boot-message">正在加载 WorkTool Console…</div>
+          <button id="app-boot-retry" type="button" style="display:none;margin:16px auto 0;padding:7px 18px;border:1px solid #94aaa9;border-radius:8px;background:#fff;color:#40565b;cursor:pointer">重新加载</button>
+        </div>
+      </div>
+    </div>
+    <style>@keyframes worktool-spin{to{transform:rotate(360deg)}}</style>
+    <script>
+      (function () {
+        var storageKey = 'worktool_console_last_boot_error';
+        function saveError(kind, detail) {
+          try {
+            localStorage.setItem(storageKey, JSON.stringify({ kind: kind, detail: String(detail || 'unknown error').slice(0, 2000), url: location.href, time: new Date().toISOString() }));
+          } catch (_) {}
+        }
+        window.addEventListener('error', function (event) {
+          saveError('error', event.message || (event.error && event.error.stack) || event.filename);
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason;
+          saveError('unhandledrejection', reason && (reason.stack || reason.message) || reason);
+        });
+        window.setTimeout(function () {
+          var fallback = document.getElementById('app-boot-fallback');
+          if (!fallback) return;
+          var message = document.getElementById('app-boot-message');
+          var retry = document.getElementById('app-boot-retry');
+          if (message) message.textContent = '页面加载时间较长，请重新加载';
+          if (retry) {
+            retry.style.display = 'block';
+            retry.onclick = function () { location.reload(); };
+          }
+        }, 12000);
+        fetch('/version.json?boot=' + Date.now(), { cache: 'no-store' }).then(function (response) {
+          return response.ok ? response.json() : null;
+        }).then(function (manifest) {
+          var current = '__WORKTOOL_APP_VERSION__';
+          if (manifest && manifest.version && current && manifest.version !== current) {
+            location.reload();
+          }
+        }).catch(function () {});
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -133,6 +133,7 @@ export default function App() {
   const [enableAdminIpBlacklist, setEnableAdminIpBlacklist] = useState(false);
   const [enableAdminEnterpriseAuth, setEnableAdminEnterpriseAuth] = useState(false);
   const [deploymentMode, setDeploymentMode] = useState<'private' | 'saas' | ''>('');
+  const [healthReady, setHealthReady] = useState(false);
   const [authReady, setAuthReady] = useState(() => location.pathname === '/login' || !getAccessToken());
   const [authed, setAuthed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -191,11 +192,17 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, [location.pathname]);
+  // Re-check authentication when entering/leaving the login page, but do not
+  // restart the whole app initialization on every normal route change.
+  }, [location.pathname === '/login']);
 
   useEffect(() => {
-    if (!authed) return;
+    if (!authed) {
+      setHealthReady(false);
+      return;
+    }
     let mounted = true;
+    setHealthReady(false);
     api
       .health()
       .then((d) => {
@@ -205,6 +212,7 @@ export default function App() {
           setEnableTroubleshoot(Boolean(d?.enable_troubleshoot));
           setEnableAdminIpBlacklist(Boolean(d?.enable_admin_ip_blacklist));
           setEnableAdminEnterpriseAuth(Boolean(d?.enable_admin_enterprise_auth));
+          setHealthReady(true);
         }
       })
       .catch(() => {
@@ -213,6 +221,7 @@ export default function App() {
           setEnableTroubleshoot(false);
           setEnableAdminIpBlacklist(false);
           setEnableAdminEnterpriseAuth(false);
+          setHealthReady(true);
         }
       });
     return () => {
@@ -350,18 +359,39 @@ export default function App() {
   };
 
   if (!authReady) {
-    return null;
-  }
-
-  if (authed && !robotInitChecked && location.pathname !== '/login') {
-    return null;
+    return (
+      <div className="route-loading" role="status" aria-label="正在验证登录状态">
+        <Space direction="vertical" align="center" size={12}>
+          <Spin size="large" />
+          <Typography.Text type="secondary">正在验证登录状态…</Typography.Text>
+        </Space>
+      </div>
+    );
   }
 
   if (!authed && location.pathname !== '/login') {
     if (getAccessToken()) {
-      return null;
+      return (
+        <div className="route-loading" role="status" aria-label="正在验证登录状态">
+          <Space direction="vertical" align="center" size={12}>
+            <Spin size="large" />
+            <Typography.Text type="secondary">正在验证登录状态…</Typography.Text>
+          </Space>
+        </div>
+      );
     }
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+  }
+
+  if (authed && !healthReady) {
+    return (
+      <div className="route-loading" role="status" aria-label="正在加载平台配置">
+        <Space direction="vertical" align="center" size={12}>
+          <Spin size="large" />
+          <Typography.Text type="secondary">正在加载平台配置…</Typography.Text>
+        </Space>
+      </div>
+    );
   }
 
   if (location.pathname === '/login') {

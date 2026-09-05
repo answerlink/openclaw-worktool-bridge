@@ -11,6 +11,27 @@ html, body, #root {
   place-items: center;
 }
 
+.app-fatal-error {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f6f3ed;
+}
+
+.app-fatal-error-card {
+  width: min(560px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(47, 59, 64, 0.1);
+  border-radius: 12px;
+  background: #fffdf8;
+  box-shadow: 0 12px 36px rgba(47, 59, 64, 0.1);
+}
+
+.app-fatal-error-card .ant-typography {
+  word-break: break-word;
+}
+
 .chatbot-shell {
   position: fixed;
   right: 60px;
