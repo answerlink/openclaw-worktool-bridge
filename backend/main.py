@@ -2546,6 +2546,21 @@ async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any
             return data if isinstance(data, dict) else {"data": data}
 
 
+async def validate_worktool_robot_exists(robot_id: str) -> Dict[str, Any]:
+    rid = (robot_id or "").strip()
+    result = await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": rid})
+    data = result.get("data")
+    code = str(result.get("code") or "")
+    if code != "200" or not isinstance(data, dict):
+        message = str(result.get("message") or result.get("msg") or "机器人编号不存在").strip()
+        raise HTTPException(status_code=400, detail=f"机器人校验失败：{message}")
+
+    actual_robot_id = str(data.get("robotId") or data.get("robot_id") or "").strip()
+    if not actual_robot_id or actual_robot_id != rid:
+        raise HTTPException(status_code=400, detail="机器人校验失败：WorkTool 返回的机器人编号不匹配")
+    return data
+
+
 async def _get_robot_display_name_cached(robot_id: str) -> str:
     rid = (robot_id or "").strip()
     if not rid:
@@ -5341,6 +5356,8 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
         raise HTTPException(status_code=400, detail="group_decision_provider_id required when group_reply_mode=ai_decide")
     if decision_provider_id is not None and not _provider_accessible_by_user(int(decision_provider_id), int(user["id"])):
         raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
+
+    await validate_worktool_robot_exists(rid)
 
     auto_bind = parse_bool(get_setting("auto_bind_message_callback_on_create", "true"), True)
     callback_url = build_robot_callback_url(rid)
