@@ -840,10 +840,22 @@ def init_db() -> None:
             )
             cur.execute("SHOW COLUMNS FROM private_license_logs LIKE 'remark'")
             if not cur.fetchone():
-                cur.execute("ALTER TABLE private_license_logs ADD COLUMN remark VARCHAR(255) NULL AFTER machine_code")
+                try:
+                    cur.execute("ALTER TABLE private_license_logs ADD COLUMN remark VARCHAR(255) NULL AFTER machine_code")
+                except pymysql.err.OperationalError as exc:
+                    # backend and scheduler both run init_db() during startup;
+                    # another process may have added the column between SHOW
+                    # COLUMNS and ALTER TABLE.
+                    if exc.args[0] != 1060:
+                        raise
             cur.execute("SHOW COLUMNS FROM private_license_logs LIKE 'license_version'")
             if not cur.fetchone():
-                cur.execute("ALTER TABLE private_license_logs ADD COLUMN license_version TINYINT NOT NULL DEFAULT 1 AFTER machine_code")
+                try:
+                    cur.execute("ALTER TABLE private_license_logs ADD COLUMN license_version TINYINT NOT NULL DEFAULT 1 AFTER machine_code")
+                except pymysql.err.OperationalError as exc:
+                    # See the concurrent startup migration note above.
+                    if exc.args[0] != 1060:
+                        raise
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS admin_operation_logs (
