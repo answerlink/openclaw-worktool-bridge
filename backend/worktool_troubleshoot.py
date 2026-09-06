@@ -607,7 +607,7 @@ async def run_troubleshoot_search(
             ],
         }
 
-    detail_data = (await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": robot_id})).get("data", {}) or {}
+    detail_data = (await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": robot_id})).get("data", {}) or {}
     callbacks_data = (await fetch_worktool_api("/robot/robotInfo/callBack/get", {"robotId": robot_id})).get("data", []) or []
     online_data = (await fetch_worktool_api("/robot/robotInfo/online", {"robotId": robot_id})).get("data", False)
     online_infos_all = (await fetch_worktool_api("/robot/robotInfo/onlineInfos", {"robotId": robot_id})).get("data", []) or []
@@ -817,6 +817,11 @@ async def run_troubleshoot_search(
                 "授权到期": detail_data.get("authExpir") or detail_data.get("authExpire") or "-",
                 "当前在线": bool(online_data),
                 "是否有效": bool(detail_data.get("robotType") != 4),
+                "登录IP": detail_data.get("loginIp") or "-",
+                "App名称": detail_data.get("appName") or "-",
+                "WorkTool版本": detail_data.get("workToolVersion") or "-",
+                "企业微信版本": detail_data.get("weComVersion") or "-",
+                "最近登录": detail_data.get("loginTime") or "-",
             },
             "回调配置": [
                 {"回调类型": x.get("typeName"), "回调地址": x.get("callBackUrl"), "类型编号": x.get("type")}

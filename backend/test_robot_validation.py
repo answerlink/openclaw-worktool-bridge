@@ -13,7 +13,7 @@ class WorkToolRobotValidationTests(unittest.IsolatedAsyncioTestCase):
             data = await main.validate_worktool_robot_exists("20260300")
 
         self.assertEqual(data["robotId"], "20260300")
-        fetch.assert_awaited_once_with("/robot/robotInfo/get-detail", {"robotId": "20260300"})
+        fetch.assert_awaited_once_with("/robot/robotInfo/getDetail", {"robotId": "20260300"})
 
     async def test_missing_robot_is_rejected(self):
         response = {"code": 500, "message": "机器人编号不存在"}

@@ -2346,7 +2346,7 @@ async def _run_expiry_notice_scan_if_needed() -> None:
             now_utc = datetime.utcnow()
             for robot_id, user_ids in owners.items():
                 try:
-                    detail = await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": robot_id})
+                    detail = await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": robot_id})
                 except Exception as e:
                     logger.warning("expiry_notice_scan_detail_failed robot_id=%s err=%s", robot_id, str(e))
                     continue
@@ -2551,9 +2551,23 @@ async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any
     timeout = aiohttp.ClientTimeout(total=10)
     async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.get(url, params=safe_params, allow_redirects=False) as resp:
-            if resp.status != 200:
-                raise HTTPException(status_code=502, detail=f"worktool request failed: status={resp.status}")
             raw = await read_limited_text(resp)
+            if resp.status != 200:
+                detail_msg = f"WorkTool 请求失败：HTTP {resp.status}"
+                if raw.strip():
+                    try:
+                        err_data = json.loads(raw)
+                        if isinstance(err_data, dict):
+                            code = err_data.get("code")
+                            upstream_message = err_data.get("message") or err_data.get("msg")
+                            if upstream_message:
+                                detail_msg = f"WorkTool 请求失败：{upstream_message}"
+                                if code is not None:
+                                    detail_msg += f"（code={code}）"
+                    except json.JSONDecodeError:
+                        preview = raw.strip().replace("\n", " ")[:180]
+                        detail_msg = f"WorkTool 请求失败：HTTP {resp.status}，响应：{preview}"
+                raise HTTPException(status_code=502, detail=detail_msg)
             if not raw.strip():
                 raise HTTPException(status_code=502, detail="worktool response empty")
             try:
@@ -2572,7 +2586,7 @@ async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any
 
 async def validate_worktool_robot_exists(robot_id: str) -> Dict[str, Any]:
     rid = (robot_id or "").strip()
-    result = await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": rid})
+    result = await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": rid})
     data = result.get("data")
     code = str(result.get("code") or "")
     if code != "200" or not isinstance(data, dict):
@@ -2596,7 +2610,7 @@ async def _get_robot_display_name_cached(robot_id: str) -> str:
             return str(cache.get("show_name") or "")
     display_name = ""
     try:
-        detail = await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": rid})
+        detail = await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": rid})
         data = detail.get("data") or {}
         if isinstance(data, dict):
             display_name = str(data.get("name") or "").strip() or str(data.get("showName") or "").strip()
@@ -8087,7 +8101,7 @@ async def get_message_monitor_logs(
 @app.get("/api/v1/robot-info/detail")
 async def get_robot_info_detail(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
-    return await fetch_worktool_api("/robot/robotInfo/get-detail", {"robotId": robot_id})
+    return await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": robot_id})
 
 
 @app.get("/api/v1/robot-info/callbacks")
