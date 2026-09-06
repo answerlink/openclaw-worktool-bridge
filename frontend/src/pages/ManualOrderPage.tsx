@@ -97,6 +97,7 @@ export default function ManualOrderPage() {
 
   const openCreate = () => {
     setEditing(null);
+    form.resetFields();
     form.setFieldsValue({
       order_no: createOrderNo(), customer_name: '', customer_contact: '', company_name: '', product_name: '', specification: '',
       unit_price: 0, quantity: 1, status: 'completed', payment_method: 'corporate_transfer', ordered_at: nowDateTimeInput(), paid_at: nowDateTimeInput(), remark: '',
@@ -106,6 +107,7 @@ export default function ManualOrderPage() {
 
   const openEdit = (item: ManualOrder) => {
     setEditing(item);
+    form.resetFields();
     form.setFieldsValue({ ...item, ordered_at: toDateTimeInput(item.ordered_at), paid_at: toDateTimeInput(item.paid_at) });
     setEditorOpen(true);
   };
@@ -184,7 +186,7 @@ export default function ManualOrderPage() {
         ]}
       />
 
-      <Modal title={editing ? '编辑线下订单' : '新增线下订单'} open={editorOpen} onCancel={() => setEditorOpen(false)} onOk={() => void submit()} confirmLoading={saving} okText="保存" width={760} destroyOnClose>
+      <Modal title={editing ? '编辑线下订单' : '新增线下订单'} open={editorOpen} onCancel={() => setEditorOpen(false)} onOk={() => void submit()} confirmLoading={saving} okText="保存" width={760} forceRender>
         <Form form={form} layout="vertical" preserve={false}>
           <div className="manual-order-form-grid">
             <Form.Item name="order_no" label="订单编号" rules={[{ required: true, message: '请输入订单编号' }]}><Input maxLength={64} /></Form.Item>
@@ -204,14 +206,14 @@ export default function ManualOrderPage() {
         </Form>
       </Modal>
 
-      <Modal open={Boolean(preview)} footer={null} onCancel={() => setPreview(null)} width={820} className="manual-order-preview-modal" destroyOnClose>
+      <Modal open={Boolean(preview)} footer={null} onCancel={() => setPreview(null)} width={820} className="manual-order-preview-modal" destroyOnHidden>
         {preview ? <div className="manual-order-preview">
-          <div className="manual-order-preview-head"><div><Typography.Title level={3}>订单详情</Typography.Title><Typography.Text type="secondary">线下人工登记</Typography.Text></div><Tag color="blue">{preview.status_label}</Tag></div>
+          <div className="manual-order-preview-head"><Typography.Title level={3}>订单详情</Typography.Title><Tag color="blue">{preview.status_label}</Tag></div>
           <div className="manual-order-preview-product"><Typography.Text type="secondary">商品名称</Typography.Text><Typography.Title level={4}>{preview.product_name}</Typography.Title>{preview.specification ? <Typography.Text>{preview.specification}</Typography.Text> : null}</div>
           <Descriptions bordered column={2} size="middle">{previewDescriptions.map(([label, value]) => <Descriptions.Item key={label} label={label}>{value}</Descriptions.Item>)}</Descriptions>
           <div className="manual-order-preview-total"><Typography.Text type="secondary">订单金额</Typography.Text><Typography.Title level={2}>{amountText(preview.amount)}</Typography.Title><Typography.Text type="secondary">{amountText(preview.unit_price)} x {preview.quantity}</Typography.Text></div>
           {preview.remark ? <div className="manual-order-preview-remark"><Typography.Text type="secondary">备注</Typography.Text><div>{preview.remark}</div></div> : null}
-          <div className="manual-order-preview-foot"><Typography.Text type="secondary">本订单为线下人工登记记录</Typography.Text><Space><Button icon={<CopyOutlined />} onClick={() => navigator.clipboard.writeText(preview.order_no).then(() => message.success('订单编号已复制'))}>复制订单号</Button><Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>打印</Button></Space></div>
+          <div className="manual-order-preview-foot"><Space><Button icon={<CopyOutlined />} onClick={() => navigator.clipboard.writeText(preview.order_no).then(() => message.success('订单编号已复制'))}>复制订单号</Button><Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>打印</Button></Space></div>
         </div> : null}
       </Modal>
     </Card>

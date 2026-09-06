@@ -267,6 +267,7 @@ html, body, #root {
 }
 
 .manual-order-preview-foot {
+  justify-content: flex-end;
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid #eee8df;
