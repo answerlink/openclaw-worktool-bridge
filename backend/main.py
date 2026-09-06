@@ -9,6 +9,7 @@ import re
 import secrets
 import shlex
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
@@ -18,6 +19,9 @@ import aiohttp
 import jwt
 import pymysql
 from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pkcs1_15
 from Crypto.Util.Padding import pad
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,6 +65,9 @@ WORKTOOL_WEWORK_AUTH_SAVE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_SAVE_PATH", "")
 WORKTOOL_WEWORK_AUTH_DELETE_PATH = os.getenv("WORKTOOL_WEWORK_AUTH_DELETE_PATH", "").strip()
 WORKTOOL_RENEW_TOKEN = os.getenv("WORKTOOL_RENEW_TOKEN", "").strip()
 PRIVATE_LICENSE_SECRET_KEY = os.getenv("PRIVATE_LICENSE_SECRET_KEY", "")
+PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64 = os.getenv("PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64", "").strip()
+PRIVATE_LICENSE_V2_KEY_ID = "worktool-lic2-2026-01"
+PRIVATE_LICENSE_V2_PUBLIC_KEY_SHA256 = "4724d9fee0fd362b5c97e25e1dd3d3f009aadab911eef618e4077fb993356eb7"
 APP_UPLOAD_DIR = os.getenv("APP_UPLOAD_DIR", "/data/uploads").strip() or "/data/uploads"
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
 OPEN_TROUBLESHOOT_API_KEY = os.getenv("OPEN_TROUBLESHOOT_API_KEY", "").strip()
@@ -815,6 +822,7 @@ def init_db() -> None:
                   operator_user_id BIGINT NULL,
                   operator_phone VARCHAR(20) NULL,
                   machine_code VARCHAR(128) NOT NULL,
+                  license_version TINYINT NOT NULL DEFAULT 1,
                   remark VARCHAR(255) NULL,
                   expire_date VARCHAR(32) NOT NULL,
                   expire_epoch_ms BIGINT NOT NULL,
@@ -833,6 +841,9 @@ def init_db() -> None:
             cur.execute("SHOW COLUMNS FROM private_license_logs LIKE 'remark'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE private_license_logs ADD COLUMN remark VARCHAR(255) NULL AFTER machine_code")
+            cur.execute("SHOW COLUMNS FROM private_license_logs LIKE 'license_version'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE private_license_logs ADD COLUMN license_version TINYINT NOT NULL DEFAULT 1 AFTER machine_code")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS admin_operation_logs (
@@ -1576,6 +1587,7 @@ class RobotDisableRequest(BaseModel):
 
 
 class PrivateLicenseGenerateRequest(BaseModel):
+    license_version: Literal[1, 2] = 1
     machine_code: str
     remark: str
     expire_date: str
@@ -9072,15 +9084,16 @@ def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseGenera
             cur.execute(
                 """
                 INSERT INTO private_license_logs(
-                  operator_user_id,operator_phone,machine_code,remark,expire_date,expire_epoch_ms,
+                  operator_user_id,operator_phone,machine_code,license_version,remark,expire_date,expire_epoch_ms,
                   restrict_robot,robot_start,robot_end,robot_limit
                 )
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     int(user["id"]) if user.get("id") is not None else None,
                     str(user.get("phone") or "").strip() or None,
                     machine_code,
+                    int(body.license_version),
                     remark,
                     expire_date,
                     int(body.expire_epoch_ms),
@@ -9095,7 +9108,7 @@ def _insert_private_license_log(user: Dict[str, Any], body: PrivateLicenseGenera
         conn.close()
 
 
-def _generate_private_license(body: PrivateLicenseGenerateRequest) -> str:
+def _generate_private_license_v1(body: PrivateLicenseGenerateRequest) -> str:
     key = PRIVATE_LICENSE_SECRET_KEY.encode("utf-8")
     if len(key) != 16:
         raise HTTPException(status_code=503, detail="private license secret key not configured")
@@ -9135,6 +9148,97 @@ def _generate_private_license(body: PrivateLicenseGenerateRequest) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _base64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _load_private_license_v2_key() -> RSA.RsaKey:
+    encoded = PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64
+    if not encoded:
+        raise HTTPException(status_code=503, detail="private license v2 private key not configured")
+    try:
+        private_key_pem = base64.b64decode(encoded, validate=True)
+        private_key = RSA.import_key(private_key_pem)
+    except (ValueError, TypeError, IndexError) as exc:
+        raise HTTPException(status_code=503, detail="private license v2 private key invalid") from exc
+    if not private_key.has_private() or private_key.size_in_bits() < 3072:
+        raise HTTPException(status_code=503, detail="private license v2 private key must be RSA 3072 bits or stronger")
+    public_key_der = private_key.public_key().export_key(format="DER")
+    if hashlib.sha256(public_key_der).hexdigest() != PRIVATE_LICENSE_V2_PUBLIC_KEY_SHA256:
+        raise HTTPException(status_code=503, detail="private license v2 private key does not match WorkTool lic2 public key")
+    return private_key
+
+
+def _generate_private_license_v2(body: PrivateLicenseGenerateRequest) -> str:
+    machine_code = (body.machine_code or "").strip().lower()
+    expire_date = (body.expire_date or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", machine_code):
+        raise HTTPException(status_code=400, detail="machine_code invalid")
+    try:
+        expire_at = datetime.strptime(expire_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="expire_date invalid") from exc
+    expected_expire_epoch_ms = int((expire_at + timedelta(hours=23, minutes=59, seconds=59)).timestamp() * 1000)
+    if int(body.expire_epoch_ms) != expected_expire_epoch_ms:
+        raise HTTPException(status_code=400, detail="expire_epoch_ms does not match expire_date")
+
+    issued_at_epoch_ms = int(time.time() * 1000)
+    if expected_expire_epoch_ms <= issued_at_epoch_ms:
+        raise HTTPException(status_code=400, detail="expire_date must be in the future")
+
+    payload: Dict[str, Any] = {
+        "licenseId": str(uuid.uuid4()),
+        "machineHash": machine_code,
+        "issuedAtEpochMs": issued_at_epoch_ms,
+        "expireEpochMs": expected_expire_epoch_ms,
+        "issuer": "worktool-official",
+    }
+    if body.restrict_robot:
+        robot_start = (body.robot_start or "").strip()
+        robot_end = (body.robot_end or "").strip()
+        if not (robot_start.isdigit() and robot_end.isdigit()):
+            raise HTTPException(status_code=400, detail="robot scope invalid")
+        if len(robot_start) != len(robot_end):
+            raise HTTPException(status_code=400, detail="robot scope length mismatch")
+        start_value = int(robot_start)
+        end_value = int(robot_end)
+        robot_limit = end_value - start_value + 1
+        if robot_limit <= 0 or robot_limit > 100000:
+            raise HTTPException(status_code=400, detail="robot scope invalid")
+        if body.robot_limit is None or int(body.robot_limit) != robot_limit:
+            raise HTTPException(status_code=400, detail="robot_limit does not match robot scope")
+        payload.update({
+            "robotIdStart": robot_start,
+            "robotIdEnd": robot_end,
+            "robotLimit": robot_limit,
+        })
+
+    encoded_payload = _base64url(json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8"))
+    signing_input = (
+        f"WORKTOOL-LICENSE.2.RS256.{PRIVATE_LICENSE_V2_KEY_ID}.{encoded_payload}"
+    ).encode("ascii")
+    signature = pkcs1_15.new(_load_private_license_v2_key()).sign(SHA256.new(signing_input))
+    return json.dumps(
+        {
+            "v": 2,
+            "alg": "RS256",
+            "kid": PRIVATE_LICENSE_V2_KEY_ID,
+            "payload": encoded_payload,
+            "signature": _base64url(signature),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _generate_private_license(body: PrivateLicenseGenerateRequest) -> str:
+    if body.license_version == 2:
+        return _generate_private_license_v2(body)
+    return _generate_private_license_v1(body)
 
 
 def _format_worktool_datetime(value: Any) -> str:
@@ -9565,8 +9669,17 @@ async def admin_private_license_generate(
     except Exception as exc:
         _audit_failure(audit_id, exc)
         raise
-    _finish_admin_audit(audit_id, status="success", after={"expire_date": body.expire_date, "restrict_robot": body.restrict_robot})
-    return {"ok": True, "license_text": license_text}
+    _finish_admin_audit(audit_id, status="success", after={
+        "license_version": body.license_version,
+        "expire_date": body.expire_date,
+        "restrict_robot": body.restrict_robot,
+    })
+    return {
+        "ok": True,
+        "license_version": body.license_version,
+        "kid": PRIVATE_LICENSE_V2_KEY_ID if body.license_version == 2 else None,
+        "license_text": license_text,
+    }
 
 
 @app.get("/api/v1/admin/private-license/logs")
@@ -9581,7 +9694,7 @@ async def admin_private_license_logs(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id,operator_user_id,operator_phone,machine_code,remark,expire_date,expire_epoch_ms,
+                SELECT id,operator_user_id,operator_phone,machine_code,license_version,remark,expire_date,expire_epoch_ms,
                        restrict_robot,robot_start,robot_end,robot_limit,created_at
                 FROM private_license_logs
                 ORDER BY id DESC
@@ -9599,6 +9712,7 @@ async def admin_private_license_logs(
                     "operator_user_id": row.get("operator_user_id"),
                     "operator_phone": row.get("operator_phone") or "",
                     "machine_code": row.get("machine_code") or "",
+                    "license_version": int(row.get("license_version") or 1),
                     "remark": row.get("remark") or "",
                     "expire_date": row.get("expire_date") or "",
                     "expire_epoch_ms": int(row.get("expire_epoch_ms") or 0),

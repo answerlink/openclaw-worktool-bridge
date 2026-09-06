@@ -46,5 +46,6 @@ docker compose exec mysql mysql -u${MYSQL_USER} -p${MYSQL_PASSWORD} ${MYSQL_DATA
 - `APP_DEPLOYMENT_MODE=private`：私有化部署允许访问内网 WorkTool；SaaS 模式仅允许公网出站
 - `PRIVATE_ADMIN_USERNAME` / `PRIVATE_ADMIN_PASSWORD`：Private 首次启动的管理员账号
 - `PRIVATE_SELF_REGISTRATION_ENABLED=false`：关闭客户自助注册，由管理员统一创建账号
+- `PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64`：仅 SaaS 管理员签发 RSA v2 授权时配置，值为 PKCS#8 PEM 私钥的单行 Base64；不要提交到 Git
 
 重复执行 `./deploy.sh` 不会覆盖 `.env`。执行 `./verify-deployment.sh` 可验证容器、Bridge、WorkTool 和公网入口。

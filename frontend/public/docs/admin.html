@@ -81,6 +81,7 @@
 <li><code>WORKTOOL_IPACL_*</code> 与 <code>WORKTOOL_WEWORK_AUTH_*</code> 路径配置</li>
 </ul>
 <p>建议把仅内部可用的 WorkTool 后台能力放到环境变量里，不直接写死在开源代码中。</p>
+<p>“私有化授权”页面默认生成 RSA-SHA256 签名的 V2 <code>license.lic</code>，并保留 V1 AES 格式供旧服务使用。启用 V2 前，SaaS 后端必须配置 <code>PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64</code>；私钥只能保存在部署环境的 <code>.env</code> 或密钥管理系统中，不得提交到开源仓库。</p>
 <h2 id="数据维护">数据维护</h2><p>建议定期备份：</p>
 <ul>
 <li>users</li>

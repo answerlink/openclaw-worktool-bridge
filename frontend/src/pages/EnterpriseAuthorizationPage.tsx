@@ -33,6 +33,7 @@ interface PrivateLicenseLogRow {
   id: number;
   operator_phone: string;
   machine_code: string;
+  license_version: 1 | 2;
   remark: string;
   expire_date: string;
   expire_epoch_ms: number;
@@ -86,6 +87,8 @@ function PrivateLicenseGenerator() {
   const [logs, setLogs] = useState<PrivateLicenseLogRow[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatedVersion, setGeneratedVersion] = useState<1 | 2>(2);
+  const licenseVersion = Form.useWatch('licenseVersion', form);
   const restrictRobot = Form.useWatch('restrictRobot', form);
   const robotStart = Form.useWatch('robotStart', form);
   const robotEnd = Form.useWatch('robotEnd', form);
@@ -147,6 +150,7 @@ function PrivateLicenseGenerator() {
       }
 
       const result = await api.adminPrivateLicenseGenerate({
+        license_version: values.licenseVersion === 1 ? 1 : 2,
         machine_code: machine,
         remark: String(values.remark || '').trim(),
         expire_date: expireDate.format('YYYY-MM-DD'),
@@ -161,7 +165,9 @@ function PrivateLicenseGenerator() {
         throw new Error('服务端未返回 license 文本。');
       }
       setOutput(licenseText);
-      setStatus({ type: 'success', text: `生成成功。到期时间戳：${expireEpochMs}；机器人范围：${scopeText}。` });
+      const resultVersion = result?.license_version === 1 ? 1 : 2;
+      setGeneratedVersion(resultVersion);
+      setStatus({ type: 'success', text: `V${resultVersion} 生成成功。到期时间戳：${expireEpochMs}；机器人范围：${scopeText}。` });
       void loadLogs();
     } catch (e: any) {
       setOutput('');
@@ -224,18 +230,28 @@ function PrivateLicenseGenerator() {
   return (
     <Space direction="vertical" size={14} style={{ width: '100%' }}>
       <Typography.Text type="secondary">
-        生成内容兼容服务端新版 license.lic 校验。机器码从私有化服务启动日志里的 MACHINE_CODE 复制。
+        默认生成 RSA 签名的 V2 授权；V1 仅用于尚未升级 lic2 的旧版服务。机器码从私有化服务启动日志里的 MACHINE_CODE 复制。
       </Typography.Text>
       <Form
         form={form}
         layout="vertical"
         initialValues={{
+          licenseVersion: 2,
           expireDate: dayjs().add(1, 'year'),
           restrictRobot: true,
           robotStart: '20260001',
           robotEnd: '20260300',
         }}
       >
+        <Form.Item name="licenseVersion" label="授权格式" rules={[{ required: true }]}>
+          <Select
+            style={{ width: 360 }}
+            options={[
+              { value: 2, label: 'V2 - RSA-SHA256 签名（推荐）' },
+              { value: 1, label: 'V1 - AES 对称加密（旧版兼容）' },
+            ]}
+          />
+        </Form.Item>
         <Form.Item name="machineCode" label="机器码 MACHINE_CODE" rules={[{ required: true, message: '请输入机器码' }]}>
           <Input placeholder="例如：565d240f5343e625ae579a4d45a770f1f02c6368b5ed4d06da4fbe6f47c28866" autoComplete="off" />
         </Form.Item>
@@ -301,8 +317,18 @@ function PrivateLicenseGenerator() {
           { dataIndex: 'value' },
         ]}
         dataSource={[
-          { name: '签名格式', value: '{"v":1,"data":"..."}' },
-          { name: '加密算法', value: 'AES/ECB/PKCS5Padding' },
+          {
+            name: '文件格式',
+            value: (output ? generatedVersion : licenseVersion) === 1
+              ? '{"v":1,"data":"..."}'
+              : '{"v":2,"alg":"RS256","kid":"...","payload":"...","signature":"..."}',
+          },
+          {
+            name: '算法',
+            value: (output ? generatedVersion : licenseVersion) === 1
+              ? 'AES/ECB/PKCS5Padding'
+              : 'RSA-SHA256（RS256）',
+          },
           { name: '号段数量', value: scopeCount },
           { name: '输出文件名', value: 'license.lic' },
         ]}
@@ -318,6 +344,7 @@ function PrivateLicenseGenerator() {
         columns={[
           { title: '时间', dataIndex: 'created_at', width: 180, render: (v: string) => v || '-' },
           { title: '操作者', dataIndex: 'operator_phone', width: 140, render: (v: string) => v || '-' },
+          { title: '格式', dataIndex: 'license_version', width: 90, render: (v: number) => <Tag color={v === 2 ? 'blue' : 'default'}>V{v || 1}</Tag> },
           {
             title: '机器码',
             dataIndex: 'machine_code',

@@ -52,6 +52,7 @@ Private 模式首次启动会根据 `.env` 自动创建管理员账号：
 - 默认使用 MySQL（持久化在 Docker Volume）
 - `.env` 文件仅本地使用，不应提交到仓库
 - `.env`、`mysql_data/` 和 `uploads/` 是升级时必须保留的数据
+- SaaS 管理员页面生成 RSA v2 `license.lic` 时，需要在 `.env` 配置 `PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64`；该值不得提交到开源仓库或放入客户部署包
 
 ## License
 

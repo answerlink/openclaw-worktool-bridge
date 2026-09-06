@@ -266,9 +266,16 @@
 <tr>
 <td><code>PRIVATE_LICENSE_SECRET_KEY</code></td>
 <td>空</td>
-<td>私有授权开启时是</td>
+<td>生成 V1 授权时是</td>
 <td>是</td>
-<td>私有 License 服务端生成密钥，必须保持 16 字节且不得进入 Git 或前端构建。</td>
+<td>V1 AES License 生成密钥，必须保持 16 字节且不得进入 Git 或前端构建。</td>
+</tr>
+<tr>
+<td><code>PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64</code></td>
+<td>空</td>
+<td>生成 V2 授权时是</td>
+<td>是</td>
+<td>lic2 PKCS#8 PEM 私钥的单行 Base64，仅配置在 SaaS 后端运行环境，不得进入 Git、前端构建或客户部署包。</td>
 </tr>
 <tr>
 <td><code>ENABLE_OPEN_TROUBLESHOOT_API</code></td>

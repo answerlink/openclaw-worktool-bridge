@@ -117,6 +117,7 @@ export const api = {
     http.post('/admin/robot-migrate/disable', { robot_id: robotId }).then((r) => r.data),
   adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
   adminPrivateLicenseGenerate: (payload: {
+    license_version: 1 | 2;
     machine_code: string;
     remark: string;
     expire_date: string;

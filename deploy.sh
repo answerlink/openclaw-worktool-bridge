@@ -127,6 +127,7 @@ PRIVATE_ADMIN_PASSWORD=${private_admin_password}
 PRIVATE_SELF_REGISTRATION_ENABLED=false
 ENABLE_RUNTIME_WORKTOOL_SETTINGS=false
 PRIVATE_LICENSE_SECRET_KEY=${private_license_secret}
+PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64=
 WORKTOOL_API_BASE=${worktool_api_base%/}
 CALLBACK_PUBLIC_BASE_URL=${public_base_url%/}
 APP_PUBLIC_BASE_URL=${public_base_url%/}
@@ -148,6 +149,7 @@ append_env_default APP_DEPLOYMENT_MODE private
 append_env_default PRIVATE_OUTBOUND_ALLOW_LOOPBACK false
 append_env_default PRIVATE_ADMIN_USERNAME admin
 append_env_default PRIVATE_SELF_REGISTRATION_ENABLED false
+append_env_default PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64 ""
 private_license_secret="$(env_value PRIVATE_LICENSE_SECRET_KEY)"
 if [[ -z "$private_license_secret" ]]; then
   set_env_value PRIVATE_LICENSE_SECRET_KEY "$(openssl rand -base64 12)"
