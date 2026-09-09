@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Card, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { DeleteOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
@@ -22,6 +22,8 @@ interface CommandTaskRow {
   timeCost?: number;
   errorReason?: string;
   isClearPendingQueue?: boolean;
+  isCancelPendingCommand?: boolean;
+  cancelledMessageIds?: string[];
 }
 
 interface RawCommandRecord {
@@ -151,6 +153,13 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
     const typeList = parseTypeList(row?.typeList);
     const firstType = Number(firstMsg?.type);
     const isClearPendingQueue = typeList.includes(304) || firstType === 304;
+    const isCancelPendingCommand = typeList.includes(305) || firstType === 305;
+    const cancelledMessageIds = isCancelPendingCommand
+      ? String(firstMsg?.originalContent || '')
+        .split(',')
+        .map((item: string) => item.trim())
+        .filter(Boolean)
+      : [];
     const titleList = Array.isArray(firstMsg?.titleList) ? firstMsg.titleList : [];
     const content = String(firstMsg?.receivedContent || '').trim();
     const result = resultMap.get(messageId);
@@ -178,11 +187,29 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
       timeCost: resultTimeCost(result),
       errorReason: String(result?.errorReason || '').trim() || undefined,
       isClearPendingQueue,
+      isCancelPendingCommand,
+      cancelledMessageIds,
     });
   }
 
+  // A 305 carries the original message IDs it removed from the pending queue.
+  // Mark the original commands, never the 305 control command itself.
+  const cancelledBy305 = new Set<string>();
+  for (const row of merged) {
+    for (const messageId of row.cancelledMessageIds || []) {
+      cancelledBy305.add(messageId);
+    }
+  }
+  for (const row of merged) {
+    if (row.status === 'pending' && cancelledBy305.has(row.messageId)) {
+      row.status = 'terminated';
+      row.errorReason = '已取消待执行任务(305)';
+    }
+  }
+
   // Commands are already ordered by create_time desc (newest -> oldest).
-  // Once a 304 appears, all older still-pending commands are considered terminated.
+  // Once a 304 appears, all older pending user commands are considered terminated.
+  // Both 304 and 305 are queue control records and must not be shown as terminated tasks.
   let seenClearPendingQueue = false;
   for (const row of merged) {
     if (row.isClearPendingQueue) {
@@ -190,14 +217,14 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
       seenClearPendingQueue = true;
       continue;
     }
-    if (seenClearPendingQueue && row.status === 'pending') {
+    if (seenClearPendingQueue && !row.isCancelPendingCommand && row.status === 'pending') {
       row.status = 'terminated';
       if (!row.errorReason) {
         row.errorReason = '客户端已清空待执行任务队列(304)';
       }
     }
   }
-  return merged;
+  return merged.filter((row) => !row.isCancelPendingCommand);
 }
 
 export default function CommandTaskPage() {
@@ -209,7 +236,10 @@ export default function CommandTaskPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState('');
   const [messageIdInput, setMessageIdInput] = useState('');
   const [messageIdFilter, setMessageIdFilter] = useState('');
+  const [queryVersion, setQueryVersion] = useState(0);
   const [backlogWarning, setBacklogWarning] = useState<BacklogWarningState | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [cancelling, setCancelling] = useState(false);
   const backlogNoticeKeyRef = useRef('');
 
   const selectRobot = (nextRobotId?: string) => {
@@ -268,6 +298,7 @@ export default function CommandTaskPage() {
       }
       const mergedRows = mergeRows(commandRows, resultRows);
       setRows(mergedRows);
+      setSelectedRowKeys((keys) => keys.filter((key) => mergedRows.some((row) => row.key === key && row.status === 'pending')));
       setLastUpdatedAt(new Date().toLocaleString());
 
       const midForQuery = mid;
@@ -354,12 +385,14 @@ export default function CommandTaskPage() {
 
   useEffect(() => {
     void loadRows();
-  }, [robotId, messageIdFilter]);
+  }, [robotId, messageIdFilter, queryVersion]);
 
   useEffect(() => {
     if (!robotId) return;
-    const hasPending = rows.some((x) => x.status === 'pending');
-    if (!hasPending) return;
+    // A terminated state is inferred from a 304/305 queue-control record. Keep
+    // checking it because a client can finish and report success/failure first.
+    const hasUnresolved = rows.some((x) => x.status === 'pending' || x.status === 'terminated');
+    if (!hasUnresolved) return;
     const timer = window.setInterval(() => {
       void loadRows();
     }, 60000);
@@ -399,6 +432,69 @@ export default function CommandTaskPage() {
   );
 
   const pendingCount = rows.filter((x) => x.status === 'pending').length;
+  const selectedPendingRows = rows.filter((row) => row.status === 'pending' && selectedRowKeys.includes(row.key));
+
+  const runMessageIdQuery = () => {
+    setMessageIdFilter(messageIdInput.trim());
+    setQueryVersion((version) => version + 1);
+  };
+
+  const formatSkipped = (skipped: Array<{ message_id?: string; reason?: string }> = []) => {
+    if (!skipped.length) return '';
+    return `，跳过 ${skipped.length} 条（${skipped.map((item) => `${item.message_id || '-'}：${item.reason || '状态已变化'}`).join('；')}）`;
+  };
+
+  const cancelSelected = () => {
+    if (!robotId || selectedPendingRows.length === 0) return;
+    Modal.confirm({
+      title: `取消 ${selectedPendingRows.length} 条待执行指令？`,
+      content: '提交前会重新检查每条指令的执行状态。已经开始执行或已有结果的指令将自动跳过，不会取消。',
+      okText: '确认取消',
+      okButtonProps: { danger: true },
+      cancelText: '暂不取消',
+      onOk: async () => {
+        setCancelling(true);
+        try {
+          const result = await api.cancelWorktoolPendingCommands({ robot_id: robotId, message_ids: selectedPendingRows.map((row) => row.messageId) });
+          message.success(`已下发取消：${result.cancelled_count || 0} 条${formatSkipped(result.skipped)}`, 8);
+          setSelectedRowKeys([]);
+          await loadRows();
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '取消待执行指令失败');
+        } finally {
+          setCancelling(false);
+        }
+      },
+    });
+  };
+
+  const clearAllPending = () => {
+    if (!robotId || pendingCount === 0) return;
+    Modal.confirm({
+      title: `清空全部待执行指令？`,
+      content: `将清空该机器人客户端队列中的待执行指令。当前列表显示 ${pendingCount} 条待执行；提交前会再次检查，若均已开始执行则不会下发清空。`,
+      okText: '确认清空',
+      okButtonProps: { danger: true },
+      cancelText: '暂不清空',
+      onOk: async () => {
+        setCancelling(true);
+        try {
+          const result = await api.clearWorktoolPendingCommands({ robot_id: robotId, message_ids: rows.filter((row) => row.status === 'pending').map((row) => row.messageId) });
+          if (result.clear_sent) {
+            message.success(`已下发清空指令；提交前确认 ${result.pending_count_before_clear || 0} 条仍待执行${formatSkipped(result.skipped)}`, 8);
+          } else {
+            message.info(`未下发清空：所选范围内指令状态均已变化${formatSkipped(result.skipped)}`, 8);
+          }
+          setSelectedRowKeys([]);
+          await loadRows();
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '清空待执行指令失败');
+        } finally {
+          setCancelling(false);
+        }
+      },
+    });
+  };
 
   return (
     <Card
@@ -425,15 +521,33 @@ export default function CommandTaskPage() {
           optionFilterProp="label"
         />
         <Tag color={pendingCount > 0 ? 'processing' : 'default'}>待执行: {pendingCount}</Tag>
+        <Button
+          icon={<StopOutlined />}
+          danger
+          disabled={selectedPendingRows.length === 0}
+          loading={cancelling}
+          onClick={cancelSelected}
+        >
+          取消选中{selectedPendingRows.length ? ` (${selectedPendingRows.length})` : ''}
+        </Button>
+        <Button
+          icon={<DeleteOutlined />}
+          danger
+          disabled={pendingCount === 0}
+          loading={cancelling}
+          onClick={clearAllPending}
+        >
+          清空全部待执行
+        </Button>
         <Input
           style={{ width: 260 }}
           placeholder="按 messageId 精准查询"
           value={messageIdInput}
           onChange={(e) => setMessageIdInput(e.target.value)}
-          onPressEnter={() => setMessageIdFilter(messageIdInput.trim())}
+          onPressEnter={runMessageIdQuery}
           allowClear
         />
-        <Button onClick={() => setMessageIdFilter(messageIdInput.trim())}>查询</Button>
+        <Button onClick={runMessageIdQuery}>查询</Button>
         <Typography.Text type="secondary">最后刷新: {lastUpdatedAt || '-'}</Typography.Text>
       </Space>
 
@@ -461,6 +575,11 @@ export default function CommandTaskPage() {
           loading={loading}
           columns={columns as any}
           dataSource={rows}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+            getCheckboxProps: (row: CommandTaskRow) => ({ disabled: row.status !== 'pending' }),
+          }}
           pagination={false}
           scroll={{ x: 1600 }}
           size="small"

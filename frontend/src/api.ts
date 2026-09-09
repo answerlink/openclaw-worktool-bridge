@@ -217,6 +217,10 @@ export const api = {
     http.get('/worktool/raw-commands', { params }).then((r) => r.data),
   getWorktoolRawCommandResults: (params: { robot_id: string; page?: number; size?: number; sort?: string; message_id?: string }) =>
     http.get('/worktool/raw-command-results', { params }).then((r) => r.data),
+  cancelWorktoolPendingCommands: (payload: { robot_id: string; message_ids: string[] }) =>
+    http.post('/worktool/pending-commands/cancel', payload).then((r) => r.data),
+  clearWorktoolPendingCommands: (payload: { robot_id: string; message_ids: string[] }) =>
+    http.post('/worktool/pending-commands/clear', payload).then((r) => r.data),
   noticeWorktoolCommandBacklog: (payload: {
     robot_id: string;
     pending_overdue_count: number;

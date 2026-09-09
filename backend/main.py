@@ -1901,6 +1901,11 @@ class CommandBacklogNoticeRequest(BaseModel):
     newest_result_time: Optional[str] = None
 
 
+class PendingCommandCancelRequest(BaseModel):
+    robot_id: str
+    message_ids: List[str] = Field(default_factory=list, max_length=100)
+
+
 # ----- permission helpers -----
 def _bound_robot_pk_set(user_id: int) -> set:
     conn = db_conn()
@@ -7020,6 +7025,111 @@ async def get_worktool_raw_command_results(
     if mid:
         params["messageId"] = mid
     return await fetch_worktool_api("/robot/rawMsg/list", params)
+
+
+def _worktool_list_items(response: Any) -> List[Dict[str, Any]]:
+    if not isinstance(response, dict):
+        return []
+    data = response.get("data")
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ("list", "records", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    for key in ("list", "records", "items"):
+        value = response.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+async def _recheck_pending_command_ids(robot_id: str, message_ids: List[str]) -> Dict[str, Any]:
+    """Only cancel commands still present in the dispatch list without a result."""
+    requested_ids = _normalize_str_list(message_ids, max_len=128)
+    if not requested_ids:
+        raise HTTPException(status_code=400, detail="请至少选择一条待执行指令")
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def check_one(message_id: str) -> Dict[str, str]:
+        async with semaphore:
+            command_response, result_response = await asyncio.gather(
+                fetch_worktool_api(
+                    "/wework/listRawMessage",
+                    {"robotId": robot_id, "page": 1, "size": 20, "sort": "create_time,desc", "messageId": message_id},
+                ),
+                fetch_worktool_api(
+                    "/robot/rawMsg/list",
+                    {"robotId": robot_id, "page": 1, "size": 20, "sort": "run_time,desc", "messageId": message_id},
+                ),
+            )
+        command_exists = any(str(item.get("messageId") or "").strip() == message_id for item in _worktool_list_items(command_response))
+        has_result = any(str(item.get("messageId") or "").strip() == message_id for item in _worktool_list_items(result_response))
+        if not command_exists:
+            return {"message_id": message_id, "reason": "指令记录不存在或已过期"}
+        if has_result:
+            return {"message_id": message_id, "reason": "指令已开始执行或已有执行结果"}
+        return {"message_id": message_id, "reason": ""}
+
+    checks = await asyncio.gather(*(check_one(message_id) for message_id in requested_ids))
+    pending_ids = [item["message_id"] for item in checks if not item["reason"]]
+    skipped = [item for item in checks if item["reason"]]
+    return {"requested_ids": requested_ids, "pending_ids": pending_ids, "skipped": skipped}
+
+
+@app.post("/api/v1/worktool/pending-commands/cancel")
+async def cancel_worktool_pending_commands(
+    body: PendingCommandCancelRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot_id = (body.robot_id or "").strip()
+    if not robot_id:
+        raise HTTPException(status_code=400, detail="robot_id 不能为空")
+    _require_robot_access(int(user["id"]), robot_id)
+    checked = await _recheck_pending_command_ids(robot_id, body.message_ids)
+    pending_ids = checked["pending_ids"]
+    if pending_ids:
+        response = await post_worktool_api(
+            "/wework/sendRawMessage",
+            params={"robotId": robot_id},
+            body={"socketType": 2, "list": [{"type": 305, "originalContent": ",".join(pending_ids)}]},
+        )
+        _ensure_worktool_ok(response, "取消待执行指令")
+    return {
+        "ok": True,
+        "requested_count": len(checked["requested_ids"]),
+        "cancelled_count": len(pending_ids),
+        "cancelled_message_ids": pending_ids,
+        "skipped": checked["skipped"],
+    }
+
+
+@app.post("/api/v1/worktool/pending-commands/clear")
+async def clear_worktool_pending_commands(
+    body: PendingCommandCancelRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    robot_id = (body.robot_id or "").strip()
+    if not robot_id:
+        raise HTTPException(status_code=400, detail="robot_id 不能为空")
+    _require_robot_access(int(user["id"]), robot_id)
+    checked = await _recheck_pending_command_ids(robot_id, body.message_ids)
+    if checked["pending_ids"]:
+        response = await post_worktool_api(
+            "/wework/sendRawMessage",
+            params={"robotId": robot_id},
+            body={"socketType": 2, "list": [{"type": 304}]},
+        )
+        _ensure_worktool_ok(response, "清空待执行指令")
+    return {
+        "ok": True,
+        "checked_count": len(checked["requested_ids"]),
+        "clear_sent": bool(checked["pending_ids"]),
+        "pending_count_before_clear": len(checked["pending_ids"]),
+        "skipped": checked["skipped"],
+    }
 
 
 @app.post("/api/v1/worktool/command-backlog/notice")
