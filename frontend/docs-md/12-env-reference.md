@@ -104,7 +104,10 @@
 |---|---|---|---|---|
 | `CHAT_CONTEXT_ENABLED` | `true` | 否 | 否 | 是否启用群聊/私聊上下文记忆。 |
 | `CHAT_CONTEXT_MAX_MESSAGES` | `20` | 否 | 否 | 单会话最多保留消息数。 |
-| `CHAT_CONTEXT_RETENTION_DAYS` | `7` | 否 | 否 | 上下文数据保留天数。 |
+| `CHAT_CONTEXT_RETENTION_DAYS` | `15` | 否 | 否 | 上下文数据保留天数。 |
+| `QA_MONITOR_RETENTION_DAYS` | `15` | 否 | 否 | 消息监控记录保留天数。 |
+| `MESSAGE_LOG_RETENTION_DAYS` | `15` | 否 | 否 | 收发消息日志保留天数。 |
+| `LOG_CLEANUP_BATCH_SIZE` | `5000` | 否 | 否 | 调度器每轮清理每张日志表的最大行数。 |
 
 ## 生产建议
 
@@ -112,4 +115,4 @@
 2. Private 交付建议保持 `PRIVATE_SELF_REGISTRATION_ENABLED=false`，由管理员统一创建账号。
 3. 开源场景建议默认关闭：`ENABLE_ADMIN_IP_BLACKLIST`、`ENABLE_ADMIN_ENTERPRISE_AUTH`、`ENABLE_OPEN_TROUBLESHOOT_API`。
 4. 小流量先用：`QA_CALLBACK_WORKER_CONCURRENCY=8~16`；高峰再按监控调优。
-5. 上下文记忆建议保持轻量：`CHAT_CONTEXT_MAX_MESSAGES=20`、`CHAT_CONTEXT_RETENTION_DAYS=7`。
+5. 上下文记忆建议保持轻量：`CHAT_CONTEXT_MAX_MESSAGES=20`、`CHAT_CONTEXT_RETENTION_DAYS=15`。

@@ -107,7 +107,10 @@ QA_CALLBACK_QUEUE_MAXSIZE = max(int(os.getenv("QA_CALLBACK_QUEUE_MAXSIZE", "2000
 ROBOT_SHOW_NAME_CACHE_TTL_SECONDS = max(int(os.getenv("ROBOT_SHOW_NAME_CACHE_TTL_SECONDS", "600") or "600"), 60)
 CHAT_CONTEXT_ENABLED = os.getenv("CHAT_CONTEXT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 CHAT_CONTEXT_MAX_MESSAGES = max(int(os.getenv("CHAT_CONTEXT_MAX_MESSAGES", "20") or "20"), 1)
-CHAT_CONTEXT_RETENTION_DAYS = max(int(os.getenv("CHAT_CONTEXT_RETENTION_DAYS", "7") or "7"), 1)
+CHAT_CONTEXT_RETENTION_DAYS = max(int(os.getenv("CHAT_CONTEXT_RETENTION_DAYS", "15") or "15"), 1)
+QA_MONITOR_RETENTION_DAYS = max(int(os.getenv("QA_MONITOR_RETENTION_DAYS", "15") or "15"), 1)
+MESSAGE_LOG_RETENTION_DAYS = max(int(os.getenv("MESSAGE_LOG_RETENTION_DAYS", "15") or "15"), 1)
+LOG_CLEANUP_BATCH_SIZE = max(int(os.getenv("LOG_CLEANUP_BATCH_SIZE", "5000") or "5000"), 100)
 GROUP_DECISION_PROMPT_TEMPLATE_DEFAULT = (
     "你是群聊回复门控器。请判断最后一条消息是否应由机器人在群聊公开回复。\n"
     "规则：如果最后一条是在问机器人问题，或者是售前售后咨询/功能答疑/问题排查，则返回 YES；\n"
@@ -921,6 +924,7 @@ def init_db() -> None:
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   INDEX idx_qml_robot_time (robot_pk, created_at),
                   INDEX idx_qml_robot_msg (robot_pk, message_id),
+                  INDEX idx_qml_robot_group_id (robot_pk, group_name, id),
                   CONSTRAINT fk_qml_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
@@ -931,6 +935,9 @@ def init_db() -> None:
             cur.execute("SHOW COLUMNS FROM qa_monitor_logs LIKE 'ai_decision_reply'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE qa_monitor_logs ADD COLUMN ai_decision_reply TINYINT(1) NULL AFTER provider_name")
+            cur.execute("SHOW INDEX FROM qa_monitor_logs WHERE Key_name='idx_qml_robot_group_id'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE qa_monitor_logs ADD INDEX idx_qml_robot_group_id (robot_pk, group_name, id)")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_context_logs (
@@ -3901,7 +3908,7 @@ async def _run_chat_context_cleanup_if_needed() -> None:
                 if last_dt and (now - last_dt) < timedelta(hours=12):
                     return
             cur.execute(
-                "DELETE FROM chat_context_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s DAY)",
+                "DELETE FROM chat_context_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL %s DAY)",
                 (int(CHAT_CONTEXT_RETENTION_DAYS),),
             )
             cur.execute(
@@ -3918,6 +3925,56 @@ async def _run_chat_context_cleanup_if_needed() -> None:
             conn.rollback()
         except Exception:
             pass
+    finally:
+        conn.close()
+
+
+def run_operational_log_cleanup_batch() -> Dict[str, Any]:
+    """Delete one small batch per table so retention cleanup does not hold long locks."""
+    key = "operational_log_cleanup_last_run_at"
+    now = datetime.utcnow()
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT `value` FROM app_settings WHERE `key`=%s LIMIT 1", (key,))
+            row = cur.fetchone() or {}
+            last_raw = str(row.get("value") or "").strip()
+            if last_raw:
+                last_dt = _parse_datetime_or_none(last_raw, raise_on_invalid=False)
+                if last_dt and (now - last_dt) < timedelta(hours=12):
+                    return {"skipped": True, "qa_monitor_logs": 0, "message_logs": 0, "complete": True}
+
+            deleted: Dict[str, int] = {}
+            for table_name, retention_days in (
+                ("qa_monitor_logs", QA_MONITOR_RETENTION_DAYS),
+                ("message_logs", MESSAGE_LOG_RETENTION_DAYS),
+            ):
+                cur.execute(
+                    f"DELETE FROM {table_name} "
+                    "WHERE created_at < DATE_SUB(NOW(), INTERVAL %s DAY) "
+                    "ORDER BY id LIMIT %s",
+                    (int(retention_days), int(LOG_CLEANUP_BATCH_SIZE)),
+                )
+                deleted[table_name] = int(cur.rowcount or 0)
+                conn.commit()
+
+            complete = all(count < LOG_CLEANUP_BATCH_SIZE for count in deleted.values())
+            if complete:
+                cur.execute(
+                    """
+                    INSERT INTO app_settings(`key`,`value`) VALUES(%s,%s)
+                    ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (key, now.replace(microsecond=0).isoformat()),
+                )
+                conn.commit()
+            return {**deleted, "complete": complete, "skipped": False}
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         conn.close()
 
@@ -4338,6 +4395,37 @@ def _update_qa_monitor_log(
         conn.close()
 
 
+def _mark_stale_qa_monitor_logs_failed() -> int:
+    """Reconcile callback tasks that were interrupted by a prior process exit."""
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE qa_monitor_logs
+                SET answer='callback processing interrupted before completion',
+                    status='failed',
+                    time_cost=NULL
+                WHERE status='received'
+                  AND created_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+                """
+            )
+            updated = int(cur.rowcount or 0)
+        conn.commit()
+        if updated:
+            logger.warning("qa_monitor_stale_received_marked_failed count=%s", updated)
+        return updated
+    except Exception as e:
+        logger.warning("qa_monitor_stale_received_reconcile_failed err=%s", str(e))
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return 0
+    finally:
+        conn.close()
+
+
 def _load_default_reply(robot_pk: int, scene: str) -> str:
     conn = db_conn()
     try:
@@ -4374,7 +4462,7 @@ def _load_group_recent_context(robot_pk: int, group_name: str, limit: int = 8) -
                 """
                 SELECT received_name,question,answer,created_at
                 FROM qa_monitor_logs
-                WHERE robot_pk=%s AND room_type IN (1,3) AND COALESCE(group_name,'')=%s
+                WHERE robot_pk=%s AND room_type IN (1,3) AND group_name=%s
                 ORDER BY id DESC
                 LIMIT %s
                 """,
@@ -4753,6 +4841,7 @@ async def _send_worktool_text(robot_id: str, scene: str, req: QARequest, text: s
 async def startup() -> None:
     global _qa_callback_queue, _qa_callback_worker_tasks
     init_db()
+    _mark_stale_qa_monitor_logs_failed()
     ensure_private_admin()
     try:
         await _run_chat_context_cleanup_if_needed()
@@ -6893,6 +6982,19 @@ async def _qa_callback_worker_loop(worker_no: int) -> None:
             await _process_qa_callback_task(**task)
         except Exception as e:
             logger.exception("qa_callback_worker_failed worker=%s err=%s", worker_no, str(e))
+            try:
+                _update_qa_monitor_log(
+                    task.get("local_log_id"),
+                    f"callback worker failed: {str(e)}",
+                    "failed",
+                )
+            except Exception as update_error:
+                logger.warning(
+                    "qa_callback_worker_failure_log_update_failed worker=%s row_id=%s err=%s",
+                    worker_no,
+                    task.get("local_log_id"),
+                    str(update_error),
+                )
         finally:
             _qa_callback_queue.task_done()
 

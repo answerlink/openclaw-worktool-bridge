@@ -16,6 +16,18 @@ async def _run_loop() -> None:
     logger.info('scheduler worker started poll=%s batch_limit=%s', POLL_SECONDS, BATCH_LIMIT)
     while True:
         try:
+            cleanup = main.run_operational_log_cleanup_batch()
+            if not cleanup.get('skipped') and (
+                int(cleanup.get('qa_monitor_logs') or 0) > 0
+                or int(cleanup.get('message_logs') or 0) > 0
+                or bool(cleanup.get('complete'))
+            ):
+                logger.info(
+                    'operational log cleanup qa=%s messages=%s complete=%s',
+                    cleanup.get('qa_monitor_logs'),
+                    cleanup.get('message_logs'),
+                    cleanup.get('complete'),
+                )
             res = await main.run_scheduled_tasks_tick(limit=BATCH_LIMIT)
             picked = int(res.get('picked') or 0)
             done = int(res.get('done') or 0)

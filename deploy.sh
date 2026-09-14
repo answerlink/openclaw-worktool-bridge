@@ -134,7 +134,10 @@ APP_PUBLIC_BASE_URL=${public_base_url%/}
 DEFAULT_TEST_PROVIDER_ENABLED=false
 CHAT_CONTEXT_ENABLED=true
 CHAT_CONTEXT_MAX_MESSAGES=20
-CHAT_CONTEXT_RETENTION_DAYS=7
+CHAT_CONTEXT_RETENTION_DAYS=15
+QA_MONITOR_RETENTION_DAYS=15
+MESSAGE_LOG_RETENTION_DAYS=15
+LOG_CLEANUP_BATCH_SIZE=5000
 EOF
   chmod 600 .env
   echo "Created secure .env"
@@ -150,6 +153,10 @@ append_env_default PRIVATE_OUTBOUND_ALLOW_LOOPBACK false
 append_env_default PRIVATE_ADMIN_USERNAME admin
 append_env_default PRIVATE_SELF_REGISTRATION_ENABLED false
 append_env_default PRIVATE_LICENSE_V2_PRIVATE_KEY_BASE64 ""
+append_env_default CHAT_CONTEXT_RETENTION_DAYS 15
+append_env_default QA_MONITOR_RETENTION_DAYS 15
+append_env_default MESSAGE_LOG_RETENTION_DAYS 15
+append_env_default LOG_CLEANUP_BATCH_SIZE 5000
 private_license_secret="$(env_value PRIVATE_LICENSE_SECRET_KEY)"
 if [[ -z "$private_license_secret" ]]; then
   set_env_value PRIVATE_LICENSE_SECRET_KEY "$(openssl rand -base64 12)"

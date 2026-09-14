@@ -519,10 +519,31 @@
 </tr>
 <tr>
 <td><code>CHAT_CONTEXT_RETENTION_DAYS</code></td>
-<td><code>7</code></td>
+<td><code>15</code></td>
 <td>否</td>
 <td>否</td>
 <td>上下文数据保留天数。</td>
+</tr>
+<tr>
+<td><code>QA_MONITOR_RETENTION_DAYS</code></td>
+<td><code>15</code></td>
+<td>否</td>
+<td>否</td>
+<td>消息监控记录保留天数。</td>
+</tr>
+<tr>
+<td><code>MESSAGE_LOG_RETENTION_DAYS</code></td>
+<td><code>15</code></td>
+<td>否</td>
+<td>否</td>
+<td>收发消息日志保留天数。</td>
+</tr>
+<tr>
+<td><code>LOG_CLEANUP_BATCH_SIZE</code></td>
+<td><code>5000</code></td>
+<td>否</td>
+<td>否</td>
+<td>调度器每轮清理每张日志表的最大行数。</td>
 </tr>
 </tbody></table>
 <h2 id="生产建议">生产建议</h2><ol>
@@ -530,7 +551,7 @@
 <li>Private 交付建议保持 <code>PRIVATE_SELF_REGISTRATION_ENABLED=false</code>，由管理员统一创建账号。</li>
 <li>开源场景建议默认关闭：<code>ENABLE_ADMIN_IP_BLACKLIST</code>、<code>ENABLE_ADMIN_ENTERPRISE_AUTH</code>、<code>ENABLE_OPEN_TROUBLESHOOT_API</code>。</li>
 <li>小流量先用：<code>QA_CALLBACK_WORKER_CONCURRENCY=8~16</code>；高峰再按监控调优。</li>
-<li>上下文记忆建议保持轻量：<code>CHAT_CONTEXT_MAX_MESSAGES=20</code>、<code>CHAT_CONTEXT_RETENTION_DAYS=7</code>。</li>
+<li>上下文记忆建议保持轻量：<code>CHAT_CONTEXT_MAX_MESSAGES=20</code>、<code>CHAT_CONTEXT_RETENTION_DAYS=15</code>。</li>
 </ol>
 
       </article>
