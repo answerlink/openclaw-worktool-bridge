@@ -464,8 +464,12 @@ export default function App() {
               站内信
             </Button>
             <Button block href="/docs/" target="_blank" rel="noreferrer">使用文档</Button>
-            <Button block href="https://worktool.apifox.cn/" target="_blank" rel="noreferrer">API文档</Button>
-            <Button block href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">开源地址</Button>
+            {isSaasDeployment && (
+              <>
+                <Button block href="https://worktool.apifox.cn/" target="_blank" rel="noreferrer">API文档</Button>
+                <Button block href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">开源地址</Button>
+              </>
+            )}
             <Typography.Text type="secondary">账号：{maskPhone(userPhone)}</Typography.Text>
             <ChangePasswordButton block />
             <Button block icon={<LogoutOutlined />} onClick={() => void handleLogout()}>退出登录</Button>
@@ -512,12 +516,16 @@ export default function App() {
               <Button href="/docs/" target="_blank" rel="noreferrer">
                 使用文档
               </Button>
-              <Button href="https://worktool.apifox.cn/" target="_blank" rel="noreferrer">
-                API文档
-              </Button>
-              <Button href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">
-                开源地址
-              </Button>
+              {isSaasDeployment && (
+                <>
+                  <Button href="https://worktool.apifox.cn/" target="_blank" rel="noreferrer">
+                    API文档
+                  </Button>
+                  <Button href="https://github.com/answerlink/openclaw-worktool-bridge" target="_blank" rel="noreferrer">
+                    开源地址
+                  </Button>
+                </>
+              )}
               <ChangePasswordButton />
               <Button
                 onClick={() => void handleLogout()}
