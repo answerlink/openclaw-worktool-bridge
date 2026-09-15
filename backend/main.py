@@ -2805,6 +2805,42 @@ async def post_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[str
             return data if isinstance(data, dict) else {"data": data}
 
 
+async def fetch_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    if not WORKTOOL_RENEW_TOKEN:
+        raise HTTPException(status_code=503, detail="WORKTOOL_RENEW_TOKEN not configured")
+    url = f"{get_worktool_api_base()}{path}"
+    url = _normalize_user_outbound_url(url)
+    safe_params = {k: v for k, v in (params or {}).items() if v is not None}
+    timeout = aiohttp.ClientTimeout(total=10)
+    headers = {"X-Worktool-Renew-Token": WORKTOOL_RENEW_TOKEN}
+    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.get(url, params=safe_params, headers=headers, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
+            if resp.status != 200:
+                detail_msg = f"WorkTool 请求失败：HTTP {resp.status}"
+                if raw.strip():
+                    try:
+                        err_data = json.loads(raw)
+                        if isinstance(err_data, dict):
+                            code = err_data.get("code")
+                            upstream_message = err_data.get("message") or err_data.get("msg")
+                            if upstream_message:
+                                detail_msg = f"WorkTool 请求失败：{upstream_message}"
+                                if code is not None:
+                                    detail_msg += f"（code={code}）"
+                    except json.JSONDecodeError:
+                        preview = raw.strip().replace("\n", " ")[:180]
+                        detail_msg = f"WorkTool 请求失败：HTTP {resp.status}，响应：{preview}"
+                raise HTTPException(status_code=502, detail=detail_msg)
+            if not raw.strip():
+                raise HTTPException(status_code=502, detail="worktool response empty")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=502, detail="worktool response is not valid json") from exc
+            return data if isinstance(data, dict) else {"data": data}
+
+
 async def fetch_worktool_group_list_all(robot_id: str, page_size: int = 100, max_pages: int = 200) -> List[Dict[str, Any]]:
     rid = (robot_id or "").strip()
     if not rid:
@@ -8843,7 +8879,7 @@ async def admin_ip_acl_blacklist_query(user: Dict[str, Any] = Depends(get_curren
     _require_admin(user)
     _require_feature_enabled(ENABLE_ADMIN_IP_BLACKLIST, "admin ip blacklist")
     query_path = _require_configured_path(WORKTOOL_IPACL_QUERY_PATH, "WORKTOOL_IPACL_QUERY_PATH")
-    raw = await fetch_worktool_api(query_path, {})
+    raw = await fetch_worktool_renew_api(query_path, {})
     data = raw.get("data") if isinstance(raw, dict) else {}
     if not isinstance(data, dict):
         data = {}
@@ -8877,7 +8913,7 @@ async def admin_ip_acl_blacklist_add(
         before={"ip": target_ip, "in_blacklist": False}, upstream_path=add_path,
     )
     try:
-        res = await post_worktool_api(add_path, {"ip": target_ip, "type": "blacklist"})
+        res = await post_worktool_renew_api(add_path, {"ip": target_ip, "type": "blacklist"})
         _ensure_worktool_ok(res, "新增黑名单IP")
     except Exception as exc:
         _audit_failure(audit_id, exc)
@@ -8905,7 +8941,7 @@ async def admin_ip_acl_blacklist_delete(
         before={"ip": target_ip, "in_blacklist": True}, upstream_path=delete_path,
     )
     try:
-        res = await post_worktool_api(delete_path, {"ip": target_ip, "type": "blacklist"})
+        res = await post_worktool_renew_api(delete_path, {"ip": target_ip, "type": "blacklist"})
         _ensure_worktool_ok(res, "删除黑名单IP")
     except Exception as exc:
         _audit_failure(audit_id, exc)
