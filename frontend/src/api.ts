@@ -254,7 +254,7 @@ export const api = {
   enableScheduledTask: (id: number) => http.post(`/scheduled-tasks/${id}/enable`).then((r) => r.data),
   pauseScheduledTask: (id: number) => http.post(`/scheduled-tasks/${id}/pause`).then((r) => r.data),
   runScheduledTaskNow: (id: number) => http.post(`/scheduled-tasks/${id}/run-now`).then((r) => r.data),
-  listScheduledTaskRuns: (id: number, params?: { page?: number; page_size?: number }) =>
+  listScheduledTaskRuns: (id: number, params?: { page?: number; page_size?: number; status?: 'success' | 'failed' }) =>
     http.get(`/scheduled-tasks/${id}/runs`, { params: params || {} }).then((r) => r.data),
   getRobotInfoDetail: (robotId: string) => http.get('/robot-info/detail', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoCallbacks: (robotId: string) => http.get('/robot-info/callbacks', { params: { robot_id: robotId } }).then((r) => r.data),

@@ -1120,10 +1120,14 @@ def init_db() -> None:
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   UNIQUE KEY uk_str_idempotency (idempotency_key),
                   INDEX idx_str_task_time (task_id, created_at),
+                  INDEX idx_str_task_status_id (task_id, status, id),
                   CONSTRAINT fk_str_task FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cur.execute("SHOW INDEX FROM scheduled_task_runs WHERE Key_name='idx_str_task_status_id'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE scheduled_task_runs ADD INDEX idx_str_task_status_id (task_id, status, id)")
             cur.execute("SHOW COLUMNS FROM robot_group_cache LIKE 'source_id'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE robot_group_cache ADD COLUMN source_id BIGINT NULL AFTER robot_pk")
@@ -7996,24 +8000,30 @@ async def list_scheduled_task_runs(
     task_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
+    status: Optional[Literal["success", "failed"]] = None,
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _get_scheduled_task_or_404(int(task_id), int(user["id"]))
+    where_sql = "task_id=%s"
+    where_params: List[Any] = [int(task_id)]
+    if status:
+        where_sql += " AND status=%s"
+        where_params.append(status)
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(1) AS c FROM scheduled_task_runs WHERE task_id=%s", (int(task_id),))
+            cur.execute(f"SELECT COUNT(1) AS c FROM scheduled_task_runs WHERE {where_sql}", tuple(where_params))
             total = int((cur.fetchone() or {}).get("c") or 0)
             off = (page - 1) * page_size
             cur.execute(
-                """
+                f"""
                 SELECT *
                 FROM scheduled_task_runs
-                WHERE task_id=%s
+                WHERE {where_sql}
                 ORDER BY id DESC
                 LIMIT %s OFFSET %s
                 """,
-                (int(task_id), int(page_size), int(off)),
+                tuple(where_params + [int(page_size), int(off)]),
             )
             rows = cur.fetchall() or []
     finally:

@@ -57,6 +57,8 @@ interface RunRow {
   created_at: string;
 }
 
+type RunStatusFilter = 'all' | 'success' | 'failed';
+
 interface FormValues {
   robot_id?: string;
   name?: string;
@@ -120,6 +122,12 @@ function statusTag(v: string) {
     paused: { text: '已暂停', color: 'orange' },
     draft: { text: '草稿', color: 'default' },
     disabled: { text: '已停用', color: 'default' },
+    queued: { text: '排队中', color: 'processing' },
+    running: { text: '执行中', color: 'processing' },
+    success: { text: '执行成功', color: 'success' },
+    failed: { text: '执行失败', color: 'error' },
+    skipped: { text: '已跳过', color: 'default' },
+    canceled: { text: '已取消', color: 'default' },
   };
   const c = m[v] || { text: v, color: 'default' };
   return <Tag color={c.color}>{c.text}</Tag>;
@@ -169,6 +177,10 @@ export default function ScheduledTaskPage() {
   const [runRows, setRunRows] = useState<RunRow[]>([]);
   const [runLoading, setRunLoading] = useState(false);
   const [currentTask, setCurrentTask] = useState<TaskRow | null>(null);
+  const [runStatus, setRunStatus] = useState<RunStatusFilter>('all');
+  const [runPage, setRunPage] = useState(1);
+  const [runPageSize, setRunPageSize] = useState(20);
+  const [runTotal, setRunTotal] = useState(0);
 
   const scheduleType = Form.useWatch('schedule_type', form);
   const actionType = Form.useWatch('action', form);
@@ -449,19 +461,43 @@ export default function ScheduledTaskPage() {
     }
   };
 
-  const openRuns = async (row: TaskRow) => {
-    setCurrentTask(row);
-    setRunsOpen(true);
+  const loadRuns = async (
+    row: TaskRow,
+    status: RunStatusFilter,
+    page: number,
+    pageSize: number,
+  ) => {
     setRunLoading(true);
     try {
-      const res = await api.listScheduledTaskRuns(row.id, { page: 1, page_size: 50 });
+      const res = await api.listScheduledTaskRuns(row.id, {
+        page,
+        page_size: pageSize,
+        status: status === 'all' ? undefined : status,
+      });
       setRunRows((res?.items || []) as RunRow[]);
+      setRunTotal(Number(res?.total || 0));
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '加载运行记录失败');
       setRunRows([]);
+      setRunTotal(0);
     } finally {
       setRunLoading(false);
     }
+  };
+
+  const openRuns = async (row: TaskRow) => {
+    setCurrentTask(row);
+    setRunsOpen(true);
+    setRunStatus('all');
+    setRunPage(1);
+    setRunPageSize(20);
+    await loadRuns(row, 'all', 1, 20);
+  };
+
+  const changeRunStatus = (status: RunStatusFilter) => {
+    setRunStatus(status);
+    setRunPage(1);
+    if (currentTask) void loadRuns(currentTask, status, 1, runPageSize);
   };
 
   useEffect(() => {
@@ -757,6 +793,19 @@ export default function ScheduledTaskPage() {
       </Modal>
 
       <Drawer title={currentTask ? `运行记录：${currentTask.name}` : '运行记录'} open={runsOpen} onClose={() => setRunsOpen(false)} width={860}>
+        <Space style={{ marginBottom: 12 }}>
+          <Typography.Text>执行状态</Typography.Text>
+          <Select<RunStatusFilter>
+            style={{ width: 150 }}
+            value={runStatus}
+            onChange={changeRunStatus}
+            options={[
+              { label: '全部', value: 'all' },
+              { label: '执行成功', value: 'success' },
+              { label: '执行失败', value: 'failed' },
+            ]}
+          />
+        </Space>
         <Table
           rowKey="id"
           size="small"
@@ -769,7 +818,18 @@ export default function ScheduledTaskPage() {
             { title: '结束时间', dataIndex: 'finished_at', width: 170, render: (v: string) => v || '-' },
             { title: '错误信息', dataIndex: 'error_text', render: (v: string) => <HoverPreviewText value={v} maxWidth={280} popupWidth={760} /> },
           ]}
-          pagination={false}
+          pagination={{
+            current: runPage,
+            pageSize: runPageSize,
+            total: runTotal,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (page, pageSize) => {
+              setRunPage(page);
+              setRunPageSize(pageSize);
+              if (currentTask) void loadRuns(currentTask, runStatus, page, pageSize);
+            },
+          }}
         />
       </Drawer>
     </Card>
