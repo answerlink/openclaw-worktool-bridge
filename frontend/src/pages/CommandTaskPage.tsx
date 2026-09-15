@@ -471,19 +471,19 @@ export default function CommandTaskPage() {
   const clearAllPending = () => {
     if (!robotId || pendingCount === 0) return;
     Modal.confirm({
-      title: `清空全部待执行指令？`,
-      content: `将清空该机器人客户端队列中的待执行指令。当前列表显示 ${pendingCount} 条待执行；提交前会再次检查，若均已开始执行则不会下发清空。`,
-      okText: '确认清空',
+      title: `取消全部待执行指令？`,
+      content: `将取消该机器人客户端队列中的全部待执行指令。当前列表显示 ${pendingCount} 条待执行；提交前会再次检查，若均已开始执行则不会下发取消。`,
+      okText: '确认取消全部',
       okButtonProps: { danger: true },
-      cancelText: '暂不清空',
+      cancelText: '暂不取消',
       onOk: async () => {
         setCancelling(true);
         try {
           const result = await api.clearWorktoolPendingCommands({ robot_id: robotId, message_ids: rows.filter((row) => row.status === 'pending').map((row) => row.messageId) });
           if (result.clear_sent) {
-            message.success(`已下发清空指令；提交前确认 ${result.pending_count_before_clear || 0} 条仍待执行${formatSkipped(result.skipped)}`, 8);
+            message.success(`已下发取消全部指令；提交前确认 ${result.pending_count_before_clear || 0} 条仍待执行${formatSkipped(result.skipped)}`, 8);
           } else {
-            message.info(`未下发清空：所选范围内指令状态均已变化${formatSkipped(result.skipped)}`, 8);
+            message.info(`未下发取消：所选范围内指令状态均已变化${formatSkipped(result.skipped)}`, 8);
           }
           setSelectedRowKeys([]);
           await loadRows();
@@ -537,7 +537,7 @@ export default function CommandTaskPage() {
           loading={cancelling}
           onClick={clearAllPending}
         >
-          清空全部待执行
+          取消全部
         </Button>
         <Input
           style={{ width: 260 }}
