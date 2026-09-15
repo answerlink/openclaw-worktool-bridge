@@ -37,6 +37,7 @@ from safe_outbound_http import (
     validate_outbound_url_shape,
 )
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
+from command_tasks import CommandQueryBusy, list_command_tasks
 
 APP_VERSION = "4.0.0"
 APP_DEPLOYMENT_MODE = get_deployment_mode()
@@ -7156,6 +7157,27 @@ async def get_worktool_raw_commands(
     if mid:
         params["messageId"] = mid
     return await fetch_worktool_api("/wework/listRawMessage", params)
+
+
+@app.get("/api/v1/worktool/command-tasks")
+def get_worktool_command_tasks(
+    robot_id: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=30, ge=1, le=200),
+    status: Literal["all", "success", "failed"] = "all",
+    message_id: str = "",
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_robot_access(int(user["id"]), robot_id)
+    try:
+        return list_command_tasks(worktool_db_conn, robot_id, status, page, size, message_id.strip())
+    except CommandQueryBusy:
+        raise HTTPException(status_code=429, detail="指令查询繁忙，请稍后重试", headers={"Retry-After": "3"})
+    except pymysql.MySQLError as exc:
+        if exc.args and exc.args[0] == 3024:
+            raise HTTPException(status_code=504, detail="指令查询超时，请稍后重试")
+        logger.exception("WorkTool command query failed")
+        raise HTTPException(status_code=502, detail="WorkTool 数据库查询失败，请稍后重试")
 
 
 @app.get("/api/v1/worktool/raw-command-results")

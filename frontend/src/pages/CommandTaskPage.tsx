@@ -5,6 +5,7 @@ import { api } from '../api';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 import HoverPreviewText from '../components/HoverPreviewText';
+import { commandContent } from '../commandContent';
 
 type TaskStatus = 'pending' | 'success' | 'failed' | 'terminated';
 
@@ -48,6 +49,8 @@ interface RawResultRecord {
   successList?: string;
   failList?: string;
 }
+
+type ResultStatusFilter = 'all' | 'success' | 'failed';
 
 interface BacklogWarningState {
   pendingOverdueCount: number;
@@ -97,14 +100,6 @@ function parseDateTimeMs(value: unknown): number {
   return Number.isNaN(ts2) ? 0 : ts2;
 }
 
-function extractResultRows(res: any): RawResultRecord[] {
-  const data = res?.data;
-  if (Array.isArray(data)) return data as RawResultRecord[];
-  if (Array.isArray(data?.list)) return data.list as RawResultRecord[];
-  if (Array.isArray(data?.records)) return data.records as RawResultRecord[];
-  if (Array.isArray(res?.list)) return res.list as RawResultRecord[];
-  return [];
-}
 
 function resultRunTime(row?: RawResultRecord): string {
   return String(row?.runTime || row?.createTime || '').trim();
@@ -126,6 +121,7 @@ function resultStatus(row?: RawResultRecord): TaskStatus | null {
   }
   return 'failed';
 }
+
 
 function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[]): CommandTaskRow[] {
   const resultMap = new Map<string, RawResultRecord>();
@@ -161,7 +157,7 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
         .filter(Boolean)
       : [];
     const titleList = Array.isArray(firstMsg?.titleList) ? firstMsg.titleList : [];
-    const content = String(firstMsg?.receivedContent || '').trim();
+    const content = commandContent(row.body);
     const result = resultMap.get(messageId);
     let status: TaskStatus = 'pending';
     const resolvedStatus = resultStatus(result);
@@ -213,7 +209,7 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
   let seenClearPendingQueue = false;
   for (const row of merged) {
     if (row.isClearPendingQueue) {
-      row.status = 'success';
+      if (row.status === 'pending') row.status = 'success';
       seenClearPendingQueue = true;
       continue;
     }
@@ -224,7 +220,7 @@ function mergeRows(commandRows: RawCommandRecord[], resultRows: RawResultRecord[
       }
     }
   }
-  return merged.filter((row) => !row.isCancelPendingCommand);
+  return merged;
 }
 
 export default function CommandTaskPage() {
@@ -236,15 +232,30 @@ export default function CommandTaskPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState('');
   const [messageIdInput, setMessageIdInput] = useState('');
   const [messageIdFilter, setMessageIdFilter] = useState('');
+  const [resultStatusFilter, setResultStatusFilter] = useState<ResultStatusFilter>('all');
+  const [resultPage, setResultPage] = useState(1);
+  const [resultTotal, setResultTotal] = useState(0);
   const [queryVersion, setQueryVersion] = useState(0);
   const [backlogWarning, setBacklogWarning] = useState<BacklogWarningState | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [cancelling, setCancelling] = useState(false);
   const backlogNoticeKeyRef = useRef('');
+  const loadRequestIdRef = useRef(0);
+  const activeSelectionRef = useRef<{ robotId?: string; status: ResultStatusFilter }>({ robotId, status: 'all' });
 
   const selectRobot = (nextRobotId?: string) => {
+    activeSelectionRef.current = { robotId: nextRobotId, status: resultStatusFilter };
+    loadRequestIdRef.current += 1;
+    setResultPage(1);
     setRobotId(nextRobotId);
     setLastSelectedRobotId(nextRobotId);
+  };
+
+  const selectResultStatus = (status: ResultStatusFilter) => {
+    activeSelectionRef.current = { robotId, status };
+    loadRequestIdRef.current += 1;
+    setResultPage(1);
+    setResultStatusFilter(status);
   };
 
   const robotOptions = useMemo(
@@ -265,44 +276,43 @@ export default function CommandTaskPage() {
   };
 
   const loadRows = async () => {
-    if (!robotId) {
+    const requestedRobotId = robotId;
+    const requestedStatus = resultStatusFilter;
+    const requestedPage = resultPage;
+    const activeSelection = activeSelectionRef.current;
+    if (requestedRobotId !== activeSelection.robotId || requestedStatus !== activeSelection.status) return;
+    const requestId = ++loadRequestIdRef.current;
+    if (!requestedRobotId) {
       setRows([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
     try {
       const mid = messageIdFilter.trim();
-      const commandSize = 30;
-      const resultSize = 100;
-      const [commandsRes, resultsRes] = await Promise.all([
-        api.getWorktoolRawCommands({ robot_id: robotId, page: 1, size: commandSize, sort: 'create_time,desc', message_id: mid || undefined }),
-        api.getWorktoolRawCommandResults({ robot_id: robotId, page: 1, size: resultSize, sort: 'run_time,desc', message_id: mid || undefined }),
-      ]);
-      const commandRows = (commandsRes?.data?.list || []) as RawCommandRecord[];
-      let resultRows = extractResultRows(resultsRes);
-      if (!mid) {
-        const knownResultIds = new Set(resultRows.map((row) => String(row?.messageId || '').trim()).filter(Boolean));
-        const missingMessageIds = commandRows
-          .map((row) => String(row?.messageId || '').trim())
-          .filter((id) => id && !knownResultIds.has(id));
-        if (missingMessageIds.length > 0) {
-          const supplementResults = await Promise.all(
-            missingMessageIds.map((messageId) =>
-              api.getWorktoolRawCommandResults({ robot_id: robotId, page: 1, size: 20, sort: 'run_time,desc', message_id: messageId })
-                .then(extractResultRows)
-                .catch(() => [])
-            )
-          );
-          resultRows = [...resultRows, ...supplementResults.flat()];
-        }
-      }
+      const response = await api.getWorktoolCommandTasks({
+        robot_id: requestedRobotId,
+        page: requestedPage,
+        size: requestedStatus === 'all' ? 30 : 100,
+        status: requestedStatus,
+        message_id: mid || undefined,
+      });
+      const commandRows = response.items.map((item: { command: RawCommandRecord }) => item.command);
+      const resultRows = response.items.flatMap((item: { result: RawResultRecord | null }) => item.result ? [item.result] : []);
+      const latestSelection = activeSelectionRef.current;
+      if (
+        requestId !== loadRequestIdRef.current
+        || requestedRobotId !== latestSelection.robotId
+        || requestedStatus !== latestSelection.status
+      ) return;
       const mergedRows = mergeRows(commandRows, resultRows);
       setRows(mergedRows);
+      setResultTotal(response.total);
       setSelectedRowKeys((keys) => keys.filter((key) => mergedRows.some((row) => row.key === key && row.status === 'pending')));
       setLastUpdatedAt(new Date().toLocaleString());
 
       const midForQuery = mid;
-      if (!midForQuery) {
+      if (!midForQuery && requestedStatus === 'all' && requestedPage === 1) {
         let resultLatestTime = '';
         let resultLatestMs = 0;
         for (const row of resultRows) {
@@ -340,11 +350,11 @@ export default function CommandTaskPage() {
             oldestPendingMinutes,
           };
           setBacklogWarning(warningState);
-          const noticeKey = `${robotId}|${oldestPendingTime}|${overduePendingRows.length}`;
+          const noticeKey = `${requestedRobotId}|${oldestPendingTime}|${overduePendingRows.length}`;
           if (noticeKey && backlogNoticeKeyRef.current !== noticeKey) {
             backlogNoticeKeyRef.current = noticeKey;
             void api.noticeWorktoolCommandBacklog({
-              robot_id: robotId,
+              robot_id: requestedRobotId,
               pending_overdue_count: overduePendingRows.length,
               oldest_pending_time: oldestPendingTime,
               newest_result_time: resultLatestTime || undefined,
@@ -359,11 +369,18 @@ export default function CommandTaskPage() {
         setBacklogWarning(null);
       }
     } catch (e: any) {
+      const latestSelection = activeSelectionRef.current;
+      if (
+        requestId !== loadRequestIdRef.current
+        || requestedRobotId !== latestSelection.robotId
+        || requestedStatus !== latestSelection.status
+      ) return;
       message.error(e?.response?.data?.detail || '拉取指令任务失败');
       setRows([]);
+      setResultTotal(0);
       setBacklogWarning(null);
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestIdRef.current) setLoading(false);
     }
   };
 
@@ -385,10 +402,11 @@ export default function CommandTaskPage() {
 
   useEffect(() => {
     void loadRows();
-  }, [robotId, messageIdFilter, queryVersion]);
+  }, [robotId, messageIdFilter, resultStatusFilter, resultPage, queryVersion]);
 
   useEffect(() => {
     if (!robotId) return;
+    if (resultStatusFilter !== 'all') return;
     // A terminated state is inferred from a 304/305 queue-control record. Keep
     // checking it because a client can finish and report success/failure first.
     const hasUnresolved = rows.some((x) => x.status === 'pending' || x.status === 'terminated');
@@ -397,7 +415,7 @@ export default function CommandTaskPage() {
       void loadRows();
     }, 60000);
     return () => window.clearInterval(timer);
-  }, [robotId, rows, messageIdFilter]);
+  }, [robotId, rows, messageIdFilter, resultStatusFilter, resultPage]);
 
   const columns = useMemo(
     () => [
@@ -435,6 +453,7 @@ export default function CommandTaskPage() {
   const selectedPendingRows = rows.filter((row) => row.status === 'pending' && selectedRowKeys.includes(row.key));
 
   const runMessageIdQuery = () => {
+    setResultPage(1);
     setMessageIdFilter(messageIdInput.trim());
     setQueryVersion((version) => version + 1);
   };
@@ -501,7 +520,7 @@ export default function CommandTaskPage() {
       title={(
         <Space direction="vertical" size={0}>
           <span>指令任务查询</span>
-          <Typography.Text type="secondary">默认展示最近30条下发指令，并按 messageId 自动合并执行结果（待执行每60秒刷新）</Typography.Text>
+          <Typography.Text type="secondary">仅查询最近2天、最新2000条下发指令范围内的数据（含 messageId 查询）；全部每页30条，成功/失败每页100条</Typography.Text>
         </Space>
       )}
       extra={(
@@ -521,6 +540,16 @@ export default function CommandTaskPage() {
           optionFilterProp="label"
         />
         <Tag color={pendingCount > 0 ? 'processing' : 'default'}>待执行: {pendingCount}</Tag>
+        <Select<ResultStatusFilter>
+          style={{ width: 150 }}
+          value={resultStatusFilter}
+          onChange={selectResultStatus}
+          options={[
+            { label: '全部', value: 'all' },
+            { label: '执行成功', value: 'success' },
+            { label: '执行失败', value: 'failed' },
+          ]}
+        />
         <Button
           icon={<StopOutlined />}
           danger
@@ -580,7 +609,17 @@ export default function CommandTaskPage() {
             onChange: setSelectedRowKeys,
             getCheckboxProps: (row: CommandTaskRow) => ({ disabled: row.status !== 'pending' }),
           }}
-          pagination={false}
+          pagination={!messageIdFilter ? {
+            current: resultPage,
+            pageSize: resultStatusFilter === 'all' ? 30 : 100,
+            total: resultTotal,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (page) => {
+              loadRequestIdRef.current += 1;
+              setResultPage(page);
+            },
+          } : false}
           scroll={{ x: 1600 }}
           size="small"
         />

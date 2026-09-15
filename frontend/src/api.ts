@@ -213,10 +213,8 @@ export const api = {
   getMessageLog: (id: number) => http.get(`/logs/messages/${id}`).then((r) => r.data),
   getMessageMonitorLogs: (params: any) => http.get('/message-monitor/logs', { params }).then((r) => r.data),
   getWorktoolQaLogs: (params: any) => http.get('/worktool/qa-logs', { params }).then((r) => r.data),
-  getWorktoolRawCommands: (params: { robot_id: string; page?: number; size?: number; sort?: string; message_id?: string }) =>
-    http.get('/worktool/raw-commands', { params }).then((r) => r.data),
-  getWorktoolRawCommandResults: (params: { robot_id: string; page?: number; size?: number; sort?: string; message_id?: string }) =>
-    http.get('/worktool/raw-command-results', { params }).then((r) => r.data),
+  getWorktoolCommandTasks: (params: { robot_id: string; page?: number; size?: number; message_id?: string; status?: 'all' | 'success' | 'failed' }) =>
+    http.get('/worktool/command-tasks', { params, timeout: 30000 }).then((r) => r.data),
   cancelWorktoolPendingCommands: (payload: { robot_id: string; message_ids: string[] }) =>
     http.post('/worktool/pending-commands/cancel', payload).then((r) => r.data),
   clearWorktoolPendingCommands: (payload: { robot_id: string; message_ids: string[] }) =>
