@@ -1055,10 +1055,8 @@ def init_db() -> None:
                   name VARCHAR(64) NOT NULL,
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                  UNIQUE KEY uk_group_tags_owner_robot_name (created_by, robot_pk, name),
-                  INDEX idx_group_tags_owner_robot (created_by, robot_pk),
-                  CONSTRAINT fk_group_tags_owner FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
-                  CONSTRAINT fk_group_tags_robot FOREIGN KEY (robot_pk) REFERENCES robots(id) ON DELETE CASCADE
+                  UNIQUE KEY uk_group_tags_robot_name (robot_pk, name),
+                  INDEX idx_group_tags_owner_robot (created_by, robot_pk)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -1073,8 +1071,7 @@ def init_db() -> None:
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   UNIQUE KEY uk_group_tag_items_tag_match_value (tag_id, target_type, match_type, value),
-                  INDEX idx_group_tag_items_tag (tag_id),
-                  CONSTRAINT fk_group_tag_items_tag FOREIGN KEY (tag_id) REFERENCES group_tags(id) ON DELETE CASCADE
+                  INDEX idx_group_tag_items_tag (tag_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -1139,12 +1136,32 @@ def init_db() -> None:
             cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='uk_group_tags_owner_name'")
             if cur.fetchone():
                 cur.execute("ALTER TABLE group_tags DROP INDEX uk_group_tags_owner_name")
-            cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='uk_group_tags_owner_robot_name'")
+            cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='uk_group_tags_robot_name'")
             if not cur.fetchone():
-                cur.execute("ALTER TABLE group_tags ADD UNIQUE KEY uk_group_tags_owner_robot_name (created_by, robot_pk, name)")
+                cur.execute("ALTER TABLE group_tags ADD UNIQUE KEY uk_group_tags_robot_name (robot_pk, name)")
+            cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='uk_group_tags_owner_robot_name'")
+            if cur.fetchone():
+                cur.execute("ALTER TABLE group_tags DROP INDEX uk_group_tags_owner_robot_name")
             cur.execute("SHOW INDEX FROM group_tags WHERE Key_name='idx_group_tags_owner_robot'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE group_tags ADD INDEX idx_group_tags_owner_robot (created_by, robot_pk)")
+            for table_name, constraint_name in (
+                ("group_tags", "fk_group_tags_owner"),
+                ("group_tags", "fk_group_tags_robot"),
+                ("group_tag_items", "fk_group_tag_items_tag"),
+            ):
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.TABLE_CONSTRAINTS
+                    WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=%s
+                      AND CONSTRAINT_NAME=%s AND CONSTRAINT_TYPE='FOREIGN KEY'
+                    LIMIT 1
+                    """,
+                    (table_name, constraint_name),
+                )
+                if cur.fetchone():
+                    cur.execute(f"ALTER TABLE {table_name} DROP FOREIGN KEY {constraint_name}")
             cur.execute("SHOW COLUMNS FROM forward_rules LIKE 'target_type'")
             if cur.fetchone():
                 cur.execute("ALTER TABLE forward_rules DROP COLUMN target_type")
@@ -3076,17 +3093,14 @@ def _normalize_group_tag_values(values: List[str]) -> List[str]:
     return out
 
 
-def _get_group_tag_or_404(tag_id: int, user_id: int, robot_pk: Optional[int] = None) -> Dict[str, Any]:
+def _get_group_tag_or_404(tag_id: int, robot_pk: int) -> Dict[str, Any]:
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            if robot_pk is None:
-                cur.execute("SELECT * FROM group_tags WHERE id=%s AND created_by=%s LIMIT 1", (int(tag_id), int(user_id)))
-            else:
-                cur.execute(
-                    "SELECT * FROM group_tags WHERE id=%s AND created_by=%s AND robot_pk=%s LIMIT 1",
-                    (int(tag_id), int(user_id), int(robot_pk)),
-                )
+            cur.execute(
+                "SELECT * FROM group_tags WHERE id=%s AND robot_pk=%s LIMIT 1",
+                (int(tag_id), int(robot_pk)),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="标签不存在")
@@ -3111,7 +3125,7 @@ def _normalize_str_list(values: List[Any], max_len: int = 255) -> List[str]:
     return out
 
 
-def _resolve_targets_by_group_tags(user_id: int, robot_pk: int, tag_ids: List[int], manual_targets: List[str]) -> List[str]:
+def _resolve_targets_by_group_tags(_user_id: int, robot_pk: int, tag_ids: List[int], manual_targets: List[str]) -> List[str]:
     targets = _normalize_str_list(manual_targets or [])
     tids = [int(x) for x in (tag_ids or []) if int(x) > 0]
     if not tids:
@@ -3125,9 +3139,9 @@ def _resolve_targets_by_group_tags(user_id: int, robot_pk: int, tag_ids: List[in
                 SELECT i.match_type,i.value
                 FROM group_tag_items i
                 JOIN group_tags t ON t.id=i.tag_id
-                WHERE t.created_by=%s AND t.robot_pk=%s AND i.tag_id IN ({placeholders})
+                WHERE t.robot_pk=%s AND i.tag_id IN ({placeholders})
                 """,
-                tuple([int(user_id), int(robot_pk)] + tids),
+                tuple([int(robot_pk)] + tids),
             )
             rules = cur.fetchall() or []
             cur.execute("SELECT group_name FROM robot_group_cache WHERE robot_pk=%s", (int(robot_pk),))
@@ -5670,18 +5684,10 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
 @app.delete("/api/v1/robots/{robot_id}")
 async def delete_robot(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    is_demo = _is_demo_robot_id(robot_id)
     conn = db_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM user_robots WHERE user_id=%s AND robot_pk=%s", (int(user["id"]), int(robot["id"])))
-            # Demo robots are shared experience entries: users may unbind,
-            # but we should not delete the robot row/config when last user leaves.
-            if not is_demo:
-                cur.execute("SELECT COUNT(1) AS c FROM user_robots WHERE robot_pk=%s", (int(robot["id"]),))
-                remain = int((cur.fetchone() or {}).get("c") or 0)
-                if remain == 0:
-                    cur.execute("DELETE FROM robots WHERE id=%s", (int(robot["id"]),))
         conn.commit()
     finally:
         conn.close()
@@ -7365,11 +7371,11 @@ async def list_group_tags(
                     SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
                     FROM group_tags t
                     LEFT JOIN group_tag_items i ON i.tag_id=t.id
-                    WHERE t.created_by=%s AND t.robot_pk=%s AND t.name LIKE %s
+                    WHERE t.robot_pk=%s AND t.name LIKE %s
                     GROUP BY t.id,t.name,t.created_at,t.updated_at
                     ORDER BY t.updated_at DESC,t.id DESC
                     """,
-                    (int(user["id"]), int(robot["id"]), like),
+                    (int(robot["id"]), like),
                 )
             else:
                 cur.execute(
@@ -7377,11 +7383,11 @@ async def list_group_tags(
                     SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
                     FROM group_tags t
                     LEFT JOIN group_tag_items i ON i.tag_id=t.id
-                    WHERE t.created_by=%s AND t.robot_pk=%s
+                    WHERE t.robot_pk=%s
                     GROUP BY t.id,t.name,t.created_at,t.updated_at
                     ORDER BY t.updated_at DESC,t.id DESC
                     """,
-                    (int(user["id"]), int(robot["id"])),
+                    (int(robot["id"]),),
                 )
             rows = cur.fetchall() or []
     finally:
@@ -7444,14 +7450,14 @@ async def update_group_tag(
     robot = _require_robot_access(int(user["id"]), robot_id)
     _reject_demo_robot_write(robot_id, "标签库", user=user)
     name = _normalize_group_tag_name(body.name)
-    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    _get_group_tag_or_404(int(tag_id), int(robot["id"]))
     conn = db_conn()
     try:
         with conn.cursor() as cur:
             try:
                 cur.execute(
-                    "UPDATE group_tags SET name=%s WHERE id=%s AND created_by=%s AND robot_pk=%s",
-                    (name, int(tag_id), int(user["id"]), int(robot["id"])),
+                    "UPDATE group_tags SET name=%s WHERE id=%s AND robot_pk=%s",
+                    (name, int(tag_id), int(robot["id"])),
                 )
             except pymysql.err.IntegrityError:
                 raise HTTPException(status_code=400, detail="标签名已存在")
@@ -7462,11 +7468,11 @@ async def update_group_tag(
                 SELECT t.id,t.name,t.created_at,t.updated_at,COUNT(i.id) AS item_count
                 FROM group_tags t
                 LEFT JOIN group_tag_items i ON i.tag_id=t.id
-                WHERE t.id=%s AND t.created_by=%s AND t.robot_pk=%s
+                WHERE t.id=%s AND t.robot_pk=%s
                 GROUP BY t.id,t.name,t.created_at,t.updated_at
                 LIMIT 1
                 """,
-                (int(tag_id), int(user["id"]), int(robot["id"])),
+                (int(tag_id), int(robot["id"])),
             )
             row = cur.fetchone() or {}
         conn.commit()
@@ -7485,14 +7491,12 @@ async def update_group_tag(
 async def delete_group_tag(tag_id: int, robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
     _reject_demo_robot_write(robot_id, "标签库", user=user)
-    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    _get_group_tag_or_404(int(tag_id), int(robot["id"]))
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM group_tags WHERE id=%s AND created_by=%s AND robot_pk=%s",
-                (int(tag_id), int(user["id"]), int(robot["id"])),
-            )
+            cur.execute("DELETE FROM group_tag_items WHERE tag_id=%s", (int(tag_id),))
+            cur.execute("DELETE FROM group_tags WHERE id=%s AND robot_pk=%s", (int(tag_id), int(robot["id"])))
         conn.commit()
     finally:
         conn.close()
@@ -7508,7 +7512,7 @@ async def list_group_tag_items(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
-    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    _get_group_tag_or_404(int(tag_id), int(robot["id"]))
     conn = db_conn()
     try:
         with conn.cursor() as cur:
@@ -7555,7 +7559,7 @@ async def create_group_tag_items(
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
     _reject_demo_robot_write(robot_id, "标签库", user=user)
-    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    _get_group_tag_or_404(int(tag_id), int(robot["id"]))
     values = _normalize_group_tag_values(body.values or [])
     match_type = (body.match_type or "exact").strip().lower()
     if match_type not in {"exact", "regex"}:
@@ -7590,7 +7594,7 @@ async def delete_group_tag_item(
 ) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
     _reject_demo_robot_write(robot_id, "标签库", user=user)
-    _get_group_tag_or_404(int(tag_id), int(user["id"]), int(robot["id"]))
+    _get_group_tag_or_404(int(tag_id), int(robot["id"]))
     conn = db_conn()
     try:
         with conn.cursor() as cur:

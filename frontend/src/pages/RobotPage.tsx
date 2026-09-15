@@ -244,7 +244,7 @@ export default function RobotPage() {
 
   const onDeleteRobot = async (row: Robot) => {
     await api.deleteRobot(row.robot_id);
-    message.success('机器人已删除');
+    message.success('机器人已从当前账号解绑，配置和标签已保留');
     await loadRobots();
     if (selectedRobotId === row.robot_id) {
       selectRobot(undefined);
@@ -496,14 +496,14 @@ export default function RobotPage() {
                             <Button size="small" onClick={() => selectRobot(row.robot_id)}>选择</Button>
                             <Button size="small" onClick={() => void onEditRobot(row.robot_id)}>编辑</Button>
                             <Popconfirm
-                              title="确认删除该机器人？"
-                              description={`robot_id: ${row.robot_id}`}
-                              okText="删除"
+                              title="确认解绑该机器人？"
+                              description={`仅解除当前账号与 ${row.robot_id} 的绑定，机器人配置和标签库会保留。`}
+                              okText="解绑"
                               cancelText="取消"
                               okButtonProps={{ danger: true }}
                               onConfirm={() => void onDeleteRobot(row)}
                             >
-                              <Button size="small" danger>删除</Button>
+                              <Button size="small" danger>解绑</Button>
                             </Popconfirm>
                           </Space>
                         )
