@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { Badge, Button, Drawer, Form, Input, Layout, Menu, Modal, Space, Spin, Typography, message } from 'antd';
 import {
   DashboardOutlined,
+  CommentOutlined,
   FileSearchOutlined,
   FileDoneOutlined,
   RobotOutlined,
@@ -26,6 +27,7 @@ import {
 } from '@ant-design/icons';
 import LoginPage from './pages/LoginPage';
 import ChatbotLauncher from './components/ChatbotLauncher';
+import FeedbackModal from './components/FeedbackModal';
 import { api, clearAccessToken, getAccessToken } from './api';
 import { track, trackPage } from './analytics';
 
@@ -141,6 +143,7 @@ export default function App() {
   const [robotInitChecked, setRobotInitChecked] = useState(false);
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
 
   useEffect(() => {
@@ -460,6 +463,7 @@ export default function App() {
         >
           <Menu mode="inline" selectedKeys={[location.pathname]} items={items} onClick={() => setMobileNavOpen(false)} />
           <div className="mobile-drawer-footer">
+            <Button block icon={<CommentOutlined />} onClick={() => { setMobileNavOpen(false); setFeedbackOpen(true); }}>建议与反馈</Button>
             <Button block icon={<BellOutlined />} onClick={() => { setMobileNavOpen(false); navigate('/inbox'); }}>
               站内信
             </Button>
@@ -476,6 +480,7 @@ export default function App() {
           </div>
         </Drawer>
         <Content className="mobile-content-wrap">{pageRoutes}</Content>
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
         <ChatbotLauncher />
       </Layout>
     );
@@ -492,6 +497,7 @@ export default function App() {
             </div>
           </div>
           <div className="app-sider-footer">
+            <Button block icon={<CommentOutlined />} onClick={() => setFeedbackOpen(true)}>建议与反馈</Button>
             <Button
               type="default"
               icon={<BellOutlined />}
@@ -538,6 +544,7 @@ export default function App() {
         <Content className="content-wrap">
           {pageRoutes}
         </Content>
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
         <ChatbotLauncher />
       </Layout>
     </Layout>

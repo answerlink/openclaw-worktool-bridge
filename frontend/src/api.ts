@@ -55,6 +55,8 @@ http.interceptors.response.use(
 );
 
 export const api = {
+  submitFeedback: (payload: { kind: 'problem' | 'suggestion'; description: string; contact: string; page: string; robot_id: string; images: string[] }) =>
+    http.post('/feedback', payload, { timeout: 65000 }).then((r) => r.data),
   authConfig: () => http.get('/auth/config').then((r) => r.data),
   authLogin: (payload: { account: string; password: string }) => http.post('/auth/login', payload).then((r) => r.data),
   authMe: () => http.get('/auth/me').then((r) => r.data),

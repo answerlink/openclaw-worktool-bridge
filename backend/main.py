@@ -38,6 +38,7 @@ from safe_outbound_http import (
 )
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
 from command_tasks import CommandQueryBusy, list_command_tasks
+from feedback import FeedbackPayload, submit_feedback
 
 APP_VERSION = "4.0.0"
 APP_DEPLOYMENT_MODE = get_deployment_mode()
@@ -5157,6 +5158,11 @@ async def auth_logout_all(user: Dict[str, Any] = Depends(get_current_user)) -> D
     finally:
         conn.close()
     return {"ok": True, "message": "已退出所有设备"}
+
+
+@app.post("/api/v1/feedback")
+async def create_feedback(body: FeedbackPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return await submit_feedback(body, user)
 
 
 @app.get("/api/v1/auth/me")
