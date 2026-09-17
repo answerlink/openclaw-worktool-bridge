@@ -31,6 +31,7 @@ import FeedbackModal from './components/FeedbackModal';
 import { api, clearAccessToken, getAccessToken } from './api';
 import { track, trackPage } from './analytics';
 
+const EnterpriseSharePage = lazy(() => import('./pages/EnterpriseSharePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const RobotPage = lazy(() => import('./pages/RobotPage'));
 const MessageLogPage = lazy(() => import('./pages/MessageLogPage'));
@@ -129,6 +130,14 @@ function ChangePasswordButton({ block = false }: { block?: boolean }) {
 }
 
 export default function App() {
+  const { pathname } = useLocation();
+  if (pathname === '/share/enterprise' || pathname.startsWith('/share/enterprise/')) {
+    return <Suspense fallback={<div className="route-loading"><Spin size="large" /></div>}><EnterpriseSharePage /></Suspense>;
+  }
+  return <ConsoleApp />;
+}
+
+function ConsoleApp() {
   const location = useLocation();
   const navigate = useNavigate();
   const [enableTroubleshoot, setEnableTroubleshoot] = useState(false);

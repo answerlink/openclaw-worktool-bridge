@@ -26,6 +26,7 @@ from Crypto.Util.Padding import pad
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from safe_outbound_http import (
@@ -39,6 +40,7 @@ from safe_outbound_http import (
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
 from command_tasks import CommandQueryBusy, list_command_tasks
 from feedback import FeedbackPayload, submit_feedback
+from enterprise_shares import SHARE_TABLE_SQL, EnterpriseShareStore, public_authorization_record, share_link_data
 
 APP_VERSION = "4.0.0"
 APP_DEPLOYMENT_MODE = get_deployment_mode()
@@ -808,6 +810,7 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cur.execute(SHARE_TABLE_SQL)
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS enterprise_authorization_metadata (
@@ -9111,6 +9114,7 @@ def _delete_enterprise_authorization_metadata(corp_id: str) -> None:
     conn = db_conn()
     try:
         with conn.cursor() as cur:
+            cur.execute("DELETE FROM enterprise_authorization_shares WHERE corp_id=%s", (corp_id,))
             cur.execute("DELETE FROM enterprise_authorization_metadata WHERE corp_id=%s", (corp_id,))
         conn.commit()
     finally:
@@ -9185,7 +9189,101 @@ def _find_wework_authorization_record(raw: Any, corp_id: str) -> Optional[Dict[s
 async def _get_wework_authorization_snapshot(corp_id: str) -> Optional[Dict[str, Any]]:
     list_path = _require_configured_path(WORKTOOL_WEWORK_AUTH_LIST_PATH, "WORKTOOL_WEWORK_AUTH_LIST_PATH")
     raw = await fetch_worktool_api(list_path, {"corpId": corp_id})
+    _ensure_worktool_ok(raw, "查询企业授权")
     return _find_wework_authorization_record(raw, corp_id)
+
+
+class EnterpriseShareRequest(BaseModel):
+    corp_id: str = Field(min_length=1, max_length=128, pattern=r".*\S.*")
+    regenerate: bool = False
+
+
+SHARE_RESPONSE_HEADERS = {
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+}
+
+
+@app.get("/api/v1/admin/wework/authorization/share")
+async def admin_enterprise_share_get(
+    corp_id: str = Query(min_length=1, max_length=128),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_admin(user)
+    _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+    return JSONResponse(share_link_data(EnterpriseShareStore(db_conn).get(corp_id.strip())), headers=SHARE_RESPONSE_HEADERS)
+
+
+@app.post("/api/v1/admin/wework/authorization/share")
+async def admin_enterprise_share_create(
+    body: EnterpriseShareRequest, request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_admin(user)
+    _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+    corp_id = body.corp_id.strip()
+    row = await _get_wework_authorization_snapshot(corp_id)
+    if row is None:
+        raise HTTPException(404, "企业授权不存在，请先保存记录")
+    audit_id = _begin_admin_audit(
+        user, request, module="enterprise_authorization",
+        action_key="share_rotate" if body.regenerate else "share_create",
+        action_name="重新生成分享链接" if body.regenerate else "生成分享链接",
+        target_type="wework_authorization", target_id=corp_id,
+        target_name=str(row.get("corpName") or ""),
+    )
+    try:
+        token = EnterpriseShareStore(db_conn).create(corp_id, body.regenerate)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(audit_id, status="success", after={"sharing_enabled": True})
+    return JSONResponse(share_link_data(token), headers=SHARE_RESPONSE_HEADERS)
+
+
+@app.delete("/api/v1/admin/wework/authorization/share")
+async def admin_enterprise_share_revoke(
+    request: Request, corp_id: str = Query(min_length=1, max_length=128),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_admin(user)
+    _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+    corp_id = corp_id.strip()
+    audit_id = _begin_admin_audit(
+        user, request, module="enterprise_authorization", action_key="share_revoke",
+        action_name="关闭分享", target_type="wework_authorization", target_id=corp_id,
+    )
+    try:
+        EnterpriseShareStore(db_conn).revoke(corp_id)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(audit_id, status="success", after={"sharing_enabled": False})
+    return JSONResponse(share_link_data(None), headers=SHARE_RESPONSE_HEADERS)
+
+
+@app.get("/api/v1/public/enterprise-authorization/{token}")
+async def public_enterprise_authorization(token: str):
+    unavailable = JSONResponse({"detail": "分享链接不存在或已失效"}, status_code=404, headers=SHARE_RESPONSE_HEADERS)
+    if not ENABLE_ADMIN_ENTERPRISE_AUTH:
+        return unavailable
+    store = EnterpriseShareStore(db_conn)
+    corp_id = store.resolve(token)
+    if not corp_id:
+        return unavailable
+    try:
+        row = await _get_wework_authorization_snapshot(corp_id)
+        if row is None:
+            return unavailable
+        deployment_type = _get_enterprise_authorization_metadata([corp_id]).get(corp_id, "all")
+    except HTTPException:
+        # Public errors must not leak the upstream payload or internal configuration.
+        return JSONResponse({"detail": "暂时无法加载企业授权，请稍后重试"}, status_code=502, headers=SHARE_RESPONSE_HEADERS)
+    # A revoke/rotation while the upstream lookup was in flight must take effect too.
+    if store.resolve(token) != corp_id:
+        return unavailable
+    return JSONResponse(public_authorization_record(row, deployment_type), headers=SHARE_RESPONSE_HEADERS)
 
 
 @app.post("/api/v1/admin/wework/authorization/save")

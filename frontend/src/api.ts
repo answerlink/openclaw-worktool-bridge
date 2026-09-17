@@ -92,6 +92,12 @@ export const api = {
     enabled_status?: 'all' | 'enabled' | 'disabled';
   }) =>
     http.get('/admin/wework/authorization/list', { params }).then((r) => r.data),
+  adminEnterpriseShareGet: (corpId: string) =>
+    http.get('/admin/wework/authorization/share', { params: { corp_id: corpId } }).then((r) => r.data),
+  adminEnterpriseShareCreate: (corpId: string, regenerate = false) =>
+    http.post('/admin/wework/authorization/share', { corp_id: corpId, regenerate }).then((r) => r.data),
+  adminEnterpriseShareRevoke: (corpId: string) =>
+    http.delete('/admin/wework/authorization/share', { params: { corp_id: corpId } }).then((r) => r.data),
   adminWeworkAuthorizationSave: (payload: {
     corpId: string;
     corpName?: string;

@@ -4,6 +4,7 @@ import { Alert, Button, Card, Checkbox, DatePicker, Form, Input, Modal, Popconfi
 import { CopyOutlined, DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import HoverPreviewText from '../components/HoverPreviewText';
+import EnterpriseSharePanel from '../components/EnterpriseSharePanel';
 
 interface AuthRow {
   corpId: string;
@@ -668,6 +669,7 @@ export default function EnterpriseAuthorizationPage() {
             <Input.TextArea rows={3} placeholder="首年授权" />
           </Form.Item>
         </Form>
+        {open && editing ? <EnterpriseSharePanel key={editing.corpId} corpId={editing.corpId} onChanged={() => void loadAuditLogs()} /> : null}
       </Modal>
     </Card>
     <Card title="最近企业授权操作记录" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadAuditLogs()} loading={auditLoading}>刷新</Button>}>
