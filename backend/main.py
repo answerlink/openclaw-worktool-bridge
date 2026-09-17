@@ -2584,39 +2584,47 @@ async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any
     # aiohttp query params do not accept None values.
     safe_params = {k: v for k, v in (params or {}).items() if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
-        async with session.get(url, params=safe_params, allow_redirects=False) as resp:
-            raw = await read_limited_text(resp)
-            if resp.status != 200:
-                detail_msg = f"WorkTool 请求失败：HTTP {resp.status}"
-                if raw.strip():
-                    try:
-                        err_data = json.loads(raw)
-                        if isinstance(err_data, dict):
-                            code = err_data.get("code")
-                            upstream_message = err_data.get("message") or err_data.get("msg")
-                            if upstream_message:
-                                detail_msg = f"WorkTool 请求失败：{upstream_message}"
-                                if code is not None:
-                                    detail_msg += f"（code={code}）"
-                    except json.JSONDecodeError:
-                        preview = raw.strip().replace("\n", " ")[:180]
-                        detail_msg = f"WorkTool 请求失败：HTTP {resp.status}，响应：{preview}"
-                raise HTTPException(status_code=502, detail=detail_msg)
-            if not raw.strip():
-                raise HTTPException(status_code=502, detail="worktool response empty")
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                preview = raw.strip().replace("\n", " ")[:200]
-                logger.warning(
-                    "worktool non-json response path=%s status=%s body_preview=%s",
-                    path,
-                    resp.status,
-                    preview,
-                )
-                raise HTTPException(status_code=502, detail="worktool response is not valid json")
-            return data if isinstance(data, dict) else {"data": data}
+    try:
+        async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+            async with session.get(url, params=safe_params, allow_redirects=False) as resp:
+                raw = await read_limited_text(resp)
+                if resp.status != 200:
+                    detail_msg = f"WorkTool 请求失败：HTTP {resp.status}"
+                    if raw.strip():
+                        try:
+                            err_data = json.loads(raw)
+                            if isinstance(err_data, dict):
+                                code = err_data.get("code")
+                                upstream_message = err_data.get("message") or err_data.get("msg")
+                                if upstream_message:
+                                    detail_msg = f"WorkTool 请求失败：{upstream_message}"
+                                    if code is not None:
+                                        detail_msg += f"（code={code}）"
+                        except json.JSONDecodeError:
+                            preview = raw.strip().replace("\n", " ")[:180]
+                            detail_msg = f"WorkTool 请求失败：HTTP {resp.status}，响应：{preview}"
+                    raise HTTPException(status_code=502, detail=detail_msg)
+                if not raw.strip():
+                    raise HTTPException(status_code=502, detail="worktool response empty")
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    preview = raw.strip().replace("\n", " ")[:200]
+                    logger.warning(
+                        "worktool non-json response path=%s status=%s body_preview=%s",
+                        path,
+                        resp.status,
+                        preview,
+                    )
+                    raise HTTPException(status_code=502, detail="worktool response is not valid json")
+                return data if isinstance(data, dict) else {"data": data}
+    except asyncio.TimeoutError as exc:
+        logger.warning("worktool_request_timeout path=%s timeout_seconds=10", path)
+        raise HTTPException(status_code=504, detail="WorkTool 上游查询超时，请稍后重试或缩小查询范围") from exc
+    except aiohttp.ClientError as exc:
+        logger.warning("worktool_request_failed path=%s error_type=%s", path, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="WorkTool 上游连接失败，请稍后重试") from exc
+
 
 
 async def validate_worktool_robot_exists(robot_id: str) -> Dict[str, Any]:

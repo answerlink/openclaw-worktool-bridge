@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -343,16 +344,24 @@ async def _fetch_worktool_api_loose(api_base: str, path: str, params: Dict[str, 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     timeout = aiohttp.ClientTimeout(total=10)
-    async with safe_outbound_session(timeout, deployment_mode=deployment_mode) as session:
-        async with session.get(url, params=params, allow_redirects=False) as resp:
-            raw = await read_limited_text(resp)
-            if resp.status != 200:
-                raise HTTPException(status_code=502, detail=f"worktool request failed: status={resp.status}")
-            try:
-                data = json.loads(raw) if raw else {}
-            except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=502, detail="worktool response is not valid json") from exc
-            return data if isinstance(data, dict) else {"data": data}
+    try:
+        async with safe_outbound_session(timeout, deployment_mode=deployment_mode) as session:
+            async with session.get(url, params=params, allow_redirects=False) as resp:
+                raw = await read_limited_text(resp)
+                if resp.status != 200:
+                    raise HTTPException(status_code=502, detail=f"worktool request failed: status={resp.status}")
+                try:
+                    data = json.loads(raw) if raw else {}
+                except json.JSONDecodeError as exc:
+                    raise HTTPException(status_code=502, detail="worktool response is not valid json") from exc
+                return data if isinstance(data, dict) else {"data": data}
+    except asyncio.TimeoutError as exc:
+        logger.warning("worktool_request_timeout path=%s timeout_seconds=10", path)
+        raise HTTPException(status_code=504, detail="WorkTool 上游查询超时，请稍后重试或缩小查询范围") from exc
+    except aiohttp.ClientError as exc:
+        logger.warning("worktool_request_failed path=%s error_type=%s", path, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="WorkTool 上游连接失败，请稍后重试") from exc
+
 
 
 async def _fetch_qa_logs_page(
