@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, AutoComplete, Button, Card, Col, Descriptions, Input, InputNumber, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { api } from '../api';
 import HoverPreviewText from '../components/HoverPreviewText';
 
@@ -15,6 +16,13 @@ const RECENT_TROUBLESHOOT_QUERIES_KEY = 'troubleshoot_recent_queries';
 const MAX_RECENT_TROUBLESHOOT_QUERIES = 10;
 
 type RecentTroubleshootQuery = { robot_id: string; message_id: string };
+
+function formatLoginTime(value: unknown): string {
+  if (value === null || value === undefined || value === '' || value === '-') return '-';
+  const raw = String(value).trim();
+  const date = dayjs(/^\d+$/.test(raw) ? Number(raw) : raw);
+  return date.isValid() ? date.format('YYYY-MM-DD HH:mm:ss') : '-';
+}
 
 function readRecentQueries(): RecentTroubleshootQuery[] {
   try {
@@ -188,7 +196,7 @@ export default function TroubleshootPage() {
           <Descriptions column={2} size="small" bordered>
             {Object.entries(robotStatus).map(([k, v]) => (
               <Descriptions.Item key={k} label={k}>
-                {typeof v === 'boolean' ? <Tag color={v ? 'blue' : 'red'}>{v ? '是' : '否'}</Tag> : String(v ?? '-')}
+                {typeof v === 'boolean' ? <Tag color={v ? 'blue' : 'red'}>{v ? '是' : '否'}</Tag> : k === '最近登录' ? formatLoginTime(v) : String(v ?? '-')}
               </Descriptions.Item>
             ))}
           </Descriptions>

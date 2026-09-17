@@ -216,6 +216,22 @@ def _mysql_table_query(
     return _worktool_mysql_query(sql, params)
 
 
+def _mysql_robot_connect_logs(
+    robot_id: str, keyword: str, start_time: str, end_time: str, limit: int = 3,
+) -> List[Dict[str, Any]]:
+    where_sql, params = _mysql_build_where(
+        robot_id=robot_id, message_id="", keyword=keyword,
+        start_time=start_time, end_time=end_time,
+        robot_field="robot_id", time_field="create_time", keyword_fields=["log", "ip"],
+    )
+    # Filter connection events before LIMIT; newer unrelated logs must not hide them.
+    where_sql += (" AND " if where_sql else " WHERE ") + "log LIKE %s"
+    params.extend(["%连接建立%", limit])
+    return _worktool_mysql_query(
+        f"SELECT * FROM robot_log{where_sql} ORDER BY id DESC LIMIT %s", params,
+    )
+
+
 def _sanitize_mysql_raw_message_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
         {
@@ -662,21 +678,9 @@ async def run_troubleshoot_search(
         time_field="create_time",
         keyword_fields=["raw_msg", "error_reason", "success_list", "fail_list"],
     )
-    robot_log_limit = 3
-    mysql_robot_log_rows = _mysql_table_query(
-        table="robot_log",
-        robot_id=robot_id,
-        message_id="",
-        keyword=keyword,
-        start_time=start_time,
-        end_time=end_time,
-        limit=robot_log_limit,
-        robot_field="robot_id",
-        message_field=None,
-        time_field="create_time",
-        keyword_fields=["log", "ip"],
+    mysql_robot_log_rows = _mysql_robot_connect_logs(
+        robot_id=robot_id, keyword=keyword, start_time=start_time, end_time=end_time,
     )
-    mysql_robot_log_rows = [x for x in mysql_robot_log_rows if "连接建立" in str(x.get("log") or "")]
     raw_message_rows = (
         _sanitize_mysql_raw_message_rows(mysql_raw_message_rows)
         if mysql_raw_message_rows
