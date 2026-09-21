@@ -24,6 +24,12 @@ export default function ChatbotLauncher() {
   const draggedRef = useRef(false);
 
   useEffect(() => {
+    const openAssistant = () => setOpen(true);
+    window.addEventListener('worktool-open-chatbot', openAssistant);
+    return () => window.removeEventListener('worktool-open-chatbot', openAssistant);
+  }, []);
+
+  useEffect(() => {
     try { localStorage.setItem(CHATBOT_POSITION_KEY, JSON.stringify(position)); } catch { /* ignore storage errors */ }
   }, [position]);
 

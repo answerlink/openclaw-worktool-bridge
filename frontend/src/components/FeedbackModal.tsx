@@ -35,6 +35,7 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [noRobotPrompt, setNoRobotPrompt] = useState(false);
   const processingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const kind = Form.useWatch('kind', form);
@@ -80,12 +81,17 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
     }
   };
 
-  const submit = async () => {
+  const submit = async (forceWithoutRobot = false) => {
     const values = await form.validateFields().catch(() => null);
     if (!values) return;
+    const robotId = getLastSelectedRobotId() || '';
+    if (!robotId.trim() && !forceWithoutRobot && document.querySelector('.chatbot-shell')) {
+      setNoRobotPrompt(true);
+      return;
+    }
     setBusy(true);
     try {
-      await api.submitFeedback({ ...values, contact: values.contact || '', page: window.location.pathname.slice(0, 300), robot_id: getLastSelectedRobotId() || '', images });
+      await api.submitFeedback({ ...values, contact: values.contact || '', page: window.location.pathname.slice(0, 300), robot_id: robotId, images });
       message.success('反馈已发送，感谢你的建议！');
       form.resetFields();
       setImages([]);
@@ -98,7 +104,33 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
     }
   };
 
+  const openAssistant = async () => {
+    if (!document.querySelector('.chatbot-shell')) {
+      setNoRobotPrompt(false);
+      void submit(true);
+      return;
+    }
+    const prompt = String(form.getFieldValue('description') || '').trim();
+    setNoRobotPrompt(false);
+    onClose();
+    window.dispatchEvent(new CustomEvent('worktool-open-chatbot', {
+      detail: { prompt },
+    }));
+    try {
+      if (prompt) await navigator.clipboard.writeText(prompt);
+      message.info(prompt ? '已打开在线助手，问题内容已复制，请粘贴后发送。' : '已打开在线助手，请直接描述你的问题。');
+    } catch {
+      message.info('已打开在线助手；请将问题复制到对话框发送。');
+    }
+  };
+
+  const continueSubmit = () => {
+    setNoRobotPrompt(false);
+    window.setTimeout(() => void submit(true), 0);
+  };
+
   return (
+    <>
     <Modal rootClassName="feedback-modal-root" title="建议与反馈" open={open && !capturing} onCancel={onClose} onOk={() => void submit()}
       okText="提交反馈" cancelText="关闭" confirmLoading={busy} closable={!busy && !processing}
       maskClosable={!busy && !processing} keyboard={!busy && !processing}
@@ -141,5 +173,24 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
         </Form>
       </div>
     </Modal>
+    <Modal
+      title="建议先使用在线助手"
+      open={noRobotPrompt}
+      onCancel={() => setNoRobotPrompt(false)}
+      footer={(
+        <Space>
+          <Button onClick={() => setNoRobotPrompt(false)}>返回修改</Button>
+          <Button type="primary" onClick={openAssistant}>打开在线助手</Button>
+          <Button onClick={continueSubmit}>仍然提交反馈</Button>
+        </Space>
+      )}
+      width={520}
+    >
+      <Typography.Paragraph>
+        当前没有选择机器人。建议先使用右下角的在线助手，通常可以更快解决问题；如果仍需反馈，也可以继续提交。
+      </Typography.Paragraph>
+      <Typography.Text type="secondary">打开助手时会尝试复制你的问题，粘贴后即可发送。已填写的反馈会保留。</Typography.Text>
+    </Modal>
+    </>
   );
 }
