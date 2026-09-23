@@ -67,6 +67,7 @@ class EnterpriseShareTests(unittest.TestCase):
             patch.object(main, 'WORKTOOL_WEWORK_AUTH_DELETE_PATH', '/authorization/delete'),
             patch.object(main, 'fetch_worktool_api', new=AsyncMock(side_effect=lambda *args: {'code': 200, 'data': list(self.rows)})),
             patch.object(main, '_get_enterprise_authorization_metadata', return_value={'corp-a': 'saas'}),
+            patch.object(main, '_get_enterprise_authorization_created_at', return_value={}),
             patch.object(main, '_begin_admin_audit', return_value=1),
             patch.object(main, '_finish_admin_audit'),
         ]

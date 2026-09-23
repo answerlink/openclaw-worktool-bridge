@@ -12,6 +12,7 @@ interface AuthRow {
   agentId?: string;
   isEnabled?: boolean;
   expireTime?: string;
+  createdAt?: string;
   remark?: string;
   deploymentType?: 'all' | 'saas' | 'private';
 }
@@ -76,6 +77,10 @@ function calculateRobotLimit(startText: string, endText: string) {
     throw new Error(`机器人 ID 范围过大，最多 ${MAX_ROBOT_SCOPE} 个。`);
   }
   return limit;
+}
+
+function compareText(left: unknown, right: unknown) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'zh-CN');
 }
 
 function PrivateLicenseGenerator() {
@@ -432,23 +437,26 @@ export default function EnterpriseAuthorizationPage() {
 
   const columns = useMemo(
     () => [
-      { title: 'CorpId', dataIndex: 'corpId', width: 220, render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
-      { title: '企业名称', dataIndex: 'corpName', width: 160, render: (v: string | undefined) => v || '-' },
-      { title: 'AgentId', dataIndex: 'agentId', width: 120, render: (v: string | undefined) => v || '-' },
+      { title: 'CorpId', dataIndex: 'corpId', width: 220, sorter: (a: AuthRow, b: AuthRow) => compareText(a.corpId, b.corpId), render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
+      { title: '企业名称', dataIndex: 'corpName', width: 160, sorter: (a: AuthRow, b: AuthRow) => compareText(a.corpName, b.corpName), render: (v: string | undefined) => v || '-' },
+      { title: 'AgentId', dataIndex: 'agentId', width: 120, sorter: (a: AuthRow, b: AuthRow) => compareText(a.agentId, b.agentId), render: (v: string | undefined) => v || '-' },
       {
         title: '部署类型',
         dataIndex: 'deploymentType',
         width: 110,
+        sorter: (a: AuthRow, b: AuthRow) => compareText(a.deploymentType, b.deploymentType),
         render: (v: AuthRow['deploymentType']) => <Tag color={v === 'private' ? 'purple' : v === 'saas' ? 'blue' : 'default'}>{v === 'private' ? 'Private' : v === 'saas' ? 'SaaS' : '全部'}</Tag>,
       },
       {
         title: '状态',
         dataIndex: 'isEnabled',
         width: 100,
+        sorter: (a: AuthRow, b: AuthRow) => Number(Boolean(a.isEnabled)) - Number(Boolean(b.isEnabled)),
         render: (v: boolean | undefined) => <Tag color={v ? 'green' : 'default'}>{v ? '启用' : '停用'}</Tag>,
       },
-      { title: '到期时间', dataIndex: 'expireTime', width: 180, render: (v: string | undefined) => v || '-' },
-      { title: '备注', dataIndex: 'remark', render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={260} popupWidth={760} /> },
+      { title: '到期时间', dataIndex: 'expireTime', width: 180, sorter: (a: AuthRow, b: AuthRow) => compareText(a.expireTime, b.expireTime), render: (v: string | undefined) => v || '-' },
+      { title: '创建时间', dataIndex: 'createdAt', width: 180, sorter: (a: AuthRow, b: AuthRow) => compareText(a.createdAt, b.createdAt), render: (v: string | undefined) => v || '-' },
+      { title: '备注', dataIndex: 'remark', sorter: (a: AuthRow, b: AuthRow) => compareText(a.remark, b.remark), render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={260} popupWidth={760} /> },
       {
         title: '操作',
         width: 250,
@@ -627,7 +635,7 @@ export default function EnterpriseAuthorizationPage() {
         loading={loading}
         columns={columns}
         pagination={false}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1280 }}
         locale={{ emptyText: '暂无企业授权' }}
       />
 

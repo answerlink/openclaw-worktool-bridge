@@ -9219,6 +9219,28 @@ def _get_enterprise_authorization_metadata(corp_ids: List[str]) -> Dict[str, str
         conn.close()
 
 
+def _get_enterprise_authorization_created_at(corp_ids: List[str]) -> Dict[str, str]:
+    targets = [corp_id for corp_id in corp_ids if corp_id]
+    if not targets:
+        return {}
+    placeholders = ",".join(["%s"] * len(targets))
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT corp_id,created_at FROM enterprise_authorization_metadata WHERE corp_id IN ({placeholders})",
+                targets,
+            )
+            rows = cur.fetchall() or []
+        return {
+            str(row.get("corp_id") or ""): str(row.get("created_at") or "")
+            for row in rows
+            if row.get("created_at") is not None
+        }
+    finally:
+        conn.close()
+
+
 def _save_enterprise_authorization_metadata(corp_id: str, deployment_type: str) -> None:
     conn = db_conn()
     try:
@@ -9269,11 +9291,15 @@ async def admin_wework_authorization_list(
     metadata = _get_enterprise_authorization_metadata([
         str(row.get("corpId") or row.get("corp_id") or "").strip() for row in rows
     ])
+    created_at = _get_enterprise_authorization_created_at([
+        str(row.get("corpId") or row.get("corp_id") or "").strip() for row in rows
+    ])
     items = []
     for row in rows:
         item = dict(row)
         corp = str(item.get("corpId") or item.get("corp_id") or "").strip()
         item["deploymentType"] = metadata.get(corp, "all")
+        item["createdAt"] = item.get("createdAt") or item.get("createTime") or item.get("created_at") or created_at.get(corp, "")
         expired = _wework_authorization_is_expired(item)
         enabled = _wework_authorization_is_enabled(item)
         if deployment_type != "all" and item["deploymentType"] != deployment_type:
