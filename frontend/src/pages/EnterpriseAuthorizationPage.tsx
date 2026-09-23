@@ -451,7 +451,7 @@ export default function EnterpriseAuthorizationPage() {
       { title: '备注', dataIndex: 'remark', render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={260} popupWidth={760} /> },
       {
         title: '操作',
-        width: 180,
+        width: 250,
         render: (_: any, row: AuthRow) => (
           <Space>
             <Button
@@ -471,6 +471,26 @@ export default function EnterpriseAuthorizationPage() {
               }}
             >
               编辑
+            </Button>
+            <Button
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => {
+                setEditing(null);
+                form.resetFields();
+                form.setFieldsValue({
+                  corpId: row.corpId,
+                  corpName: row.corpName || '',
+                  agentId: row.agentId || '',
+                  isEnabled: row.isEnabled !== false,
+                  expireTime: row.expireTime ? dayjs(row.expireTime) : null,
+                  remark: row.remark || '',
+                  deploymentType: row.deploymentType || 'all',
+                });
+                setOpen(true);
+              }}
+            >
+              复制
             </Button>
             <Popconfirm
               title={`确认删除企业授权 ${row.corpId}？`}
