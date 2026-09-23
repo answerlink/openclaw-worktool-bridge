@@ -33,6 +33,9 @@ async def _run_loop() -> None:
             done = int(res.get('done') or 0)
             if picked > 0:
                 logger.info('scheduler tick picked=%s done=%s', picked, done)
+            reminder = await main.run_enterprise_authorization_expiry_reminders_tick()
+            if not reminder.get('skipped') and (int(reminder.get('sent') or 0) > 0 or int(reminder.get('failed') or 0) > 0):
+                logger.info('enterprise authorization expiry reminders sent=%s failed=%s', reminder.get('sent'), reminder.get('failed'))
         except Exception as e:
             logger.exception('scheduler tick failed err=%s', str(e))
         await asyncio.sleep(POLL_SECONDS)

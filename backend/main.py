@@ -10,7 +10,7 @@ import secrets
 import shlex
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 from urllib.parse import quote
@@ -39,7 +39,7 @@ from safe_outbound_http import (
 )
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
 from command_tasks import CommandQueryBusy, list_command_tasks
-from feedback import FeedbackPayload, submit_feedback
+from feedback import FeedbackPayload, send_wecom_text, submit_feedback, wecom_webhook_url
 from enterprise_shares import SHARE_TABLE_SQL, EnterpriseShareStore, public_authorization_record, share_link_data
 
 APP_VERSION = "4.0.0"
@@ -820,6 +820,21 @@ def init_db() -> None:
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   PRIMARY KEY (corp_id),
                   INDEX idx_eam_deployment_type (deployment_type)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS enterprise_authorization_expiry_reminders (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  corp_id VARCHAR(128) NOT NULL,
+                  expire_date DATE NOT NULL,
+                  notice_days TINYINT UNSIGNED NOT NULL,
+                  status ENUM('pending','sent') NOT NULL DEFAULT 'pending',
+                  sent_at DATETIME NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  UNIQUE KEY uk_eaer_corp_expire_notice (corp_id, expire_date, notice_days),
+                  INDEX idx_eaer_expire_date (expire_date)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -9073,6 +9088,117 @@ def _wework_authorization_expire_sort_key(row: Dict[str, Any]) -> tuple:
     if expire_at.tzinfo is not None:
         expire_at = expire_at.astimezone().replace(tzinfo=None)
     return (1, expire_at.strftime("%Y-%m-%dT%H:%M:%S.%f"))
+
+
+def _wework_authorization_expire_date(row: Dict[str, Any]) -> Optional[date]:
+    raw = str(row.get("expireTime") or row.get("expire_time") or "").strip()
+    if not raw:
+        return None
+    try:
+        expire_at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        match = re.search(r"\d{4}-\d{2}-\d{2}", raw)
+        if not match:
+            return None
+        try:
+            return datetime.strptime(match.group(0), "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    if expire_at.tzinfo is not None:
+        expire_at = expire_at.astimezone(timezone(timedelta(hours=8))).replace(tzinfo=None)
+    return expire_at.date()
+
+
+def _reserve_enterprise_authorization_expiry_reminder(corp_id: str, expire_date: date, notice_days: int) -> bool:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT IGNORE INTO enterprise_authorization_expiry_reminders(corp_id,expire_date,notice_days)
+                VALUES(%s,%s,%s)
+                """,
+                (corp_id, expire_date, notice_days),
+            )
+            reserved = cur.rowcount == 1
+        conn.commit()
+        return reserved
+    finally:
+        conn.close()
+
+
+def _finish_enterprise_authorization_expiry_reminder(corp_id: str, expire_date: date, notice_days: int) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE enterprise_authorization_expiry_reminders
+                SET status='sent',sent_at=CURRENT_TIMESTAMP
+                WHERE corp_id=%s AND expire_date=%s AND notice_days=%s
+                """,
+                (corp_id, expire_date, notice_days),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _release_enterprise_authorization_expiry_reminder(corp_id: str, expire_date: date, notice_days: int) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM enterprise_authorization_expiry_reminders WHERE corp_id=%s AND expire_date=%s AND notice_days=%s AND status='pending'",
+                (corp_id, expire_date, notice_days),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def run_enterprise_authorization_expiry_reminders_tick(now: Optional[datetime] = None) -> Dict[str, Any]:
+    current = now or datetime.now(timezone(timedelta(hours=8)))
+    if current.hour != 10 or current.minute != 30:
+        return {"skipped": True, "reason": "outside_schedule"}
+    if not ENABLE_ADMIN_ENTERPRISE_AUTH or not WORKTOOL_WEWORK_AUTH_LIST_PATH:
+        return {"skipped": True, "reason": "not_configured"}
+    try:
+        wecom_webhook_url()
+        raw = await fetch_worktool_api(WORKTOOL_WEWORK_AUTH_LIST_PATH, {})
+        _ensure_worktool_ok(raw, "查询企业授权到期提醒")
+    except Exception as exc:
+        logger.warning("enterprise authorization expiry reminder scan failed: %s", exc)
+        return {"skipped": False, "sent": 0, "failed": 1}
+
+    sent = 0
+    failed = 0
+    today = current.date()
+    for row in _wework_authorization_rows(raw):
+        corp_id = str(row.get("corpId") or row.get("corp_id") or "").strip()
+        expire_date = _wework_authorization_expire_date(row)
+        if not corp_id or expire_date is None:
+            continue
+        notice_days = (expire_date - today).days
+        if notice_days not in {15, 5} or not _reserve_enterprise_authorization_expiry_reminder(corp_id, expire_date, notice_days):
+            continue
+        corp_name = str(row.get("corpName") or row.get("corp_name") or "未命名企业").strip() or "未命名企业"
+        try:
+            await send_wecom_text(
+                "【企业定制开通到期提醒】\n"
+                f"企业：{corp_name}\n"
+                f"CorpId：{corp_id}\n"
+                f"到期时间：{str(row.get('expireTime') or row.get('expire_time') or expire_date.isoformat()).strip()}\n"
+                f"剩余：{notice_days} 天\n"
+                "请及时确认是否续期。"
+            )
+            _finish_enterprise_authorization_expiry_reminder(corp_id, expire_date, notice_days)
+            sent += 1
+        except Exception as exc:
+            _release_enterprise_authorization_expiry_reminder(corp_id, expire_date, notice_days)
+            failed += 1
+            logger.warning("enterprise authorization expiry reminder failed corp_id=%s: %s", corp_id, exc)
+    return {"skipped": False, "sent": sent, "failed": failed}
 
 
 def _get_enterprise_authorization_metadata(corp_ids: List[str]) -> Dict[str, str]:

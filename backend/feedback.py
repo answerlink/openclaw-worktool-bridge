@@ -49,12 +49,31 @@ async def post_message(session, url: str, payload: dict):
             raise ValueError('wecom delivery failure')
 
 
-async def submit_feedback(body: FeedbackPayload, user: dict) -> dict:
+def wecom_webhook_url() -> str:
     url = os.getenv('FEEDBACK_WECOM_WEBHOOK_URL', '').strip()
     parsed = urlsplit(url)
     if (parsed.scheme != 'https' or parsed.netloc != 'qyapi.weixin.qq.com' or
             parsed.path != '/cgi-bin/webhook/send' or not parse_qs(parsed.query).get('key')):
-        raise HTTPException(503, '建议与反馈暂未配置，请联系管理员')
+        raise HTTPException(503, '企微通知机器人暂未配置，请联系管理员')
+    return url
+
+
+async def send_wecom_text(content: str) -> None:
+    text = content.strip()
+    if not text:
+        raise ValueError('wecom message is empty')
+    if len(text.encode('utf-8')) > 2048:
+        raise ValueError('wecom text message is too long')
+    try:
+        async with asyncio.timeout(15):
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                await post_message(session, wecom_webhook_url(), {'msgtype': 'text', 'text': {'content': text}})
+    except (aiohttp.ClientError, TimeoutError, ValueError):
+        raise HTTPException(502, '企微通知发送失败，请稍后重试') from None
+
+
+async def submit_feedback(body: FeedbackPayload, user: dict) -> dict:
+    url = wecom_webhook_url()
     if not body.description.strip():
         raise HTTPException(400, '请填写反馈内容')
     images = [image_message(value) for value in body.images]
