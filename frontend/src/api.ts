@@ -55,6 +55,9 @@ http.interceptors.response.use(
 );
 
 export const api = {
+  adminTestCallbackAddress: () => http.get('/admin/test-callback').then((r) => r.data),
+  adminTestCallbackRequests: (params: { page: number; page_size: number }) =>
+    http.get('/admin/test-callback/requests', { params }).then((r) => r.data),
   submitFeedback: (payload: { kind: 'problem' | 'suggestion'; description: string; contact: string; page: string; robot_id: string; images: string[] }) =>
     http.post('/feedback', payload, { timeout: 65000 }).then((r) => r.data),
   authConfig: () => http.get('/auth/config').then((r) => r.data),

@@ -57,6 +57,7 @@ const RobotMigratePage = lazy(() => import('./pages/RobotMigratePage'));
 const AppManagementPage = lazy(() => import('./pages/AppManagementPage'));
 const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'));
 const ManualOrderPage = lazy(() => import('./pages/ManualOrderPage'));
+const TestCallbackPage = lazy(() => import('./pages/TestCallbackPage'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -351,6 +352,7 @@ function ConsoleApp() {
         if (enableAdminEnterpriseAuth) {
           adminItems.push({ key: '/enterprise-authorization', icon: <BuildOutlined />, label: <Link to="/enterprise-authorization">企业定制开通</Link> });
           adminItems.push({ key: '/private-license', icon: <SafetyCertificateOutlined />, label: <Link to="/private-license">私有化授权</Link> });
+          adminItems.push({ key: '/test-callback', icon: <ApiOutlined />, label: <Link to="/test-callback">测试回调地址</Link> });
         }
       }
 
@@ -447,6 +449,7 @@ function ConsoleApp() {
         {isAdmin && isSaasDeployment && enableAdminIpBlacklist ? <Route path="/ip-blacklist" element={<IpBlacklistPage />} /> : <Route path="/ip-blacklist" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/test-callback" element={<TestCallbackPage />} /> : <Route path="/test-callback" element={<Navigate to="/dashboard" replace />} />}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>

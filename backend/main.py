@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 from urllib.parse import quote
+from urllib.parse import urlsplit
 
 import aiohttp
 import jwt
@@ -725,6 +726,32 @@ def init_db() -> None:
                   INDEX idx_manual_order_status_time (status, ordered_at),
                   INDEX idx_manual_order_customer (customer_name),
                   CONSTRAINT fk_manual_order_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_callback_addresses (
+                  user_id BIGINT PRIMARY KEY,
+                  token VARCHAR(64) NOT NULL UNIQUE,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  CONSTRAINT fk_test_callback_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_callback_requests (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  user_id BIGINT NOT NULL,
+                  method VARCHAR(12) NOT NULL,
+                  source_ip VARCHAR(64) NOT NULL,
+                  content_type VARCHAR(255) NULL,
+                  query_string TEXT NULL,
+                  body_text MEDIUMTEXT NULL,
+                  received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  INDEX idx_test_callback_user_id (user_id,id),
+                  CONSTRAINT fk_test_callback_request_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -8497,7 +8524,26 @@ async def test_robot_message_callback(body: MessageCallbackPayload, user: Dict[s
 async def test_robot_callback(body: CallbackTestPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     _ = user
     callback_url = await _validate_user_outbound_url(body.callback_url)
-    return {"ok": True, "callback_url": callback_url}
+    base = normalize_public_base_url(APP_PUBLIC_BASE_URL or CALLBACK_PUBLIC_BASE_URL_FIXED_RAW)
+    target = urlsplit(callback_url)
+    public = urlsplit(base) if base else None
+    if not public or (target.scheme, target.netloc) != (public.scheme, public.netloc) or not target.path.startswith("/test_callback_url/"):
+        return {"ok": True, "callback_url": callback_url, "request_sent": False}
+    timeout = aiohttp.ClientTimeout(total=8)
+    try:
+        async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+            async with session.post(callback_url, data=b"", allow_redirects=False) as resp:
+                raw = await read_limited_text(resp)
+                if resp.status != 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"测试失败：回调地址返回 HTTP {resp.status}，响应: {_short_text(raw or '', 220)}",
+                    )
+        return {"ok": True, "callback_url": callback_url, "status": 200, "request_sent": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"测试失败：{exc}") from exc
 
 
 @app.post("/api/v1/robot-info/message-callback/bind")
@@ -10577,6 +10623,102 @@ async def admin_app_update_enable(
         conn.rollback()
         if "audit_id" in locals():
             _audit_failure(audit_id, exc)
+        raise
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/admin/test-callback")
+async def admin_test_callback_address(request: Request, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    _require_admin(user)
+    user_id = int(user["id"])
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT token FROM test_callback_addresses WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                token = secrets.token_urlsafe(32)
+                cur.execute(
+                    "INSERT IGNORE INTO test_callback_addresses(user_id,token) VALUES(%s,%s)",
+                    (user_id, token),
+                )
+                conn.commit()
+                cur.execute("SELECT token FROM test_callback_addresses WHERE user_id=%s", (user_id,))
+                row = cur.fetchone()
+        base = normalize_public_base_url(APP_PUBLIC_BASE_URL or CALLBACK_PUBLIC_BASE_URL_FIXED_RAW)
+        if not base:
+            base = str(request.base_url).rstrip("/")
+        return {"url": f"{base}/test_callback_url/{row['token']}"}
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/admin/test-callback/requests")
+async def admin_test_callback_requests(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS total FROM test_callback_requests WHERE user_id=%s", (int(user["id"]),))
+            total = int((cur.fetchone() or {}).get("total") or 0)
+            cur.execute(
+                """SELECT id,method,source_ip,content_type,query_string,body_text,received_at
+                   FROM test_callback_requests WHERE user_id=%s ORDER BY id DESC LIMIT %s OFFSET %s""",
+                (int(user["id"]), page_size, (page - 1) * page_size),
+            )
+            rows = cur.fetchall() or []
+        for row in rows:
+            if isinstance(row.get("received_at"), datetime):
+                row["received_at"] = row["received_at"].strftime("%Y-%m-%d %H:%M:%S")
+        return {"items": rows, "total": total, "page": page, "page_size": page_size}
+    finally:
+        conn.close()
+
+
+@app.api_route("/test_callback_url/{token}", methods=["GET", "POST", "PUT", "PATCH"])
+async def receive_test_callback(token: str, request: Request) -> Dict[str, Any]:
+    if len(token) > 64:
+        raise HTTPException(status_code=404, detail="回调地址不存在")
+    try:
+        content_length = int(request.headers.get("content-length") or "0")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Content-Length 无效")
+    if content_length > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="请求体超过 1 MB")
+    body = await request.body()
+    if len(body) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="请求体超过 1 MB")
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id FROM test_callback_addresses WHERE token=%s FOR UPDATE", (token,))
+            address = cur.fetchone()
+            if not address:
+                raise HTTPException(status_code=404, detail="回调地址不存在")
+            user_id = int(address["user_id"])
+            cur.execute(
+                """INSERT INTO test_callback_requests(user_id,method,source_ip,content_type,query_string,body_text)
+                   VALUES(%s,%s,%s,%s,%s,%s)""",
+                (user_id, request.method, _request_source_ip(request),
+                 (request.headers.get("content-type") or "")[:255],
+                 request.url.query[:4096], body.decode("utf-8", errors="replace")),
+            )
+            cur.execute(
+                "SELECT id FROM test_callback_requests WHERE user_id=%s ORDER BY id DESC LIMIT 1 OFFSET 999",
+                (user_id,),
+            )
+            cutoff = cur.fetchone()
+            if cutoff:
+                cur.execute("DELETE FROM test_callback_requests WHERE user_id=%s AND id<%s", (user_id, cutoff["id"]))
+        conn.commit()
+        return {"code": 0, "message": "success"}
+    except Exception:
+        conn.rollback()
         raise
     finally:
         conn.close()

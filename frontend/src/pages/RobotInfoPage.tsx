@@ -223,10 +223,11 @@ export default function RobotInfoPage() {
     try {
       if (tabKey === 'message') {
         await api.testRobotMessageCallback(selectedRobotId as string, callbackInput.trim());
+        message.success('测试通过：目标地址已返回 HTTP 200');
       } else {
-        await api.testRobotCallback2xx(callbackInput.trim());
+        const result = await api.testRobotCallback2xx(callbackInput.trim());
+        message.success(result.request_sent ? '测试通过：已发送空请求并收到 HTTP 200' : '地址格式校验通过，未发送请求');
       }
-      message.success('测试通过');
     } catch (e: any) {
       Modal.error({
         title: '测试失败',
