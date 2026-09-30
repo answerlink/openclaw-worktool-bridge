@@ -58,6 +58,7 @@ const AppManagementPage = lazy(() => import('./pages/AppManagementPage'));
 const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'));
 const ManualOrderPage = lazy(() => import('./pages/ManualOrderPage'));
 const TestCallbackPage = lazy(() => import('./pages/TestCallbackPage'));
+const BackendNodePage = lazy(() => import('./pages/BackendNodePage'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -354,6 +355,7 @@ function ConsoleApp() {
           adminItems.push({ key: '/private-license', icon: <SafetyCertificateOutlined />, label: <Link to="/private-license">私有化授权</Link> });
           adminItems.push({ key: '/test-callback', icon: <ApiOutlined />, label: <Link to="/test-callback">测试回调地址</Link> });
         }
+        adminItems.push({ key: '/backend-nodes', icon: <BuildOutlined />, label: <Link to="/backend-nodes">后端节点维护</Link> });
       }
 
       baseItems.push({ type: 'divider' });
@@ -450,6 +452,7 @@ function ConsoleApp() {
         {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/enterprise-authorization" element={<EnterpriseAuthorizationPage />} /> : <Route path="/enterprise-authorization" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/private-license" element={<PrivateLicenseAuthorizationPage />} /> : <Route path="/private-license" element={<Navigate to="/dashboard" replace />} />}
         {isAdmin && isSaasDeployment && enableAdminEnterpriseAuth ? <Route path="/test-callback" element={<TestCallbackPage />} /> : <Route path="/test-callback" element={<Navigate to="/dashboard" replace />} />}
+        {isAdmin && isSaasDeployment ? <Route path="/backend-nodes" element={<BackendNodePage />} /> : <Route path="/backend-nodes" element={<Navigate to="/dashboard" replace />} />}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>

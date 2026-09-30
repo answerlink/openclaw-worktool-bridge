@@ -1852,6 +1852,12 @@ class CallbackTestPayload(BaseModel):
     callback_url: str
 
 
+class NodeDrainRequest(BaseModel):
+    target_ip: str
+    target_port: int = Field(ge=1, le=65535)
+    reason: str = "manual-maintenance"
+
+
 class GroupTagCreateRequest(BaseModel):
     name: str
 
@@ -10626,6 +10632,89 @@ async def admin_app_update_enable(
         raise
     finally:
         conn.close()
+
+
+def _node_diagnostics_data(response: Dict[str, Any]) -> Dict[str, Any]:
+    if str(response.get("code")) not in {"0", "200"} or not isinstance(response.get("data"), dict):
+        raise HTTPException(status_code=502, detail=str(response.get("message") or "节点诊断结果异常"))
+    return response["data"]
+
+
+@app.get("/api/v1/admin/backend-nodes")
+async def admin_backend_nodes(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    _require_admin(user)
+    return _node_diagnostics_data(await fetch_worktool_renew_api("/robot/node/diagnostics", {}))
+
+
+@app.post("/api/v1/admin/backend-nodes/drain/{action}")
+async def admin_backend_node_drain(
+    action: Literal["start", "stop"],
+    body: NodeDrainRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    diagnostics = _node_diagnostics_data(await fetch_worktool_renew_api("/robot/node/diagnostics", {}))
+    nodes = diagnostics.get("nodes") or []
+    target = next(
+        (node for node in nodes if isinstance(node, dict) and node.get("ip") == body.target_ip
+         and int(node.get("port") or 0) == body.target_port),
+        None,
+    )
+    if not target:
+        raise HTTPException(status_code=400, detail="目标节点不在当前集群中")
+    if action == "start" and target.get("draining"):
+        raise HTTPException(status_code=409, detail="节点已处于下线状态")
+    if action == "stop" and not target.get("draining"):
+        raise HTTPException(status_code=409, detail="节点未处于下线状态")
+    if action == "start" and sum(bool(node.get("ready")) and not bool(node.get("draining")) for node in nodes) <= 1:
+        raise HTTPException(status_code=409, detail="不能下线最后一个就绪节点")
+    target_name = f"{body.target_ip}:{body.target_port}"
+    audit_id = _begin_admin_audit(
+        user, request, module="backend_node", action_key=f"drain_{action}",
+        action_name="节点下线" if action == "start" else "节点上线",
+        target_type="backend_node", target_id=target_name, target_name=target_name,
+        before={"draining": target.get("draining"), "ready": target.get("ready")},
+    )
+    try:
+        # Both drain endpoints can act on the receiving node; call the selected
+        # registered node directly so the browser's target cannot be redirected.
+        ipaddress.IPv4Address(body.target_ip)
+        url = f"http://{body.target_ip}:{body.target_port}/robot/node/drain/{action}"
+        headers = {"X-Worktool-Renew-Token": WORKTOOL_RENEW_TOKEN}
+        payload = {"targetIp": body.target_ip, "targetPort": body.target_port,
+                   "reason": body.reason.strip()[:128] or "manual-maintenance"}
+        timeout = aiohttp.ClientTimeout(total=10)
+        operation_error: Optional[Exception] = None
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=headers, allow_redirects=False) as resp:
+                    raw = await read_limited_text(resp)
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail=f"节点操作失败：HTTP {resp.status} {_short_text(raw, 180)}")
+                    result = json.loads(raw)
+            if not isinstance(result, dict) or str(result.get("code")) not in {"0", "200"}:
+                raise HTTPException(status_code=502, detail=f"节点操作失败：{result.get('message') if isinstance(result, dict) else '响应异常'}")
+            result_node = result.get("data") if isinstance(result.get("data"), dict) else {}
+            if str(result_node.get("nodeIp")) != body.target_ip or int(result_node.get("nodePort") or 0) != body.target_port:
+                raise HTTPException(status_code=502, detail="节点操作响应与目标节点不一致")
+        except Exception as exc:
+            operation_error = exc
+        for attempt in range(3):
+            latest = _node_diagnostics_data(await fetch_worktool_renew_api("/robot/node/diagnostics", {}))
+            current = next((node for node in latest.get("nodes") or [] if node.get("ip") == body.target_ip
+                            and int(node.get("port") or 0) == body.target_port), None)
+            if current and bool(current.get("draining")) == (action == "start"):
+                _finish_admin_audit(audit_id, status="success", after={"action": action, "confirmed_node": current})
+                return {"ok": True, "node": current}
+            if attempt < 2:
+                await asyncio.sleep(0.5)
+        if operation_error:
+            raise operation_error
+        raise HTTPException(status_code=502, detail="节点操作后状态未按预期变化，请刷新诊断状态")
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
 
 
 @app.get("/api/v1/admin/test-callback")

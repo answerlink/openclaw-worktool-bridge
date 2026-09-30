@@ -55,6 +55,9 @@ http.interceptors.response.use(
 );
 
 export const api = {
+  adminBackendNodes: () => http.get('/admin/backend-nodes').then((r) => r.data),
+  adminBackendNodeDrain: (action: 'start' | 'stop', targetIp: string, targetPort: number) =>
+    http.post(`/admin/backend-nodes/drain/${action}`, { target_ip: targetIp, target_port: targetPort, reason: 'manual-maintenance' }).then((r) => r.data),
   adminTestCallbackAddress: () => http.get('/admin/test-callback').then((r) => r.data),
   adminTestCallbackRequests: (params: { page: number; page_size: number }) =>
     http.get('/admin/test-callback/requests', { params }).then((r) => r.data),
