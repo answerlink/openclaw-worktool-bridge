@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { withLegacyMessageCallback } from './robotCallbackConfig';
+import { readListItems } from './listResponse';
 import { AUTH_TOKEN_STORAGE_KEY } from './constants';
 
 const http = axios.create({
@@ -206,12 +208,12 @@ export const api = {
   createRobot: (payload: any) => http.post('/robots', payload).then((r) => r.data),
   updateRobot: (robotId: string, payload: any) => http.put(`/robots/${robotId}`, payload).then((r) => r.data),
   deleteRobot: (robotId: string) => http.delete(`/robots/${robotId}`).then((r) => r.data),
-  listProviders: (robotId?: string) => http.get('/providers', { params: robotId ? { robot_id: robotId } : {} }).then((r) => r.data.items),
+  listProviders: (robotId?: string) => http.get('/providers', { params: robotId ? { robot_id: robotId } : {} }).then((r) => readListItems(r.data, 'AI回复引擎列表')),
   createProvider: (payload: any) => http.post('/providers', payload).then((r) => r.data),
   providerTest: (payload: any) => http.post('/providers/test', payload, { timeout: 30000 }).then((r) => r.data),
   updateProvider: (id: number, payload: any) => http.put(`/providers/${id}`, payload).then((r) => r.data),
   deleteProvider: (id: number) => http.delete(`/providers/${id}`).then((r) => r.data),
-  listRules: (robotId: string, scene?: string) => http.get(`/robots/${robotId}/rules`, { params: scene ? { scene } : {} }).then((r) => r.data.items),
+  listRules: (robotId: string, scene?: string) => http.get(`/robots/${robotId}/rules`, { params: scene ? { scene } : {} }).then((r) => readListItems(r.data, '回复规则列表')),
   createRule: (payload: any) => http.post('/rules', payload).then((r) => r.data),
   updateRule: (id: number, payload: any) => http.put(`/rules/${id}`, payload).then((r) => r.data),
   deleteRule: (id: number) => http.delete(`/rules/${id}`).then((r) => r.data),
@@ -269,7 +271,13 @@ export const api = {
   listScheduledTaskRuns: (id: number, params?: { page?: number; page_size?: number; status?: 'success' | 'failed' }) =>
     http.get(`/scheduled-tasks/${id}/runs`, { params: params || {} }).then((r) => r.data),
   getRobotInfoDetail: (robotId: string) => http.get('/robot-info/detail', { params: { robot_id: robotId } }).then((r) => r.data),
-  getRobotInfoCallbacks: (robotId: string) => http.get('/robot-info/callbacks', { params: { robot_id: robotId } }).then((r) => r.data),
+  getRobotInfoCallbacks: async (robotId: string) => {
+    const response = await http.get('/robot-info/callbacks', { params: { robot_id: robotId } });
+    const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+    if (rows.some((row: { type: number }) => row.type === 11)) return response.data;
+    const detail = await http.get('/robot-info/detail', { params: { robot_id: robotId } });
+    return { ...response.data, data: withLegacyMessageCallback(rows, detail.data?.data) };
+  },
   getRobotInfoOnline: (robotId: string) => http.get('/robot-info/online', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoOnlineInfos: (robotId: string) => http.get('/robot-info/online-infos', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoVersion: (robotId: string) => http.get('/robot-info/version', { params: { robot_id: robotId } }).then((r) => r.data),

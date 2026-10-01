@@ -56,6 +56,7 @@ export default function RobotPage() {
   const [selectedRobotId, setSelectedRobotId] = useState<string | undefined>(() => getLastSelectedRobotId());
   const [providers, setProviders] = useState<Provider[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [configLoadError, setConfigLoadError] = useState('');
   const [customCallbackWarning, setCustomCallbackWarning] = useState(false);
   const [ruleScene, setRuleScene] = useState<'group' | 'private'>('group');
 
@@ -92,25 +93,33 @@ export default function RobotPage() {
       setCustomCallbackWarning(false);
       return;
     }
-    const [providerRes, callbackRes, settingsRes] = await Promise.all([
-      api.listProviders(robotId),
-      api.getRobotInfoCallbacks(robotId).catch(() => null),
-      api.getWorktoolSettings().catch(() => null),
-    ]);
-    setProviders(providerRes);
-    const callbackRows = Array.isArray(callbackRes?.data) ? callbackRes.data : [];
-    const messageCallback = callbackRows.find((row: any) => Number(row?.type) === 11);
-    const currentUrl = String(messageCallback?.callBackUrl || messageCallback?.callbackUrl || '').trim().replace(/\/+$/, '');
-    const configuredTemplate = String(settingsRes?.callback_example_url || '').trim();
-    const expectedUrl = configuredTemplate
-      .replace(/\{robot_id\}/g, robotId)
-      .replace(/\/+$/, '');
-    setCustomCallbackWarning(!currentUrl || !expectedUrl || currentUrl !== expectedUrl);
+    setConfigLoadError('');
     try {
-      const ruleRes = await api.listRules(robotId);
-      setRules(ruleRes);
-    } catch {
+      const [providerRes, callbackRes, settingsRes] = await Promise.all([
+        api.listProviders(robotId),
+        api.getRobotInfoCallbacks(robotId).catch(() => null),
+        api.getWorktoolSettings().catch(() => null),
+      ]);
+      setProviders(providerRes);
+      const callbackRows = Array.isArray(callbackRes?.data) ? callbackRes.data : [];
+      const messageCallback = callbackRows.find((row: any) => Number(row?.type) === 11);
+      const currentUrl = String(messageCallback?.callBackUrl || messageCallback?.callbackUrl || '').trim().replace(/\/+$/, '');
+      const configuredTemplate = String(settingsRes?.callback_example_url || '').trim();
+      const expectedUrl = configuredTemplate
+        .replace(/\{robot_id\}/g, robotId)
+        .replace(/\/+$/, '');
+      setCustomCallbackWarning(!currentUrl || !expectedUrl || currentUrl !== expectedUrl);
+      try {
+        const ruleRes = await api.listRules(robotId);
+        setRules(ruleRes);
+      } catch (e: any) {
+        setRules([]);
+        setConfigLoadError(e?.response?.data?.detail || e?.message || '回复规则加载失败');
+      }
+    } catch (e: any) {
+      setProviders([]);
       setRules([]);
+      setConfigLoadError(e?.response?.data?.detail || e?.message || 'AI回复引擎加载失败');
     }
   };
 
@@ -436,6 +445,8 @@ export default function RobotPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      {configLoadError && <Alert type="error" showIcon message="回复配置加载失败" description={configLoadError}
+        action={<Button onClick={() => loadRulesAndProviders(selectedRobotId)}>重新加载</Button>} />}
       <Card
         title={(
           <Space direction="vertical" size={0}>

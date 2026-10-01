@@ -755,3 +755,43 @@ html, body, #root {
     flex-wrap: wrap;
   }
 }
+
+.callback-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.callback-mode-option {
+  padding: 18px 20px;
+  text-align: left;
+  border: 1px solid #d9d9d9;
+  border-radius: 10px;
+  background: #fff;
+  color: #666;
+  font: inherit;
+  cursor: pointer;
+}
+.callback-mode-option.is-selected {
+  border-color: #5f939c;
+  background: #f0f8f7;
+  box-shadow: 0 0 0 1px #5f939c;
+}
+.callback-mode-option:focus-visible { outline: 2px solid #5f939c; outline-offset: 3px; }
+.callback-mode-option:disabled { cursor: default; opacity: .65; }
+.callback-mode-name { display: flex; align-items: center; gap: 12px; color: #263f45; font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+.callback-beginner-section { border-top: 1px solid #f0f0f0; padding-top: 8px; }
+.callback-guide-summary { background: #f7f9fa; border-radius: 8px; padding: 16px; }
+.callback-guide-summary p { margin: 8px 0 12px; line-height: 1.8; color: #59666c; }
+.callback-field-label { display: block; margin: 16px 0 8px; }
+.callback-guide-steps { padding-left: 24px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; }
+.callback-guide-steps li { margin: 18px 0; padding-right: 8px; }
+.callback-guide-steps .ant-image { display: block; margin-top: 12px; max-width: 100%; }
+.callback-guide-steps img { max-width: 100%; border: 1px solid #eee; border-radius: 8px; }
+.callback-action-row { flex-wrap: wrap; }
+@media (max-width: 768px) {
+  .callback-mode-options { grid-template-columns: 1fr; gap: 12px; }
+}
+@media (max-width: 600px) {
+  .callback-guide-steps { grid-template-columns: 1fr; }
+}
