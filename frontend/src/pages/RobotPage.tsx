@@ -73,6 +73,8 @@ export default function RobotPage() {
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
   const [ruleForm] = Form.useForm();
   const [ruleSwitchLoading, setRuleSwitchLoading] = useState<number[]>([]);
+  const [replyChannelSaving, setReplyChannelSaving] = useState(false);
+  const [groupReplyModeSaving, setGroupReplyModeSaving] = useState(false);
   const [providerRefreshing, setProviderRefreshing] = useState(false);
   const [showAddRobotTour, setShowAddRobotTour] = useState(false);
   const addRobotBtnRef = useRef<HTMLElement | null>(null);
@@ -86,6 +88,39 @@ export default function RobotPage() {
     const robots = await api.listRobots();
     setItems(robots);
     setRobotsLoaded(true);
+  };
+
+  const toggleReplyChannel = async (enabled: boolean) => {
+    if (!selectedRobotId || replyChannelSaving) return;
+    const robotId = selectedRobotId;
+    const scene = ruleScene;
+    const field = scene === 'group' ? 'group_chat_enabled' : 'private_chat_enabled';
+    setReplyChannelSaving(true);
+    try {
+      await api.updateRobot(robotId, { [field]: enabled });
+      setItems((current) => current.map((robot) => robot.robot_id === robotId ? { ...robot, [field]: enabled } : robot));
+      message.success(`${scene === 'group' ? '群聊' : '私聊'}自动回复已${enabled ? '开启' : '暂停'}`);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '未能修改自动回复状态，请稍后重试');
+    } finally {
+      setReplyChannelSaving(false);
+    }
+  };
+
+  const changeGroupReplyMode = async (mode: NonNullable<Robot['group_reply_mode']>) => {
+    if (!selectedRobotId || groupReplyModeSaving) return;
+    const robotId = selectedRobotId;
+    setGroupReplyModeSaving(true);
+    try {
+      await api.updateRobot(robotId, { group_reply_mode: mode });
+      setItems((current) => current.map((robot) => robot.robot_id === robotId
+        ? { ...robot, group_reply_mode: mode, group_reply_only_when_mentioned: mode === 'mention_only' } : robot));
+      message.success('群聊回复方式已保存');
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '未能保存群聊回复方式，请稍后重试');
+    } finally {
+      setGroupReplyModeSaving(false);
+    }
   };
 
   const loadRulesAndProviders = async (robotId?: string) => {
@@ -268,6 +303,10 @@ export default function RobotPage() {
     delete values.group_colleagues_text;
     try {
       if (editingRobotId) {
+        delete values.private_chat_enabled;
+        delete values.group_chat_enabled;
+        delete values.group_reply_mode;
+        delete values.group_reply_only_when_mentioned;
         await api.updateRobot(editingRobotId, values);
         await loadRobots();
         message.success('机器人更新成功');
@@ -447,6 +486,9 @@ export default function RobotPage() {
   const ruleTargetName = activeRuleScene === 'group' ? '群名' : '联系人昵称或备注';
   const ruleTargetExample = activeRuleScene === 'group' ? '财务群' : '张三';
   const hasSelectedRobot = !!selectedRobotId && items.some((r) => r.robot_id === selectedRobotId);
+  const selectedRobot = items.find((r) => r.robot_id === selectedRobotId);
+  const channelEnabled = selectedRobot?.[ruleScene === 'group' ? 'group_chat_enabled' : 'private_chat_enabled'];
+  const groupReplyMode = selectedRobot?.group_reply_mode || (selectedRobot?.group_reply_only_when_mentioned ? 'mention_only' : 'always');
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -509,11 +551,39 @@ export default function RobotPage() {
         <Tabs
           activeKey={ruleScene}
           onChange={(k) => setRuleScene(k as 'group' | 'private')}
+          tabBarExtraContent={<Space wrap>
+            <Typography.Text>{ruleScene === 'group' ? '群聊' : '私聊'}自动回复</Typography.Text>
+            <Switch aria-label={`${ruleScene === 'group' ? '群聊' : '私聊'}自动回复`} checked={channelEnabled === true}
+              loading={replyChannelSaving} disabled={!hasSelectedRobot || typeof channelEnabled !== 'boolean'}
+              onChange={(enabled) => void toggleReplyChannel(enabled)} />
+          </Space>}
           items={[
             { key: 'group', label: '群聊规则' },
             { key: 'private', label: '私聊规则' }
           ]}
         />
+        {ruleScene === 'group' && hasSelectedRobot && <div style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Typography.Text id="group-reply-mode-label">群里什么时候回复？</Typography.Text>
+            <Select aria-labelledby="group-reply-mode-label" value={groupReplyMode} loading={groupReplyModeSaving}
+              disabled={groupReplyModeSaving} style={{ width: 260, maxWidth: '100%' }}
+              onChange={(mode) => void changeGroupReplyMode(mode)} options={[
+                { label: '符合回复规则就回复', value: 'always' },
+                { label: '只有 @ 机器人时回复', value: 'mention_only' },
+                { label: '让 AI 判断是否需要回复', value: 'ai_decide' }
+              ]} />
+          </Space>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+            {groupReplyMode === 'ai_decide'
+              ? '有人 @ 机器人时直接按规则回复；其他消息先由 AI 判断是否需要回复，减少打扰。默认使用平台判定引擎，可在回复设置中调整。'
+              : groupReplyMode === 'mention_only'
+                ? '只有收到 @ 机器人的消息，才会按下方规则处理。'
+                : '收到的群聊消息会按下方规则处理。'}
+          </Typography.Paragraph>
+        </div>}
+        {channelEnabled === false && <Alert type="info" showIcon message="已暂停，规则保留"
+          description={`开启${ruleScene === 'group' ? '群聊' : '私聊'}自动回复后，将继续使用以下规则和未匹配规则时的回复设置。`}
+          style={{ marginBottom: 16 }} />}
         <Table
           rowKey="id"
           dataSource={sceneRules}
@@ -626,28 +696,7 @@ export default function RobotPage() {
           </Form.Item>}
           {!editingRobotId && <Typography.Paragraph type="secondary">添加后，在消息接入中选择由平台自动回复，或交给自己的系统处理。</Typography.Paragraph>}
           {editingRobotId && <>
-            <Typography.Paragraph type="secondary">先选择在哪回复，再到回复规则中设置哪些消息需要回复、使用哪个 AI 引擎。</Typography.Paragraph>
-            <div className="robot-reply-channels">
-              <Form.Item name="private_chat_enabled" valuePropName="checked" label="开启私聊回复"><Switch /></Form.Item>
-              <Form.Item name="group_chat_enabled" valuePropName="checked" label="开启群聊回复"><Switch /></Form.Item>
-            </div>
-            <Form.Item noStyle shouldUpdate={(prev, next) => prev.group_chat_enabled !== next.group_chat_enabled || prev.group_reply_mode !== next.group_reply_mode}>
-              {({ getFieldValue }) => getFieldValue('group_chat_enabled') && <>
-                <Form.Item name="group_reply_mode" label="群里什么时候回复？" rules={[{ required: true, message: '请选择群聊回复方式' }]}>
-                  <Select options={[
-                    { label: '符合回复规则就回复', value: 'always' },
-                    { label: '只有 @ 机器人时回复', value: 'mention_only' },
-                    { label: '让 AI 判断是否需要回复', value: 'ai_decide' }
-                  ]} />
-                </Form.Item>
-                <Typography.Paragraph type="secondary">
-                  {getFieldValue('group_reply_mode') === 'ai_decide'
-                    ? '有人 @ 机器人时直接按规则回复；其他消息先由 AI 判断是否需要回复，减少打扰。判定引擎和提示词无需另填，需要时可在高级设置调整。'
-                    : '收到的消息会按下方回复规则处理。'}
-                </Typography.Paragraph>
-              </>}
-            </Form.Item>
-            <Collapse ghost defaultActiveKey={[]} items={[{ key: 'advanced', label: '高级个性化设置（选填）', forceRender: true, children: <>
+            <Typography.Paragraph type="secondary">调整默认回复、同事名单等个性化设置。自动回复开关和群聊回复方式，可直接在回复规则旁调整。</Typography.Paragraph>
               <Form.Item name="name" label="机器人名称"><Input /></Form.Item>
               <Form.Item noStyle shouldUpdate={(prev, next) => prev.group_reply_mode !== next.group_reply_mode}>
                 {({ getFieldValue }) => getFieldValue('group_reply_mode') === 'ai_decide' && <>
@@ -660,11 +709,10 @@ export default function RobotPage() {
                   <Button size="small" style={{ marginBottom: 16 }} onClick={() => Modal.confirm({ title: '恢复默认判定提示词？', content: '当前提示词会被替换，保存回复设置后生效。', onOk: () => robotForm.setFieldsValue({ group_decision_prompt_template: DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE }) })}>恢复默认提示词</Button>
                 </>}
               </Form.Item>
-              <Form.Item name="group_colleagues_text" label="不主动回复的同事" extra="每行一个昵称或备注名。同事没有 @ 机器人时不回复；@ 时仍按规则回复。"><Input.TextArea rows={3} placeholder={'例如：张三\n李四'} /></Form.Item>
               <Typography.Paragraph type="secondary">没有符合的回复规则时，可以发送以下固定内容；留空则不回复。</Typography.Paragraph>
               <Form.Item name="group_default_reply" label="群聊未匹配规则时的回复"><Input.TextArea rows={2} /></Form.Item>
               <Form.Item name="private_default_reply" label="私聊未匹配规则时的回复"><Input.TextArea rows={2} /></Form.Item>
-            </> }]} />
+              <Form.Item name="group_colleagues_text" label="不主动回复的同事" extra="每行一个昵称或备注名。同事没有 @ 机器人时不回复；@ 时仍按规则回复。"><Input.TextArea rows={3} placeholder={'例如：张三\n李四'} /></Form.Item>
           </>}
         </Form>
       </Modal>
