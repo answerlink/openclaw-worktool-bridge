@@ -2073,6 +2073,25 @@ def _provider_owned_by_user(provider_id: int, user_id: int) -> bool:
         conn.close()
 
 
+def _resolve_group_decision_provider_id(provider_id: Optional[int], user_id: int, robot_pk: Optional[int] = None) -> int:
+    if provider_id is not None:
+        if not _provider_accessible_by_user(int(provider_id), user_id, robot_pk):
+            raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
+        return int(provider_id)
+    if _default_test_provider_enabled():
+        ensure_default_test_provider(user_id)
+        conn = db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM ai_providers WHERE is_system=1 AND enabled=1 ORDER BY id ASC LIMIT 1")
+                row = cur.fetchone()
+                if row:
+                    return int(row["id"])
+        finally:
+            conn.close()
+    raise HTTPException(status_code=400, detail="平台官方判定引擎暂不可用，请在高级个性化设置中选择可用的 AI 引擎")
+
+
 def _provider_accessible_by_user(provider_id: int, user_id: int, robot_pk: Optional[int] = None) -> bool:
     include_system = 1 if _default_test_provider_enabled() else 0
     conn = db_conn()
@@ -5604,8 +5623,8 @@ async def create_robot(body: RobotCreate, user: Dict[str, Any] = Depends(get_cur
     decision_provider_id = body.group_decision_provider_id
     decision_prompt_template = _normalize_group_decision_prompt_template(body.group_decision_prompt_template)
     group_colleagues = _normalize_group_colleagues(body.group_colleagues)
-    if group_reply_mode == "ai_decide" and decision_provider_id is None:
-        raise HTTPException(status_code=400, detail="group_decision_provider_id required when group_reply_mode=ai_decide")
+    if group_reply_mode == "ai_decide":
+        decision_provider_id = _resolve_group_decision_provider_id(decision_provider_id, int(user["id"]))
     if decision_provider_id is not None and not _provider_accessible_by_user(int(decision_provider_id), int(user["id"])):
         raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
 
@@ -5708,26 +5727,22 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
         updates.append("group_reply_only_when_mentioned=%s")
         params.append(1 if resolved_group_reply_mode == "mention_only" else 0)
 
+    effective_mode = resolved_group_reply_mode or _normalize_group_reply_mode(robot.get("group_reply_mode"), robot.get("group_reply_only_when_mentioned"))
+    decision_provider_id = body.group_decision_provider_id if has_group_decision_provider_id else robot.get("group_decision_provider_id")
+    if effective_mode == "ai_decide" and (has_group_decision_provider_id or decision_provider_id is None):
+        decision_provider_id = _resolve_group_decision_provider_id(decision_provider_id, int(user["id"]), int(robot["id"]))
+        has_group_decision_provider_id = True
+    elif has_group_decision_provider_id and decision_provider_id is not None and not _provider_accessible_by_user(int(decision_provider_id), int(user["id"]), int(robot["id"])):
+        raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
     if has_group_decision_provider_id:
-        if body.group_decision_provider_id is not None and not _provider_accessible_by_user(
-            int(body.group_decision_provider_id), int(user["id"]), int(robot["id"])
-        ):
-            raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
         updates.append("group_decision_provider_id=%s")
-        params.append(int(body.group_decision_provider_id) if body.group_decision_provider_id is not None else None)
+        params.append(int(decision_provider_id) if decision_provider_id is not None else None)
     if has_group_decision_prompt_template:
         updates.append("group_decision_prompt_template=%s")
         params.append(_normalize_group_decision_prompt_template(body.group_decision_prompt_template))
     if "group_colleagues" in body.model_fields_set:
         updates.append("group_colleagues_json=%s")
         params.append(json.dumps(_normalize_group_colleagues(body.group_colleagues), ensure_ascii=False))
-
-    if resolved_group_reply_mode == "ai_decide":
-        current_provider_id = (
-            int(body.group_decision_provider_id) if has_group_decision_provider_id and body.group_decision_provider_id is not None else robot.get("group_decision_provider_id")
-        )
-        if current_provider_id is None:
-            raise HTTPException(status_code=400, detail="group_decision_provider_id required when group_reply_mode=ai_decide")
 
     conn = db_conn()
     try:

@@ -44,6 +44,8 @@ class RobotCsvExistingTest(unittest.IsolatedAsyncioTestCase):
         body = main.RobotCreate(robot_id="111", name="r111", update_name_if_exists=True)
         with (
             patch.object(main, "db_conn", return_value=conn),
+            patch.object(main, "validate_worktool_robot_exists", new=AsyncMock()),
+            patch.object(main, "build_robot_callback_url", return_value="https://example.com/callback"),
             patch.object(main, "get_setting", return_value="false"),
             patch.object(main, "ensure_default_message_callback", new=AsyncMock(return_value={"callback_status": "skipped"})),
         ):
@@ -59,6 +61,8 @@ class RobotCsvExistingTest(unittest.IsolatedAsyncioTestCase):
         body = main.RobotCreate(robot_id="111", name="机器人")
         with (
             patch.object(main, "db_conn", return_value=conn),
+            patch.object(main, "validate_worktool_robot_exists", new=AsyncMock()),
+            patch.object(main, "build_robot_callback_url", return_value="https://example.com/callback"),
             patch.object(main, "get_setting", return_value="false"),
             patch.object(main, "ensure_default_message_callback", new=AsyncMock(return_value={"callback_status": "skipped"})),
         ):

@@ -795,3 +795,15 @@ html, body, #root {
 @media (max-width: 600px) {
   .callback-guide-steps { grid-template-columns: 1fr; }
 }
+
+.robot-config-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.robot-config-current { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.robot-config-current .ant-select { width: 320px; max-width: 100%; }
+.robot-config-id { font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .robot-config-current { width: 100%; }
+  .robot-config-current .ant-select { width: 100%; }
+  .robot-config-id { width: 100%; }
+}
+
+.robot-reply-channels { display: flex; gap: 40px; flex-wrap: wrap; }
