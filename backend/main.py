@@ -106,6 +106,9 @@ DEFAULT_TEST_PROVIDER_BASE_URL = os.getenv(
 ).strip()
 DEFAULT_TEST_PROVIDER_API_KEY = os.getenv("DEFAULT_TEST_PROVIDER_API_KEY", "").strip()
 DEFAULT_TEST_PROVIDER_MODEL = os.getenv("DEFAULT_TEST_PROVIDER_MODEL", "doubao-seed-2.0-lite").strip()
+GROUP_DECISION_PROVIDER_BASE_URL = os.getenv("GROUP_DECISION_PROVIDER_BASE_URL", "").strip()
+GROUP_DECISION_PROVIDER_API_KEY = os.getenv("GROUP_DECISION_PROVIDER_API_KEY", "").strip()
+GROUP_DECISION_PROVIDER_MODEL = os.getenv("GROUP_DECISION_PROVIDER_MODEL", "").strip()
 AI_PROVIDER_TIMEOUT_SECONDS = max(int(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "60") or "60"), 1)
 QA_CALLBACK_WORKER_CONCURRENCY = max(int(os.getenv("QA_CALLBACK_WORKER_CONCURRENCY", "8") or "8"), 1)
 QA_CALLBACK_QUEUE_MAXSIZE = max(int(os.getenv("QA_CALLBACK_QUEUE_MAXSIZE", "2000") or "2000"), 100)
@@ -494,7 +497,7 @@ def init_db() -> None:
                   base_url VARCHAR(512) NOT NULL,
                   api_token TEXT NOT NULL,
                   model VARCHAR(128) NULL,
-                  provider_type ENUM('openai','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
+                  provider_type ENUM('openai','fastgpt','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
                   auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                   extra_json JSON NULL,
                   system_prompt_template TEXT NULL,
@@ -540,7 +543,7 @@ def init_db() -> None:
                       base_url VARCHAR(512) NOT NULL,
                       api_token TEXT NOT NULL,
                       model VARCHAR(128) NULL,
-                      provider_type ENUM('openai','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
+                      provider_type ENUM('openai','fastgpt','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
                       auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                       extra_json JSON NULL,
                       system_prompt_template TEXT NULL,
@@ -621,10 +624,10 @@ def init_db() -> None:
             # Existing deployments created this as an ENUM before callback providers existed.
             cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'provider_type'")
             provider_type_column = cur.fetchone() or {}
-            if "simulated" not in str(provider_type_column.get("Type") or ""):
+            if any(kind not in str(provider_type_column.get("Type") or "") for kind in ("simulated", "fastgpt")):
                 cur.execute(
                     "ALTER TABLE ai_providers MODIFY COLUMN provider_type "
-                    "ENUM('openai','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai'"
+                    "ENUM('openai','fastgpt','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai'"
                 )
             cur.execute("SHOW COLUMNS FROM routing_rules LIKE 'content_pattern'")
             if not cur.fetchone():
@@ -1753,7 +1756,7 @@ class ProviderCreate(BaseModel):
     base_url: str
     api_token: str
     model: Optional[str] = None
-    provider_type: Literal["openai", "openclaw", "worktool_callback"] = "openai"
+    provider_type: Literal["openai", "fastgpt", "openclaw", "worktool_callback"] = "openai"
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
     system_prompt_template: Optional[str] = None
@@ -1767,7 +1770,7 @@ class ProviderUpdate(BaseModel):
     base_url: Optional[str] = None
     api_token: Optional[str] = None
     model: Optional[str] = None
-    provider_type: Optional[Literal["openai", "openclaw", "worktool_callback"]] = None
+    provider_type: Optional[Literal["openai", "fastgpt", "openclaw", "worktool_callback"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
     system_prompt_template: Optional[str] = None
@@ -1781,7 +1784,7 @@ class ProviderTestRequest(BaseModel):
     base_url: Optional[str] = None
     api_token: Optional[str] = None
     model: Optional[str] = None
-    provider_type: Optional[Literal["openai", "openclaw", "worktool_callback"]] = None
+    provider_type: Optional[Literal["openai", "fastgpt", "openclaw", "worktool_callback"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
 
@@ -2091,7 +2094,7 @@ def _provider_owned_by_user(provider_id: int, user_id: int) -> bool:
         conn.close()
 
 
-def _resolve_group_decision_provider_id(provider_id: Optional[int], user_id: int, robot_pk: Optional[int] = None) -> int:
+def _resolve_group_decision_provider_id(provider_id: Optional[int], user_id: int, robot_pk: Optional[int] = None) -> Optional[int]:
     if provider_id is not None:
         conn = db_conn()
         try:
@@ -2105,17 +2108,8 @@ def _resolve_group_decision_provider_id(provider_id: Optional[int], user_id: int
         if not _provider_accessible_by_user(int(provider_id), user_id, robot_pk):
             raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
         return int(provider_id)
-    if _default_test_provider_enabled():
-        ensure_default_test_provider(user_id)
-        conn = db_conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM ai_providers WHERE is_system=1 AND enabled=1 AND provider_type<>'simulated' ORDER BY id ASC LIMIT 1")
-                row = cur.fetchone()
-                if row:
-                    return int(row["id"])
-        finally:
-            conn.close()
+    if GROUP_DECISION_PROVIDER_BASE_URL and GROUP_DECISION_PROVIDER_API_KEY and GROUP_DECISION_PROVIDER_MODEL:
+        return None
     raise HTTPException(status_code=400, detail="平台官方判定引擎暂不可用，请在高级个性化设置中选择可用的 AI 引擎")
 
 
@@ -4668,10 +4662,14 @@ async def _should_reply_group_by_ai_decision(
     inbound_text: str,
 ) -> bool:
     provider_id = robot.get("group_decision_provider_id")
-    if provider_id is None:
-        logger.warning("group_ai_decide_skipped robot_id=%s reason=missing_provider_id", robot.get("robot_id"))
+    provider = _load_provider_for_decision(int(provider_id)) if provider_id is not None else {
+        "id": None, "name": "平台官方群聊判定引擎", "base_url": GROUP_DECISION_PROVIDER_BASE_URL,
+        "api_token": GROUP_DECISION_PROVIDER_API_KEY, "model": GROUP_DECISION_PROVIDER_MODEL,
+        "provider_type": "openai", "auth_scheme": "bearer", "extra_json": None,
+    }
+    if provider_id is None and not (GROUP_DECISION_PROVIDER_BASE_URL and GROUP_DECISION_PROVIDER_API_KEY and GROUP_DECISION_PROVIDER_MODEL):
+        logger.warning("group_ai_decide_skipped robot_id=%s reason=official_provider_not_configured", robot.get("robot_id"))
         return False
-    provider = _load_provider_for_decision(int(provider_id))
     if not provider:
         logger.warning(
             "group_ai_decide_skipped robot_id=%s provider_id=%s reason=provider_not_found_or_disabled",
@@ -4704,7 +4702,7 @@ async def _should_reply_group_by_ai_decision(
     )[:12000]
     decision_rule = {
         "id": -1,
-        "provider_id": int(provider["id"]),
+        "provider_id": int(provider["id"]) if provider["id"] is not None else None,
         "provider_name": provider.get("name") or "group_decision_provider",
         "base_url": provider.get("base_url") or "",
         "api_token": provider.get("api_token") or "",
@@ -4779,6 +4777,20 @@ def _extract_provider_text(data: Any) -> str:
     return ""
 
 
+def _normalize_fastgpt_url(raw: str) -> str:
+    """Accept a FastGPT server, API prefix, or complete published chat endpoint."""
+    parts = urlsplit(str(raw or "").strip())
+    path = parts.path.rstrip("/")
+    if not path.lower().endswith("/chat/completions"):
+        if path.lower().endswith("/v1"):
+            path += "/chat/completions"
+        elif path.lower().endswith("/api"):
+            path += "/v1/chat/completions"
+        else:
+            path += "/api/v1/chat/completions"
+    return parts._replace(path=path).geturl()
+
+
 def _build_provider_http_request(rule: Dict[str, Any], prompt: str, payload_extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     auth_scheme = str(rule.get("auth_scheme") or "bearer")
@@ -4823,6 +4835,9 @@ def _build_provider_http_request(rule: Dict[str, Any], prompt: str, payload_extr
     url = str(rule.get("base_url") or "").strip()
     if not url:
         raise HTTPException(status_code=500, detail="provider base_url empty")
+    if rule.get("provider_type") == "fastgpt":
+        url = _normalize_fastgpt_url(url)
+        payload["stream"] = False
     return {"url": url, "headers": headers, "payload": payload, "auth_scheme": auth_scheme}
 
 

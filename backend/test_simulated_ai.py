@@ -43,9 +43,13 @@ class SimulatedAiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("p.provider_type='simulated'", cursor.execute.call_args.args[0])
 
     async def test_official_default_does_not_select_simulation(self):
-        conn = MagicMock()
-        conn.cursor.return_value.__enter__.return_value.fetchone.return_value = None
-        with patch.object(main, 'db_conn', return_value=conn), patch.object(main, 'ensure_default_test_provider'), patch.object(main, '_default_test_provider_enabled', return_value=True):
-            with self.assertRaises(main.HTTPException):
+        with patch.object(main, 'GROUP_DECISION_PROVIDER_BASE_URL', 'https://example.com'), patch.object(main, 'GROUP_DECISION_PROVIDER_API_KEY', 'official-key'), patch.object(main, 'GROUP_DECISION_PROVIDER_MODEL', 'official-model'), patch.object(main, 'db_conn') as connect:
+            self.assertIsNone(main._resolve_group_decision_provider_id(None, 1))
+        connect.assert_not_called()
+
+    async def test_missing_official_config_does_not_fall_back_to_simulation(self):
+        with patch.object(main, 'GROUP_DECISION_PROVIDER_BASE_URL', ''), patch.object(main, 'db_conn') as connect:
+            with self.assertRaises(main.HTTPException) as raised:
                 main._resolve_group_decision_provider_id(None, 1)
-        self.assertIn("provider_type<>'simulated'", conn.cursor.return_value.__enter__.return_value.execute.call_args.args[0])
+        self.assertEqual(raised.exception.status_code, 400)
+        connect.assert_not_called()

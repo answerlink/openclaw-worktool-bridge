@@ -94,6 +94,9 @@
 | `DEFAULT_TEST_PROVIDER_BASE_URL` | `https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions` | 开启时是 | 否 | 测试引擎地址。 |
 | `DEFAULT_TEST_PROVIDER_API_KEY` | 空 | 开启时是 | 是 | 测试引擎 token。 |
 | `DEFAULT_TEST_PROVIDER_MODEL` | `doubao-seed-2.0-lite` | 否 | 否 | 测试引擎 model。 |
+| `GROUP_DECISION_PROVIDER_BASE_URL` | 空 | 使用官方群聊判定时是 | 否 | 官方“是否需要回复”判定引擎地址，与测试回复引擎独立。 |
+| `GROUP_DECISION_PROVIDER_API_KEY` | 空 | 使用官方群聊判定时是 | 是 | 官方判定引擎 token。 |
+| `GROUP_DECISION_PROVIDER_MODEL` | 空 | 使用官方群聊判定时是 | 否 | 官方判定引擎 model。机器人留空选择时使用此配置，数据库不保存引擎 ID。 |
 | `QA_CALLBACK_WORKER_CONCURRENCY` | `16` | 否 | 否 | QA 回调异步 worker 数。 |
 | `QA_CALLBACK_QUEUE_MAXSIZE` | `2000` | 否 | 否 | QA 回调队列长度。 |
 | `ROBOT_SHOW_NAME_CACHE_TTL_SECONDS` | `600` | 否 | 否 | 机器人昵称缓存秒数。 |

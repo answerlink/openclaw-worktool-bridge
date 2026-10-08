@@ -701,7 +701,7 @@ export default function RobotPage() {
               <Form.Item noStyle shouldUpdate={(prev, next) => prev.group_reply_mode !== next.group_reply_mode}>
                 {({ getFieldValue }) => getFieldValue('group_reply_mode') === 'ai_decide' && <>
                   <Form.Item name="group_decision_provider_id" label="判定是否需要回复的 AI 引擎" extra="留空使用平台官方引擎。只用于判断是否回复，回复内容使用规则中选择的引擎。">
-                    <Select options={providers.filter((p) => p.enabled && p.provider_type !== 'simulated').map((p) => ({ label: p.is_system ? `${p.name}（官方）` : p.name, value: p.id }))} allowClear placeholder="使用平台官方引擎" showSearch optionFilterProp="label" />
+                    <Select options={providers.filter((p) => p.enabled && p.provider_type !== 'simulated').map((p) => ({ label: p.name, value: p.id }))} allowClear placeholder="使用平台官方引擎" showSearch optionFilterProp="label" />
                   </Form.Item>
                   <Form.Item name="group_decision_prompt_template" label="AI 判定提示词" extra="已有自定义提示词会保留。支持变量：{group_name}、{sender_name}、{last_message}、{recent_context}。">
                     <Input.TextArea rows={5} placeholder={DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE} />

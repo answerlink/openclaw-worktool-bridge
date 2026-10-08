@@ -30,7 +30,7 @@ export default function AIHubPage() {
   const [items, setItems] = useState<Provider[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
-  const [providerType, setProviderType] = useState<'openai' | 'openclaw' | 'worktool_callback'>('openai');
+  const [providerType, setProviderType] = useState<'openai' | 'fastgpt' | 'openclaw' | 'worktool_callback'>('openai');
   const [useCustomOpenaiUrl, setUseCustomOpenaiUrl] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,12 +47,17 @@ export default function AIHubPage() {
       } else {
         values.base_url = normalizeOpenaiBaseUrl(values.base_url_openai);
       }
+    } else if (values.provider_type === 'fastgpt') {
+      values.base_url = values.base_url_fastgpt;
+      values.model = '';
+      values.extra_json = '';
     } else {
       values.base_url = values.base_url_openclaw;
     }
     delete values.base_url_preset;
     delete values.base_url_openai;
     delete values.base_url_openclaw;
+    delete values.base_url_fastgpt;
     delete values.include_asker_info;
     values.auth_scheme = values.provider_type === 'openclaw' ? 'x-openclaw-token' : 'bearer';
     values.asker_info_mode = values.asker_info_mode || 'off';
@@ -259,6 +264,7 @@ export default function AIHubPage() {
                         name: row.name,
                         base_url_openai: row.base_url,
                         base_url_openclaw: row.base_url,
+                        base_url_fastgpt: row.base_url,
                         base_url_preset: preset ? preset.value : '__custom__',
                         model: row.model,
                         provider_type: nextType,
@@ -316,7 +322,7 @@ export default function AIHubPage() {
           </Form.Item>
           <Form.Item name="provider_type" label="引擎类型" rules={[{ required: true }]}>
             <Select
-              onChange={(v: 'openai' | 'openclaw' | 'worktool_callback') => {
+              onChange={(v: 'openai' | 'fastgpt' | 'openclaw' | 'worktool_callback') => {
                 setProviderType(v);
                 if (v === 'openai') {
                   const current = form.getFieldValue('base_url_openai') || '';
@@ -335,6 +341,7 @@ export default function AIHubPage() {
               }}
               options={[
                 { label: 'openai(大模型)', value: 'openai' },
+                { label: 'FastGPT 发布 API', value: 'fastgpt' },
                 { label: 'openclaw(小龙虾)', value: 'openclaw' },
                 { label: 'WorkTool 消息回调格式', value: 'worktool_callback' }
               ]}
@@ -394,6 +401,15 @@ export default function AIHubPage() {
                 </Form.Item>
               ) : null}
             </>
+          ) : providerType === 'fastgpt' ? (
+            <Form.Item
+              name="base_url_fastgpt"
+              label="FastGPT 发布 API 地址"
+              rules={[{ required: true }]}
+              extra="在 FastGPT「应用配置 → 发布渠道 → API 访问」中新建密钥，获取 API 地址和密钥。支持 HTTP/HTTPS、IP 或域名；可填写服务器地址、/api、/api/v1 或完整的 /api/v1/chat/completions 地址，末尾斜杠也可保留。"
+            >
+              <Input placeholder="https://fastgpt.example.com/api" />
+            </Form.Item>
           ) : (
             <>
               <Form.Item
@@ -432,10 +448,12 @@ export default function AIHubPage() {
               </Space>
             )}
           >
-            <Input.Password placeholder={editing ? '留空表示不变更（也可不填）' : '可选，不需要可留空'} />
+            <Input.Password placeholder={providerType === 'fastgpt' ? (editing ? '留空保持原发布 API 密钥' : '填写 FastGPT 应用发布的 API 密钥') : editing ? '留空表示不变更（也可不填）' : '可选，不需要可留空'} />
           </Form.Item>
-          {providerType === 'openai' ? (
+          {providerType === 'openai' || providerType === 'fastgpt' ? (
             <>
+              {providerType === 'openai' ? (
+                <>
               <Form.Item
                 name="model"
                 label={(
@@ -456,6 +474,8 @@ export default function AIHubPage() {
               >
                 <Input.TextArea rows={5} />
               </Form.Item>
+                </>
+              ) : null}
               <Form.Item
                 name="asker_info_mode"
                 label="提问人信息注入模式"
