@@ -1928,6 +1928,7 @@ class ScheduledTaskCreateRequest(BaseModel):
     action: Literal[
         "send_text",
         "send_file",
+        "forward_message",
         "create_external_group",
         "update_group",
         "dissolve_group",
@@ -1951,6 +1952,7 @@ class ScheduledTaskUpdateRequest(BaseModel):
         Literal[
             "send_text",
             "send_file",
+            "forward_message",
             "create_external_group",
             "update_group",
             "dissolve_group",
@@ -3458,6 +3460,27 @@ def _serialize_scheduled_task(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _forward_message_item(payload: Dict[str, Any]) -> Dict[str, Any]:
+    source_group = str(payload.get("source_group") or "").strip()
+    received_name = str(payload.get("received_name") or "").strip()
+    original_content = str(payload.get("original_content") or "").strip()
+    destination_names = _normalize_str_list(payload.get("destination_names") or [])
+    if not source_group or not received_name or not original_content or not destination_names:
+        raise HTTPException(status_code=400, detail="原消息群名、发言人、消息内容和转发目标不能为空")
+    item = {
+        "type": 205,
+        "titleList": [source_group],
+        "receivedName": received_name,
+        "originalContent": original_content,
+        "nameList": destination_names,
+        "textType": 0,
+    }
+    extra_text = str(payload.get("extra_text") or "").strip()
+    if extra_text:
+        item["extraText"] = extra_text
+    return item
+
+
 def _parse_json_object(value: Any) -> Dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -3518,6 +3541,8 @@ async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: st
             if extra_text:
                 item["extraText"] = extra_text
             list_items.append(item)
+    elif action == "forward_message":
+        list_items.append(_forward_message_item(payload))
     elif action == "create_external_group":
         group_name = str(payload.get("group_name") or "").strip()
         select_list = _normalize_str_list(payload.get("select_list") or [])
@@ -3587,7 +3612,10 @@ async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: st
         "ok": True,
         "robot_id": robot_id,
         "action": action,
-        "resolved_target_count": len(_normalize_str_list(target_names)),
+        "resolved_target_count": (
+            len(_normalize_str_list(payload.get("destination_names") or []))
+            if action == "forward_message" else len(_normalize_str_list(target_names))
+        ),
         **send_res,
     }
 
@@ -7907,6 +7935,8 @@ async def create_scheduled_task(body: ScheduledTaskCreateRequest, user: Dict[str
         cron_expr=body.cron_expr,
     )
     payload_json = body.payload_json if isinstance(body.payload_json, dict) else {}
+    if body.action == "forward_message":
+        _forward_message_item(payload_json)
     tz = str(body.timezone or "Asia/Shanghai").strip() or "Asia/Shanghai"
     conn = db_conn()
     try:
@@ -7968,6 +7998,8 @@ async def update_scheduled_task(task_id: int, body: ScheduledTaskUpdateRequest, 
         raise HTTPException(status_code=400, detail="name 不能为空")
     next_action = body.action if body.action is not None else str(current.get("action") or "")
     next_payload = body.payload_json if body.payload_json is not None else _parse_json_object(current.get("payload_json"))
+    if next_action == "forward_message":
+        _forward_message_item(next_payload if isinstance(next_payload, dict) else {})
     next_tz = (body.timezone if body.timezone is not None else str(current.get("timezone") or "Asia/Shanghai")).strip() or "Asia/Shanghai"
     next_policy = body.misfire_policy if body.misfire_policy is not None else str(current.get("misfire_policy") or "skip")
     next_status = body.status if body.status is not None else str(current.get("status") or "draft")

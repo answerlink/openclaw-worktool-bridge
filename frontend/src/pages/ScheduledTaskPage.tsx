@@ -71,6 +71,10 @@ interface FormValues {
   file_url?: string;
   file_type?: string;
   extra_text?: string;
+  source_group?: string;
+  received_name?: string;
+  original_content?: string;
+  destination_names_text?: string;
   group_name?: string;
   select_list_text?: string;
   group_announcement?: string;
@@ -107,6 +111,7 @@ function actionLabel(v: string) {
   const m: Record<string, string> = {
     send_text: '发送消息',
     send_file: '发送图片/文件',
+    forward_message: '转发消息',
     create_external_group: '创建外部群',
     update_group: '修改群信息',
     dissolve_group: '解散群',
@@ -278,6 +283,10 @@ export default function ScheduledTaskPage() {
       file_url: String(p.file_url || ''),
       file_type: String(p.file_type || 'image') || 'image',
       extra_text: String(p.extra_text || ''),
+      source_group: String(p.source_group || ''),
+      received_name: String(p.received_name || ''),
+      original_content: String(p.original_content || ''),
+      destination_names_text: Array.isArray(p.destination_names) ? p.destination_names.join('\n') : '',
       group_name: String(p.group_name || ''),
       select_list_text: Array.isArray(p.select_list) ? p.select_list.join('\n') : '',
       group_announcement: String(p.group_announcement || ''),
@@ -324,6 +333,12 @@ export default function ScheduledTaskPage() {
       payload.file_url = String(v.file_url || '');
       payload.file_type = String(v.file_type || '*') || '*';
       payload.extra_text = String(v.extra_text || '');
+    } else if (action === 'forward_message') {
+      payload.source_group = String(v.source_group || '').trim();
+      payload.received_name = String(v.received_name || '').trim();
+      payload.original_content = String(v.original_content || '').trim();
+      payload.destination_names = splitLines(String(v.destination_names_text || ''));
+      payload.extra_text = String(v.extra_text || '').trim();
     } else if (action === 'create_external_group') {
       payload.group_name = String(v.group_name || '');
       payload.select_list = splitLines(String(v.select_list_text || ''));
@@ -608,6 +623,7 @@ export default function ScheduledTaskPage() {
               options={[
                 { label: '发送消息', value: 'send_text' },
                 { label: '发送图片/文件', value: 'send_file' },
+                { label: '转发消息', value: 'forward_message' },
                 { label: '创建外部群', value: 'create_external_group' },
                 { label: '修改群信息', value: 'update_group' },
                 { label: '解散群', value: 'dissolve_group' },
@@ -654,6 +670,25 @@ export default function ScheduledTaskPage() {
               <Form.Item name="extra_text" label="附加留言（可选）"> 
                 <Input />
               </Form.Item>
+            </>
+          )}
+
+          {actionType === 'forward_message' && (
+            <>
+              <Alert type="info" showIcon style={{ marginBottom: 12 }} message="按原消息所在群、发言人和内容查找消息，再转发到指定群或人。" />
+              <Form.Item name="source_group" label="原消息所在群名" rules={[{ required: true, whitespace: true, message: '请输入原消息所在群名' }]}>
+                <Input placeholder="例如：美团小程序转发群" />
+              </Form.Item>
+              <Form.Item name="received_name" label="原消息发言人名" rules={[{ required: true, whitespace: true, message: '请输入发言人名' }]}>
+                <Input placeholder="例如：小明" />
+              </Form.Item>
+              <Form.Item name="original_content" label="原消息内容" rules={[{ required: true, whitespace: true, message: '请输入原消息内容' }]}>
+                <Input.TextArea rows={3} placeholder="例如：美团" />
+              </Form.Item>
+              <Form.Item name="destination_names_text" label="转发到群或人（每行一个）" rules={[{ required: true, whitespace: true, message: '请至少输入一个转发目标' }]}>
+                <Input.TextArea rows={3} placeholder={'例如：\n仑哥\n测试群A'} />
+              </Form.Item>
+              <Form.Item name="extra_text" label="附加留言（可选）"><Input.TextArea rows={2} /></Form.Item>
             </>
           )}
 
