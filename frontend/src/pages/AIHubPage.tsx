@@ -68,7 +68,7 @@ export default function AIHubPage() {
   const load = async () => {
     try {
       const ps = await api.listProviders();
-      setItems(ps);
+      setItems(ps.filter((p) => p.provider_type !== 'simulated'));
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '加载AI回复引擎失败');
     }
@@ -249,6 +249,7 @@ export default function AIHubPage() {
                   <>
                     <Button size="small" onClick={() => {
                       setEditing(row);
+                      if (row.provider_type === 'simulated') return;
                       const nextType = row.provider_type || 'openai';
                       setProviderType(nextType);
                       const preset = OPENAI_BASE_OPTIONS.find((x) => x.value === row.base_url);

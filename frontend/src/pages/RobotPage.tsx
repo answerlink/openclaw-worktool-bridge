@@ -701,7 +701,7 @@ export default function RobotPage() {
               <Form.Item noStyle shouldUpdate={(prev, next) => prev.group_reply_mode !== next.group_reply_mode}>
                 {({ getFieldValue }) => getFieldValue('group_reply_mode') === 'ai_decide' && <>
                   <Form.Item name="group_decision_provider_id" label="判定是否需要回复的 AI 引擎" extra="留空使用平台官方引擎。只用于判断是否回复，回复内容使用规则中选择的引擎。">
-                    <Select options={providers.filter((p) => p.enabled).map((p) => ({ label: p.is_system ? `${p.name}（官方）` : p.name, value: p.id }))} allowClear placeholder="使用平台官方引擎" showSearch optionFilterProp="label" />
+                    <Select options={providers.filter((p) => p.enabled && p.provider_type !== 'simulated').map((p) => ({ label: p.is_system ? `${p.name}（官方）` : p.name, value: p.id }))} allowClear placeholder="使用平台官方引擎" showSearch optionFilterProp="label" />
                   </Form.Item>
                   <Form.Item name="group_decision_prompt_template" label="AI 判定提示词" extra="已有自定义提示词会保留。支持变量：{group_name}、{sender_name}、{last_message}、{recent_context}。">
                     <Input.TextArea rows={5} placeholder={DEFAULT_GROUP_DECISION_PROMPT_TEMPLATE} />
@@ -820,7 +820,11 @@ export default function RobotPage() {
           <Form.Item name="provider_id" label="用哪个 AI 回复？"
             extra={<Space wrap><Typography.Text type="secondary">使用所选引擎生成回复。</Typography.Text><Button type="link" size="small" onClick={() => window.open('/providers', '_blank', 'noopener,noreferrer')}>管理回复引擎</Button><Button type="link" size="small" icon={<ReloadOutlined />} loading={providerRefreshing} onClick={() => void refreshProviders()}>刷新列表</Button></Space>}
             rules={[{ required: true, message: '请选择用于回复的 AI 引擎' }]}>
-            <Select options={providers.filter((p) => p.enabled || p.id === editingRule?.provider_id).map((p) => ({ label: p.name || '未命名引擎', value: p.id }))} placeholder="选择回复引擎" notFoundContent="暂无可用引擎，请先到「管理回复引擎」中添加" />
+            <Select options={providers.filter((p) => p.enabled || p.id === editingRule?.provider_id).slice().sort((a, b) => Number(a.provider_type === 'simulated') - Number(b.provider_type === 'simulated')).map((p) => ({ label: p.provider_type === 'simulated' ? '模拟AI响应（仅临时测试）' : p.name || '未命名引擎', value: p.id }))} placeholder="选择回复引擎" notFoundContent="暂无可用引擎，请先到「管理回复引擎」中添加" />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, next) => prev.provider_id !== next.provider_id}>
+            {({ getFieldValue }) => providers.some((p) => p.id === getFieldValue('provider_id') && p.provider_type === 'simulated') &&
+              <Alert type="warning" showIcon message="仅用于临时测试流程" description="不会调用 AI，每次固定回复「收到，来自模拟AI响应」。正式使用前，请换成真实回复引擎。" style={{ marginBottom: 16 }} />}
           </Form.Item>
           <Collapse ghost items={[{ key: 'advanced-rule', label: '高级设置', forceRender: true, children: <>
             <Form.Item name="priority" label="优先级" extra="通常无需修改。同样具体的规则同时符合时，数字越小越优先。" rules={[{ required: true }]}><InputNumber min={1} max={9999} style={{ width: '100%' }} /></Form.Item>

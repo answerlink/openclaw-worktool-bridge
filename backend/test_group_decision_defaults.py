@@ -13,13 +13,17 @@ class DecisionDefaultsTest(unittest.TestCase):
         conn.close.assert_called_once()
 
     def test_custom_engine_is_preserved_and_access_checked(self):
-        with patch.object(main, '_provider_accessible_by_user', return_value=True) as access, patch.object(main, 'db_conn') as db:
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value.fetchone.return_value = {'provider_type': 'openai'}
+        with patch.object(main, '_provider_accessible_by_user', return_value=True) as access, patch.object(main, 'db_conn', return_value=conn):
             self.assertEqual(main._resolve_group_decision_provider_id(37, 1, 4), 37)
         access.assert_called_once_with(37, 1, 4)
-        db.assert_not_called()
+        conn.close.assert_called_once()
 
     def test_inaccessible_custom_engine_is_not_silently_replaced(self):
-        with patch.object(main, '_provider_accessible_by_user', return_value=False):
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value.fetchone.return_value = {'provider_type': 'openai'}
+        with patch.object(main, 'db_conn', return_value=conn), patch.object(main, '_provider_accessible_by_user', return_value=False):
             with self.assertRaises(main.HTTPException) as error:
                 main._resolve_group_decision_provider_id(37, 1)
         self.assertEqual(error.exception.status_code, 400)

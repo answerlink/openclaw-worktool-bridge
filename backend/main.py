@@ -494,7 +494,7 @@ def init_db() -> None:
                   base_url VARCHAR(512) NOT NULL,
                   api_token TEXT NOT NULL,
                   model VARCHAR(128) NULL,
-                  provider_type ENUM('openai','openclaw','worktool_callback') NOT NULL DEFAULT 'openai',
+                  provider_type ENUM('openai','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
                   auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                   extra_json JSON NULL,
                   system_prompt_template TEXT NULL,
@@ -540,7 +540,7 @@ def init_db() -> None:
                       base_url VARCHAR(512) NOT NULL,
                       api_token TEXT NOT NULL,
                       model VARCHAR(128) NULL,
-                      provider_type ENUM('openai','openclaw','worktool_callback') NOT NULL DEFAULT 'openai',
+                      provider_type ENUM('openai','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
                       auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                       extra_json JSON NULL,
                       system_prompt_template TEXT NULL,
@@ -621,10 +621,10 @@ def init_db() -> None:
             # Existing deployments created this as an ENUM before callback providers existed.
             cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'provider_type'")
             provider_type_column = cur.fetchone() or {}
-            if "worktool_callback" not in str(provider_type_column.get("Type") or ""):
+            if "simulated" not in str(provider_type_column.get("Type") or ""):
                 cur.execute(
                     "ALTER TABLE ai_providers MODIFY COLUMN provider_type "
-                    "ENUM('openai','openclaw','worktool_callback') NOT NULL DEFAULT 'openai'"
+                    "ENUM('openai','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai'"
                 )
             cur.execute("SHOW COLUMNS FROM routing_rules LIKE 'content_pattern'")
             if not cur.fetchone():
@@ -1246,6 +1246,22 @@ def init_db() -> None:
         conn.close()
 
 
+SIMULATED_AI_REPLY = "收到，来自模拟AI响应"
+
+
+def ensure_simulated_ai_provider(user_id: int) -> None:
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT IGNORE INTO ai_providers(created_by,name,base_url,api_token,model,provider_type,auth_scheme,enabled,is_system)
+                VALUES(%s,'__builtin_simulated_ai_response__','','',NULL,'simulated','none',1,1)
+            """, (int(user_id),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def ensure_default_test_provider(user_id: int) -> None:
     if not _default_test_provider_enabled():
         return
@@ -1256,7 +1272,7 @@ def ensure_default_test_provider(user_id: int) -> None:
     conn = db_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM ai_providers WHERE is_system=1 LIMIT 1")
+            cur.execute("SELECT id FROM ai_providers WHERE is_system=1 AND provider_type<>'simulated' LIMIT 1")
             row = cur.fetchone()
             if row:
                 cur.execute(
@@ -2075,6 +2091,15 @@ def _provider_owned_by_user(provider_id: int, user_id: int) -> bool:
 
 def _resolve_group_decision_provider_id(provider_id: Optional[int], user_id: int, robot_pk: Optional[int] = None) -> int:
     if provider_id is not None:
+        conn = db_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT provider_type FROM ai_providers WHERE id=%s LIMIT 1", (int(provider_id),))
+                provider = cur.fetchone()
+                if provider and provider.get("provider_type") == "simulated":
+                    raise HTTPException(status_code=400, detail="模拟AI响应仅用于测试回复，不能用于判断是否需要回复")
+        finally:
+            conn.close()
         if not _provider_accessible_by_user(int(provider_id), user_id, robot_pk):
             raise HTTPException(status_code=400, detail="group_decision_provider_id not accessible")
         return int(provider_id)
@@ -2083,7 +2108,7 @@ def _resolve_group_decision_provider_id(provider_id: Optional[int], user_id: int
         conn = db_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM ai_providers WHERE is_system=1 AND enabled=1 ORDER BY id ASC LIMIT 1")
+                cur.execute("SELECT id FROM ai_providers WHERE is_system=1 AND enabled=1 AND provider_type<>'simulated' ORDER BY id ASC LIMIT 1")
                 row = cur.fetchone()
                 if row:
                     return int(row["id"])
@@ -2104,7 +2129,7 @@ def _provider_accessible_by_user(provider_id: int, user_id: int, robot_pk: Optio
                     FROM ai_providers p
                     WHERE p.id=%s
                       AND (
-                        (%s=1 AND p.is_system=1) OR
+                        (p.is_system=1 AND (%s=1 OR p.provider_type='simulated')) OR
                         p.created_by=%s OR EXISTS(
                           SELECT 1
                           FROM routing_rules r
@@ -2123,7 +2148,7 @@ def _provider_accessible_by_user(provider_id: int, user_id: int, robot_pk: Optio
                     FROM ai_providers p
                     WHERE p.id=%s
                       AND (
-                        (%s=1 AND p.is_system=1) OR
+                        (p.is_system=1 AND (%s=1 OR p.provider_type='simulated')) OR
                         p.created_by=%s OR EXISTS(
                           SELECT 1
                           FROM routing_rules r
@@ -4784,6 +4809,8 @@ def _build_request_curl(method: str, url: str, headers: Dict[str, Any], body: An
 
 
 async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optional[Dict[str, Any]] = None) -> str:
+    if rule.get("provider_type") == "simulated":
+        return SIMULATED_AI_REPLY
     req_cfg = _build_provider_http_request(rule, prompt, payload_extra)
     headers = req_cfg["headers"]
     payload = req_cfg["payload"]
@@ -5729,7 +5756,7 @@ async def update_robot(robot_id: str, body: RobotUpdate, user: Dict[str, Any] = 
 
     effective_mode = resolved_group_reply_mode or _normalize_group_reply_mode(robot.get("group_reply_mode"), robot.get("group_reply_only_when_mentioned"))
     decision_provider_id = body.group_decision_provider_id if has_group_decision_provider_id else robot.get("group_decision_provider_id")
-    if effective_mode == "ai_decide" and (has_group_decision_provider_id or decision_provider_id is None):
+    if effective_mode == "ai_decide" and (has_group_decision_provider_id or decision_provider_id is None or resolved_group_reply_mode == "ai_decide"):
         decision_provider_id = _resolve_group_decision_provider_id(decision_provider_id, int(user["id"]), int(robot["id"]))
         has_group_decision_provider_id = True
     elif has_group_decision_provider_id and decision_provider_id is not None and not _provider_accessible_by_user(int(decision_provider_id), int(user["id"]), int(robot["id"])):
@@ -5786,6 +5813,7 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
         robot = _require_robot_access(int(user["id"]), robot_id)
         robot_pk = int(robot["id"])
     ensure_default_test_provider(int(user["id"]))
+    ensure_simulated_ai_provider(int(user["id"]))
     include_system = 1 if _default_test_provider_enabled() else 0
     conn = db_conn()
     try:
@@ -5797,7 +5825,7 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
                     FROM ai_providers p
                     LEFT JOIN routing_rules r ON r.provider_id=p.id
                     LEFT JOIN user_robots ur ON ur.robot_pk=r.robot_pk AND ur.user_id=%s
-                    WHERE (%s=1 AND p.is_system=1) OR p.created_by=%s OR ur.user_id IS NOT NULL
+                    WHERE (p.is_system=1 AND (%s=1 OR p.provider_type='simulated')) OR p.created_by=%s OR ur.user_id IS NOT NULL
                     ORDER BY p.id ASC
                     """,
                     (int(user["id"]), include_system, int(user["id"])),
@@ -5808,7 +5836,7 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
                     SELECT DISTINCT p.*
                     FROM ai_providers p
                     LEFT JOIN routing_rules r ON r.provider_id=p.id AND r.robot_pk=%s
-                    WHERE (%s=1 AND p.is_system=1) OR p.created_by=%s OR r.id IS NOT NULL
+                    WHERE (p.is_system=1 AND (%s=1 OR p.provider_type='simulated')) OR p.created_by=%s OR r.id IS NOT NULL
                     ORDER BY p.id ASC
                     """,
                     (int(robot_pk), include_system, int(user["id"])),
@@ -5816,6 +5844,8 @@ async def list_providers(robot_id: Optional[str] = None, user: Dict[str, Any] = 
             rows = cur.fetchall() or []
             items = []
             for row in rows:
+                if row.get("provider_type") == "simulated":
+                    row["name"] = "模拟AI响应"
                 is_system = bool(row.get("is_system"))
                 can_manage = (not is_system) and int(row.get("created_by") or 0) == int(user["id"])
                 row["enabled"] = bool(row["enabled"])
@@ -6110,7 +6140,7 @@ async def list_rules(robot_id: str, scene: Optional[str] = None, user: Dict[str,
     try:
         with conn.cursor() as cur:
             sql = (
-                "SELECT r.id,p.id AS provider_id,p.name AS provider_name,r.scene,"
+                "SELECT r.id,p.id AS provider_id,CASE WHEN p.provider_type='simulated' THEN '模拟AI响应' ELSE p.name END AS provider_name,r.scene,"
                 "r.pattern_match_type,r.pattern,r.content_match_type,r.content_pattern,r.priority,r.enabled "
                 "FROM routing_rules r JOIN ai_providers p ON p.id=r.provider_id WHERE r.robot_pk=%s"
             )
