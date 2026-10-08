@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
@@ -27,6 +27,8 @@ export default function GroupListPage() {
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [clearingGroups, setClearingGroups] = useState(false);
+  const [readingGroups, setReadingGroups] = useState(false);
   const [latestSyncAt, setLatestSyncAt] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -95,6 +97,36 @@ export default function GroupListPage() {
     }
   };
 
+  const readGroups = async () => {
+    if (!robotId || readingGroups || syncing || clearingGroups) return;
+    setReadingGroups(true);
+    try {
+      await api.readGroupsFromClient(robotId);
+      message.success('读取指令已下发，客户端执行可能耗时较长，请勿重复下发。完成后可同步到本页查看。', 8);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '指令下发结果暂未确认，请先检查指令执行记录，避免重复操作', 8);
+    } finally {
+      setReadingGroups(false);
+    }
+  };
+
+  const clearGroups = async () => {
+    if (!robotId || clearingGroups || syncing || readingGroups) return;
+    setClearingGroups(true);
+    try {
+      const result = await api.clearRobotGroups(robotId);
+      message.success(`群列表已清空，删除 ${result.groupDeletedCount} 条记录`);
+      setRows([]);
+      setTotal(0);
+      setLatestSyncAt('');
+      setPage(1);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '清空群列表失败');
+    } finally {
+      setClearingGroups(false);
+    }
+  };
+
   useEffect(() => {
     void loadRobots();
   }, []);
@@ -120,18 +152,47 @@ export default function GroupListPage() {
       title="群列表"
       extra={(
         <Space>
-          <Button icon={<SyncOutlined />} loading={syncing} onClick={() => void syncNow()}>
-            立即同步
+          <Button icon={<SyncOutlined />} disabled={readingGroups || clearingGroups || !robotId} loading={syncing} onClick={() => void syncNow()}>
+            同步到本页
           </Button>
+          <Popconfirm
+            title="让客户端全量读取企微群列表？"
+            description="机器人会模拟操作手机读取群列表，群越多耗时越长，建议闲时执行。通常首次全量读取一次即可，后续依靠被动更新补充，无需频繁重复执行。"
+            onConfirm={readGroups}
+            okText="下发读取指令"
+            cancelText="取消"
+            disabled={readingGroups || clearingGroups || syncing || !robotId}
+          >
+            <Button loading={readingGroups} disabled={readingGroups || clearingGroups || syncing || !robotId}>读取企微群列表</Button>
+          </Popconfirm>
+          <Popconfirm
+            title="清空当前机器人的群列表？"
+            description="清理 WorkTool 数据库中的群列表和本平台群列表缓存，不会退出或解散企微客户端的群，也不会清理好友列表、聊天记录或群配置。"
+            onConfirm={clearGroups}
+            okText="清空群列表"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            disabled={readingGroups || clearingGroups || syncing || !robotId}
+          >
+            <Button danger disabled={readingGroups || clearingGroups || syncing || !robotId} loading={clearingGroups}>清空群列表</Button>
+          </Popconfirm>
           <Button icon={<ReloadOutlined />} onClick={() => void load(page, pageSize)}>
             刷新
           </Button>
         </Space>
       )}
     >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="全量读取建议闲时执行，通常只需执行一次"
+        description="「读取企微群列表」会让机器人模拟操作手机，群越多耗时越长。后续依靠被动更新补充，无需频繁重复执行。「同步到本页」用于获取 WorkTool 已有的群列表。"
+      />
       <Space style={{ marginBottom: 12 }}>
         <Select
           style={{ width: 360 }}
+          disabled={readingGroups || clearingGroups}
           value={robotId}
           onChange={selectRobot}
           options={robotOptions}

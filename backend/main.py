@@ -8341,6 +8341,22 @@ async def run_scheduled_tasks_tick(limit: int = 20) -> Dict[str, Any]:
     return {"picked": picked, "done": done}
 
 
+@app.post("/api/v1/groups/read-from-client")
+async def read_groups_from_client(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    rid = robot_id.strip()
+    if not rid:
+        raise HTTPException(status_code=400, detail="robot_id 不能为空")
+    _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "读取企微群列表", user=user)
+    try:
+        result = await _send_raw_message_batch(rid, [{"type": 508}])
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="指令下发超时，可能已经下发，请先检查指令执行记录，避免重复操作") from exc
+    except aiohttp.ClientError as exc:
+        raise HTTPException(status_code=502, detail="指令下发结果暂未确认，请先检查指令执行记录，避免重复操作") from exc
+    return {"ok": True, "robot_id": rid, **result}
+
+
 @app.post("/api/v1/groups/sync")
 async def sync_groups_cache(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     robot = _require_robot_access(int(user["id"]), robot_id)
@@ -8543,6 +8559,38 @@ async def get_message_monitor_logs(
 async def get_robot_info_detail(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
     return await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": robot_id})
+
+
+@app.post("/api/v1/groups/clear")
+async def clear_robot_groups(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    rid = robot_id.strip()
+    if not rid:
+        raise HTTPException(status_code=400, detail="robot_id 不能为空")
+    robot = _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "群列表", user=user)
+    try:
+        result = await post_worktool_api("/robot/robotInfo/clearGroupList", params={"robotId": rid})
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="清空群列表请求超时，结果暂未确认") from exc
+    except aiohttp.ClientError as exc:
+        raise HTTPException(status_code=502, detail="无法连接 WorkTool，请稍后重试") from exc
+    _ensure_worktool_ok(result, "清空群列表")
+    counts = result.get("data") if isinstance(result.get("data"), dict) else result
+    count = counts.get("groupDeletedCount")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise HTTPException(status_code=502, detail="WorkTool 未返回有效的群删除数量，结果暂未确认")
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM robot_group_cache WHERE robot_pk=%s", (int(robot["id"]),))
+            cur.execute("DELETE FROM robot_group_sync_state WHERE robot_pk=%s", (int(robot["id"]),))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True, "robot_id": rid, "groupDeletedCount": count}
 
 
 @app.get("/api/v1/robot-info/callbacks")

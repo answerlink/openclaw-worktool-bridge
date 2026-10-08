@@ -241,6 +241,10 @@ export const api = {
     oldest_pending_time: string;
     newest_result_time?: string;
   }) => http.post('/worktool/command-backlog/notice', payload).then((r) => r.data),
+  clearRobotGroups: (robotId: string): Promise<{ groupDeletedCount: number }> =>
+    http.post('/groups/clear', null, { params: { robot_id: robotId } }).then((r) => r.data),
+  readGroupsFromClient: (robotId: string) =>
+    http.post('/groups/read-from-client', null, { params: { robot_id: robotId } }).then((r) => r.data),
   syncGroups: (robotId: string) => http.post('/groups/sync', null, { params: { robot_id: robotId } }).then((r) => r.data),
   listGroups: (params: { robot_id: string; keyword?: string; page?: number; page_size?: number }) =>
     http.get('/groups', { params }).then((r) => r.data),
