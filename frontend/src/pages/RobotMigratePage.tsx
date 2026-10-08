@@ -111,8 +111,10 @@ export default function RobotMigratePage() {
       setRobotInfo(res);
       const expireAt = res?.auth_expir ? dayjs(res.auth_expir) : null;
       if (autoSetExpireDate && expireAt?.isValid()) {
-        form.setFieldsValue({ expireDate: expireAt.add(1, 'year') });
-        message.success(`查询成功，续期日期已自动设为 ${expireAt.add(1, 'year').format('YYYY-MM-DD')}`);
+        const baseDate = expireAt.isBefore(dayjs(), 'day') ? dayjs() : expireAt;
+        const renewDate = baseDate.add(1, 'year');
+        form.setFieldsValue({ expireDate: renewDate });
+        message.success(`查询成功，续期日期已自动设为 ${renewDate.format('YYYY-MM-DD')}`);
       } else if (autoSetExpireDate) {
         form.setFieldsValue({ expireDate: undefined });
         message.warning('查询成功，但未找到当前到期时间，请手动选择续期日期');
