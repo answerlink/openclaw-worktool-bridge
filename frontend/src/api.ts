@@ -98,8 +98,15 @@ export const api = {
     deployment_type?: 'all' | 'saas' | 'private';
     expire_status?: 'all' | 'active' | 'expired';
     enabled_status?: 'all' | 'enabled' | 'disabled';
+    tag_filter?: string;
   }) =>
     http.get('/admin/wework/authorization/list', { params }).then((r) => r.data),
+  enterpriseTags: () => http.get('/admin/wework/authorization/tags').then((r) => r.data.items as { id: number; name: string }[]),
+  createEnterpriseTag: (name: string) => http.post('/admin/wework/authorization/tags', { name }).then((r) => r.data),
+  renameEnterpriseTag: (id: number, name: string) => http.put(`/admin/wework/authorization/tags/${id}`, { name }).then((r) => r.data),
+  deleteEnterpriseTag: (id: number) => http.delete(`/admin/wework/authorization/tags/${id}`).then((r) => r.data),
+  applyEnterpriseTags: (corp_ids: string[], tag_ids: number[], operation: 'add' | 'remove' | 'replace') =>
+    http.post('/admin/wework/authorization/tag-assignments', { corp_ids, tag_ids, operation }).then((r) => r.data),
   adminEnterpriseShareGet: (corpId: string) =>
     http.get('/admin/wework/authorization/share', { params: { corp_id: corpId } }).then((r) => r.data),
   adminEnterpriseShareCreate: (corpId: string, regenerate = false) =>

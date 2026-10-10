@@ -8,6 +8,7 @@ import EnterpriseSharePanel from '../components/EnterpriseSharePanel';
 
 interface AuthRow {
   corpId: string;
+  tags?: { id: number; name: string }[];
   corpName?: string;
   agentId?: string;
   isEnabled?: boolean;
@@ -381,6 +382,47 @@ export function PrivateLicenseAuthorizationPage() {
 }
 
 export default function EnterpriseAuthorizationPage() {
+  const [tags, setTags] = useState<{ id: number; name: string }[]>([]);
+  const [tagFilter, setTagFilter] = useState('all');
+  const [selectedCorps, setSelectedCorps] = useState<string[]>([]);
+  const [manageTagsOpen, setManageTagsOpen] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [tagNames, setTagNames] = useState<Record<number, string>>({});
+  const [tagBusy, setTagBusy] = useState(false);
+  const [assignment, setAssignment] = useState<{ corpIds: string[]; operation: 'add' | 'remove' | 'replace' } | null>(null);
+  const [assignmentTags, setAssignmentTags] = useState<number[]>([]);
+  const loadTags = async () => {
+    try {
+      const result = await api.enterpriseTags();
+      setTags(result);
+      setTagNames(Object.fromEntries(result.map((t) => [t.id, t.name])));
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '加载标签失败');
+    }
+  };
+  const editTags = (row: AuthRow) => {
+    setAssignment({ corpIds: [row.corpId], operation: 'replace' });
+    setAssignmentTags((row.tags || []).map((t) => t.id));
+  };
+  const changeTag = async (action: () => Promise<any>, deletedId?: number) => {
+    setTagBusy(true);
+    try {
+      await action();
+      setNewTagName('');
+      await loadTags();
+      if (deletedId && tagFilter === String(deletedId)) {
+        setTagFilter('all');
+        await load({ tagFilter: 'all' });
+      } else {
+        await load();
+      }
+      message.success('标签已更新');
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '更新标签失败');
+    } finally {
+      setTagBusy(false);
+    }
+  };
   const [corpId, setCorpId] = useState('');
   const [corpName, setCorpName] = useState('');
   const [deploymentType, setDeploymentType] = useState<'all' | 'saas' | 'private'>('all');
@@ -395,7 +437,7 @@ export default function EnterpriseAuthorizationPage() {
   const [auditRows, setAuditRows] = useState<EnterpriseAuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  const load = async (filters?: Partial<{ deploymentType: 'all' | 'saas' | 'private'; expireStatus: 'all' | 'active' | 'expired'; enabledStatus: 'all' | 'enabled' | 'disabled' }>) => {
+  const load = async (filters?: Partial<{ tagFilter: string; deploymentType: 'all' | 'saas' | 'private'; expireStatus: 'all' | 'active' | 'expired'; enabledStatus: 'all' | 'enabled' | 'disabled' }>) => {
     const nextDeploymentType = filters?.deploymentType ?? deploymentType;
     const nextExpireStatus = filters?.expireStatus ?? expireStatus;
     const nextEnabledStatus = filters?.enabledStatus ?? enabledStatus;
@@ -407,8 +449,10 @@ export default function EnterpriseAuthorizationPage() {
         deployment_type: nextDeploymentType,
         expire_status: nextExpireStatus,
         enabled_status: nextEnabledStatus,
+        tag_filter: filters?.tagFilter ?? tagFilter,
       });
       setRows(pickRows(res));
+      setSelectedCorps([]);
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '加载企业授权列表失败');
       setRows([]);
@@ -432,6 +476,7 @@ export default function EnterpriseAuthorizationPage() {
 
   useEffect(() => {
     void load();
+    void loadTags();
     void loadAuditLogs();
   }, []);
 
@@ -439,7 +484,13 @@ export default function EnterpriseAuthorizationPage() {
     () => [
       { title: 'CorpId', dataIndex: 'corpId', width: 220, sorter: (a: AuthRow, b: AuthRow) => compareText(a.corpId, b.corpId), render: (v: string | undefined) => <HoverPreviewText value={v} maxWidth={200} popupWidth={760} /> },
       { title: '企业名称', dataIndex: 'corpName', width: 160, sorter: (a: AuthRow, b: AuthRow) => compareText(a.corpName, b.corpName), render: (v: string | undefined) => v || '-' },
-      { title: 'AgentId', dataIndex: 'agentId', width: 120, sorter: (a: AuthRow, b: AuthRow) => compareText(a.agentId, b.agentId), render: (v: string | undefined) => v || '-' },
+      { title: '标签', width: 220, render: (_: unknown, row: AuthRow) => (
+        <Space wrap size={4}>
+          {(row.tags || []).map((t) => <Tag key={t.id}>{t.name}</Tag>)}
+          {!row.tags?.length && <Typography.Text type="secondary">无标签</Typography.Text>}
+          <Button type="link" size="small" onClick={() => editTags(row)}>编辑标签</Button>
+        </Space>
+      ) },
       {
         title: '部署类型',
         dataIndex: 'deploymentType',
@@ -563,6 +614,7 @@ export default function EnterpriseAuthorizationPage() {
       title="企业定制开通"
       extra={(
         <Space>
+          <Button onClick={() => setManageTagsOpen(true)}>管理标签</Button>
           <Button
             icon={<PlusOutlined />}
             type="primary"
@@ -582,6 +634,14 @@ export default function EnterpriseAuthorizationPage() {
       )}
     >
       <Space style={{ marginBottom: 12 }} wrap>
+        <Select
+          style={{ width: 220 }}
+          value={tagFilter}
+          showSearch
+          optionFilterProp="label"
+          onChange={(value) => { setTagFilter(value); void load({ tagFilter: value }); }}
+          options={[{ value: 'all', label: '全部企业' }, { value: 'untagged', label: '无标签企业' }, ...tags.map((t) => ({ value: String(t.id), label: t.name }))]}
+        />
         <Select
           style={{ width: 130 }}
           value={deploymentType}
@@ -629,15 +689,58 @@ export default function EnterpriseAuthorizationPage() {
         管理企业授权（新增/修改/删除），仅管理员可见。
       </Typography.Text>
 
+      <Space wrap style={{ marginBottom: 12 }}>
+        <Typography.Text>已选 {selectedCorps.length} 家企业</Typography.Text>
+        <Button disabled={!selectedCorps.length} onClick={() => { setAssignment({ corpIds: selectedCorps, operation: 'add' }); setAssignmentTags([]); }}>批量添加标签</Button>
+        <Button disabled={!selectedCorps.length} onClick={() => { setAssignment({ corpIds: selectedCorps, operation: 'remove' }); setAssignmentTags([]); }}>批量移除标签</Button>
+      </Space>
       <Table
         rowKey={(r) => r.corpId}
+        rowSelection={{ selectedRowKeys: selectedCorps, onChange: (keys) => { if (keys.length > 500) { message.warning('每次最多批量设置 500 家企业'); return; } setSelectedCorps(keys.map(String)); } }}
         dataSource={rows}
         loading={loading}
         columns={columns}
-        pagination={false}
-        scroll={{ x: 1280 }}
+        pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (total) => `共 ${total} 家企业` }}
+        scroll={{ x: 1500 }}
         locale={{ emptyText: '暂无企业授权' }}
       />
+
+      <Modal title="管理企业标签" open={manageTagsOpen} onCancel={() => !tagBusy && setManageTagsOpen(false)} footer={null}>
+        <Space style={{ marginBottom: 16 }}>
+          <Input maxLength={80} value={newTagName} onChange={(e) => setNewTagName(e.target.value)} placeholder="例如：某某集团" disabled={tagBusy} />
+          <Button type="primary" disabled={!newTagName.trim() || tagBusy} onClick={() => void changeTag(() => api.createEnterpriseTag(newTagName.trim()))}>新建标签</Button>
+        </Space>
+        <Typography.Paragraph type="secondary">删除标签只移除分类关系，不会删除企业或开通记录。</Typography.Paragraph>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {tags.map((tag) => <Space key={tag.id}>
+            <Input maxLength={80} disabled={tagBusy} value={tagNames[tag.id] ?? tag.name} onChange={(e) => setTagNames((old) => ({ ...old, [tag.id]: e.target.value }))} />
+            <Button disabled={tagBusy || !tagNames[tag.id]?.trim() || tagNames[tag.id].trim() === tag.name} onClick={() => void changeTag(() => api.renameEnterpriseTag(tag.id, tagNames[tag.id].trim()))}>重命名</Button>
+            <Popconfirm title={`删除标签「${tag.name}」？`} onConfirm={() => changeTag(() => api.deleteEnterpriseTag(tag.id), tag.id)} disabled={tagBusy}>
+              <Button danger disabled={tagBusy}>删除</Button>
+            </Popconfirm>
+          </Space>)}
+          {!tags.length && <Typography.Text type="secondary">暂无标签，可先创建常用集团标签。</Typography.Text>}
+        </Space>
+      </Modal>
+      <Modal title={assignment?.operation === 'replace' ? '编辑企业标签' : assignment?.operation === 'add' ? '批量添加标签' : '批量移除标签'}
+        open={!!assignment} onCancel={() => !tagBusy && setAssignment(null)} confirmLoading={tagBusy}
+        onOk={async () => {
+          if (!assignment) return;
+          if (assignment.operation !== 'replace' && !assignmentTags.length) { message.warning('请至少选择一个标签'); return; }
+          setTagBusy(true);
+          try {
+            await api.applyEnterpriseTags(assignment.corpIds, assignmentTags, assignment.operation);
+            setAssignment(null);
+            await load();
+            await loadAuditLogs();
+            message.success('企业标签已更新');
+          } catch (e: any) { message.error(e?.response?.data?.detail || '设置标签失败'); }
+          finally { setTagBusy(false); }
+        }}>
+        <Typography.Paragraph>为 {assignment?.corpIds.length || 0} 家企业{assignment?.operation === 'remove' ? '移除' : '设置'}标签。</Typography.Paragraph>
+        <Select mode="multiple" style={{ width: '100%' }} value={assignmentTags} onChange={setAssignmentTags} disabled={tagBusy} options={tags.map((t) => ({ value: t.id, label: t.name }))} placeholder="选择标签，可选择多个" optionFilterProp="label" />
+        {assignment?.operation === 'replace' && <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>清空选择并保存后，该企业归入“无标签企业”。</Typography.Paragraph>}
+      </Modal>
 
       <Modal
         title={editing ? '编辑企业授权' : '新增企业授权'}

@@ -41,6 +41,7 @@ from safe_outbound_http import (
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
 from command_tasks import CommandQueryBusy, list_command_tasks
 from feedback import FeedbackPayload, send_wecom_text, submit_feedback, wecom_webhook_url
+from enterprise_tags import EnterpriseTagStore, TAG_TABLE_SQL, LINK_TABLE_SQL
 from enterprise_shares import SHARE_TABLE_SQL, EnterpriseShareStore, public_authorization_record, share_link_data
 
 APP_VERSION = "4.0.0"
@@ -841,6 +842,8 @@ def init_db() -> None:
                 """
             )
             cur.execute(SHARE_TABLE_SQL)
+            cur.execute(TAG_TABLE_SQL)
+            cur.execute(LINK_TABLE_SQL)
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS enterprise_authorization_metadata (
@@ -9456,6 +9459,7 @@ def _delete_enterprise_authorization_metadata(corp_id: str) -> None:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM enterprise_authorization_shares WHERE corp_id=%s", (corp_id,))
             cur.execute("DELETE FROM enterprise_authorization_metadata WHERE corp_id=%s", (corp_id,))
+            cur.execute("DELETE FROM enterprise_authorization_tag_links WHERE corp_id=%s", (corp_id,))
         conn.commit()
     finally:
         conn.close()
@@ -9468,10 +9472,13 @@ async def admin_wework_authorization_list(
     deployment_type: Literal["all", "saas", "private"] = "all",
     expire_status: Literal["all", "active", "expired"] = "all",
     enabled_status: Literal["all", "enabled", "disabled"] = "all",
+    tag_filter: str = "all",
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_admin(user)
     _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+    if tag_filter not in {"all", "untagged"} and not re.fullmatch(r"[1-9][0-9]{0,18}", tag_filter):
+        raise HTTPException(400, "标签筛选无效")
     list_path = _require_configured_path(WORKTOOL_WEWORK_AUTH_LIST_PATH, "WORKTOOL_WEWORK_AUTH_LIST_PATH")
     params: Dict[str, Any] = {}
     if (corp_id or "").strip():
@@ -9479,6 +9486,7 @@ async def admin_wework_authorization_list(
     if (corp_name or "").strip():
         params["corpName"] = (corp_name or "").strip()
     raw = await fetch_worktool_api(list_path, params)
+    _ensure_worktool_ok(raw, "查询企业授权")
     rows = _wework_authorization_rows(raw)
     metadata = _get_enterprise_authorization_metadata([
         str(row.get("corpId") or row.get("corp_id") or "").strip() for row in rows
@@ -9486,10 +9494,16 @@ async def admin_wework_authorization_list(
     created_at = _get_enterprise_authorization_created_at([
         str(row.get("corpId") or row.get("corp_id") or "").strip() for row in rows
     ])
+    tags = EnterpriseTagStore(db_conn).assignments([str(row.get("corpId") or row.get("corp_id") or "").strip() for row in rows])
     items = []
     for row in rows:
         item = dict(row)
         corp = str(item.get("corpId") or item.get("corp_id") or "").strip()
+        item["tags"] = tags.get(corp, [])
+        if tag_filter == "untagged" and item["tags"]:
+            continue
+        if tag_filter not in {"all", "untagged"} and not any(int(t["id"]) == int(tag_filter) for t in item["tags"]):
+            continue
         item["deploymentType"] = metadata.get(corp, "all")
         item["createdAt"] = item.get("createdAt") or item.get("createTime") or item.get("created_at") or created_at.get(corp, "")
         expired = _wework_authorization_is_expired(item)
@@ -9535,6 +9549,71 @@ async def _get_wework_authorization_snapshot(corp_id: str) -> Optional[Dict[str,
     raw = await fetch_worktool_api(list_path, {"corpId": corp_id})
     _ensure_worktool_ok(raw, "查询企业授权")
     return _find_wework_authorization_record(raw, corp_id)
+
+
+class EnterpriseTagName(BaseModel):
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+
+
+class EnterpriseTagAssignment(BaseModel):
+    corp_ids: List[str] = Field(min_length=1, max_length=500)
+    tag_ids: List[int] = Field(max_length=100)
+    operation: Literal["add", "remove", "replace"]
+
+
+def _require_enterprise_tag_admin(user):
+    _require_admin(user)
+    _require_feature_enabled(ENABLE_ADMIN_ENTERPRISE_AUTH, "admin enterprise auth")
+
+
+@app.get("/api/v1/admin/wework/authorization/tags")
+def list_enterprise_tags(user: Dict[str, Any] = Depends(get_current_user)):
+    _require_enterprise_tag_admin(user)
+    return {"items": EnterpriseTagStore(db_conn).tags()}
+
+
+@app.post("/api/v1/admin/wework/authorization/tags")
+def create_enterprise_tag(body: EnterpriseTagName, user: Dict[str, Any] = Depends(get_current_user)):
+    _require_enterprise_tag_admin(user)
+    return EnterpriseTagStore(db_conn).save(body.name.strip())
+
+
+@app.put("/api/v1/admin/wework/authorization/tags/{tag_id}")
+def rename_enterprise_tag(tag_id: int, body: EnterpriseTagName, user: Dict[str, Any] = Depends(get_current_user)):
+    _require_enterprise_tag_admin(user)
+    return EnterpriseTagStore(db_conn).save(body.name.strip(), tag_id)
+
+
+@app.delete("/api/v1/admin/wework/authorization/tags/{tag_id}")
+def delete_enterprise_tag(tag_id: int, user: Dict[str, Any] = Depends(get_current_user)):
+    _require_enterprise_tag_admin(user)
+    EnterpriseTagStore(db_conn).delete(tag_id)
+    return {"ok": True}
+
+
+@app.post("/api/v1/admin/wework/authorization/tag-assignments")
+async def apply_enterprise_tags(body: EnterpriseTagAssignment, request: Request, user: Dict[str, Any] = Depends(get_current_user)):
+    _require_enterprise_tag_admin(user)
+    corp_ids = list(dict.fromkeys(c.strip() for c in body.corp_ids))
+    if any(not c or len(c) > 128 for c in corp_ids) or any(t <= 0 for t in body.tag_ids):
+        raise HTTPException(400, "企业或标签参数无效")
+    if body.operation != "replace" and not body.tag_ids:
+        raise HTTPException(400, "请至少选择一个标签")
+    raw = await fetch_worktool_api(_require_configured_path(WORKTOOL_WEWORK_AUTH_LIST_PATH, "WORKTOOL_WEWORK_AUTH_LIST_PATH"), {})
+    _ensure_worktool_ok(raw, "查询企业授权")
+    existing = {str(r.get("corpId") or r.get("corp_id") or "").strip() for r in _wework_authorization_rows(raw)}
+    if not set(corp_ids).issubset(existing):
+        raise HTTPException(404, "部分企业授权不存在，请刷新后重试")
+    audit_id = _begin_admin_audit(user, request, module="enterprise_authorization", action_key="tags_" + body.operation,
+        action_name="设置企业标签", target_type="wework_authorization", target_id=",".join(corp_ids)[:128], target_name=f"{len(corp_ids)} 家企业",
+        before={"tags": EnterpriseTagStore(db_conn).assignments(corp_ids)})
+    try:
+        EnterpriseTagStore(db_conn).apply(corp_ids, list(dict.fromkeys(body.tag_ids)), body.operation)
+    except Exception as exc:
+        _audit_failure(audit_id, exc)
+        raise
+    _finish_admin_audit(audit_id, status="success", after={"operation": body.operation, "corp_ids": corp_ids, "tag_ids": body.tag_ids})
+    return {"ok": True}
 
 
 class EnterpriseShareRequest(BaseModel):

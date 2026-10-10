@@ -53,6 +53,7 @@ class EnterpriseShareTests(unittest.TestCase):
         self.db.row_factory = sqlite3.Row
         self.db.execute('CREATE TABLE enterprise_authorization_shares(corp_id TEXT PRIMARY KEY, token TEXT UNIQUE COLLATE BINARY)')
         self.db.execute('CREATE TABLE enterprise_authorization_metadata(corp_id TEXT PRIMARY KEY)')
+        self.db.execute('CREATE TABLE enterprise_authorization_tag_links(corp_id TEXT, tag_id INTEGER)')
         self.addCleanup(self.db.close)
         self.rows = [
             {'corpId': 'corp-a', 'corpName': 'Company A', 'agentId': '10001', 'isEnabled': True, 'expireTime': '2027-09-01T23:59:59', 'remark': 'PRIVATE REMARK', 'secret': 'UPSTREAM SECRET'},
