@@ -1686,6 +1686,10 @@ class RobotMigrateRequest(BaseModel):
     old_robot_id: str
 
 
+class RobotCreateRequest(BaseModel):
+    robot_type: Literal[0, 1]
+
+
 class RobotRenewRequest(BaseModel):
     robot_id: str
     expire_date: str
@@ -10246,6 +10250,57 @@ async def _admin_robot_renew_operation(
         result_payload=res,
     )
     return {"ok": True, "action": action_name, "robot_id": target, "result": res}
+
+
+@app.post("/api/v1/admin/robot-migrate/create")
+def admin_robot_create(
+    body: RobotCreateRequest,
+    request: Request,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    prefix = "wt" if body.robot_type == 0 else "wc"
+    action_name = "新增企微机器人" if body.robot_type == 0 else "新增个微机器人"
+    robot_id = prefix + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(30))
+    audit_id = _begin_admin_audit(
+        user, request, module="robot_migrate", action_key="create", action_name=action_name,
+        target_type="robot", target_id=robot_id, target_name=robot_id,
+        before={"robot_type": body.robot_type}, upstream_path="mysql:robot_info",
+    )
+    conn = None
+    try:
+        conn = worktool_db_conn()
+        with conn.cursor() as cur:
+            # The upstream robot_id index is not unique; check before inserting.
+            cur.execute("SELECT id FROM robot_info WHERE robot_id=%s LIMIT 1", (robot_id,))
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail="生成的机器人ID已存在，请重新生成")
+            cur.execute(
+                "INSERT INTO robot_info (robot_id, robot_type) VALUES (%s, %s)",
+                (robot_id, body.robot_type),
+            )
+        conn.commit()
+    except Exception as exc:
+        if conn is not None:
+            conn.rollback()
+        _audit_failure(audit_id, exc)
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
+    result = {"ok": True, "robot_id": robot_id, "robot_type": body.robot_type}
+    # Once committed, return the ID even if the separate console log database fails.
+    try:
+        _finish_admin_audit(audit_id, status="success", after=result)
+        _insert_robot_migrate_log(
+            user=user, action_key="create", action_name=action_name,
+            old_robot_id="", new_robot_id=robot_id, worktool_path="mysql:robot_info",
+            request_payload={"robot_type": body.robot_type}, result_payload=result,
+        )
+    except Exception:
+        logging.exception("Robot created but console audit logging failed: %s", robot_id)
+        result["warning"] = "机器人已创建，但操作日志记录失败，请保存机器人ID"
+    return result
 
 
 @app.post("/api/v1/admin/robot-migrate/wework-to-wechat")

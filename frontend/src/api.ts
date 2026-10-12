@@ -138,6 +138,8 @@ export const api = {
     http.get('/admin/robot-migrate/info', { params: { robot_id: robotId } }).then((r) => r.data),
   adminRobotDisable: (robotId: string) =>
     http.post('/admin/robot-migrate/disable', { robot_id: robotId }).then((r) => r.data),
+  adminRobotCreate: (robotType: 0 | 1) =>
+    http.post('/admin/robot-migrate/create', { robot_type: robotType }).then((r) => r.data),
   adminRobotMigrateLogs: (limit = 10) => http.get('/admin/robot-migrate/logs', { params: { limit } }).then((r) => r.data),
   adminPrivateLicenseGenerate: (payload: {
     license_version: 1 | 2;
