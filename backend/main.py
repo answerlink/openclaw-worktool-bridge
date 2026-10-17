@@ -1690,6 +1690,11 @@ class RobotCreateRequest(BaseModel):
     robot_type: Literal[0, 1]
 
 
+class GroupDeleteRequest(BaseModel):
+    robot_id: str
+    group_name: str = Field(min_length=1, max_length=255)
+
+
 class RobotRenewRequest(BaseModel):
     robot_id: str
     expire_date: str
@@ -8566,6 +8571,52 @@ async def get_message_monitor_logs(
 async def get_robot_info_detail(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
     return await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": robot_id})
+
+
+@app.post("/api/v1/groups/delete")
+async def delete_robot_group(body: GroupDeleteRequest, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    rid = body.robot_id.strip()
+    if not rid or not body.group_name.strip():
+        raise HTTPException(status_code=400, detail="机器人ID和群名不能为空")
+    robot = _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "群列表", user=user)
+    # Cache names are normalized for display; use the original upstream name
+    # so leading/trailing spaces or truncation cannot target a different group.
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT raw_json FROM robot_group_cache WHERE robot_pk=%s AND group_name=%s", (int(robot["id"]), body.group_name))
+            cached = cur.fetchone()
+    finally:
+        conn.close()
+    if not cached:
+        raise HTTPException(status_code=404, detail="群记录不存在，请刷新群列表")
+    raw = _decode_audit_json(cached.get("raw_json"))
+    group_name = raw.get("groupName") if isinstance(raw, dict) else None
+    if not isinstance(group_name, str) or not group_name.strip():
+        raise HTTPException(status_code=409, detail="缺少原始群名，请同步群列表后重试")
+    try:
+        result = await post_worktool_api("/robot/wework/group/delete", params={"robotId": rid, "groupName": group_name})
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="删除请求超时，结果暂未确认，请核实后再操作") from exc
+    except aiohttp.ClientError as exc:
+        raise HTTPException(status_code=502, detail="WorkTool 连接异常，删除结果暂未确认") from exc
+    _ensure_worktool_ok(result, "删除群记录")
+    data = result.get("data")
+    count = data.get("deletedCount") if isinstance(data, dict) else None
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise HTTPException(status_code=502, detail="WorkTool 未返回有效删除数量，结果暂未确认")
+    conn = db_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM robot_group_cache WHERE robot_pk=%s AND group_name=%s", (int(robot["id"]), body.group_name))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=502, detail=f"WorkTool 已删除 {count} 条记录，但本地缓存清理失败，请刷新后核实") from exc
+    finally:
+        conn.close()
+    return {"ok": True, "deletedCount": count}
 
 
 @app.post("/api/v1/groups/clear")

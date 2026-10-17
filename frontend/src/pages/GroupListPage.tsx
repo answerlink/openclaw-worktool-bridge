@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button, Card, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { Robot } from '../types';
@@ -33,8 +33,16 @@ export default function GroupListPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [selectedNames, setSelectedNames] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState('');
+  const loadVersion = useRef(0);
+  const busy = loading || syncing || readingGroups || clearingGroups || deleting;
 
   const selectRobot = (nextRobotId?: string) => {
+    loadVersion.current += 1;
+    setRows([]);
+    setSelectedNames([]);
     setRobotId(nextRobotId);
     setLastSelectedRobotId(nextRobotId);
   };
@@ -58,6 +66,8 @@ export default function GroupListPage() {
 
   const load = async (nextPage = page, nextPageSize = pageSize) => {
     if (!robotId) return;
+    const version = ++loadVersion.current;
+    setSelectedNames([]);
     setLoading(true);
     try {
       const res = await api.listGroups({
@@ -66,17 +76,19 @@ export default function GroupListPage() {
         page: nextPage,
         page_size: nextPageSize,
       });
+      if (version !== loadVersion.current) return;
       setRows((res?.items || []) as GroupRow[]);
       setTotal(Number(res?.total || 0));
       setPage(Number(res?.page || nextPage));
       setPageSize(Number(res?.page_size || nextPageSize));
       setLatestSyncAt(String(res?.latest_sync_at || ''));
     } catch (e: any) {
+      if (version !== loadVersion.current) return;
       message.error(e?.response?.data?.detail || '加载群列表失败');
       setRows([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   };
 
@@ -85,6 +97,7 @@ export default function GroupListPage() {
       message.warning('请先选择机器人');
       return;
     }
+    setSelectedNames([]);
     setSyncing(true);
     try {
       const res = await api.syncGroups(robotId);
@@ -112,6 +125,7 @@ export default function GroupListPage() {
 
   const clearGroups = async () => {
     if (!robotId || clearingGroups || syncing || readingGroups) return;
+    setSelectedNames([]);
     setClearingGroups(true);
     try {
       const result = await api.clearRobotGroups(robotId);
@@ -125,6 +139,51 @@ export default function GroupListPage() {
     } finally {
       setClearingGroups(false);
     }
+  };
+
+  const deleteSelected = () => {
+    if (!robotId || busy || selectedNames.length === 0) return;
+    const names = [...selectedNames];
+    const targetRobot = robotId;
+    Modal.confirm({
+      title: `删除选中的 ${names.length} 个群名对应的记录？`,
+      content: (
+        <Space direction="vertical">
+          <Typography.Text>只删除数据库中的群记录，不会退出或解散客户端群。同一机器人下的所有同名记录都会删除，实际删除条数可能大于选中数量。客户端后续上报可能重新生成记录。</Typography.Text>
+          <div style={{ maxHeight: 180, overflow: 'auto', wordBreak: 'break-all' }}>{names.map((name) => <div key={name}>{name}</div>)}</div>
+        </Space>
+      ),
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setDeleting(true);
+        let completed = 0;
+        let deletedCount = 0;
+        try {
+          for (const name of names) {
+            setDeleteProgress(`${completed + 1}/${names.length}`);
+            try {
+              const result = await api.deleteRobotGroup(targetRobot, name);
+              deletedCount += result.deletedCount;
+              completed += 1;
+            } catch (e: any) {
+              Modal.error({
+                title: '删除已停止',
+                content: `已处理 ${completed}/${names.length} 个群名，确认删除 ${deletedCount} 条记录。「${name}」：${e?.response?.data?.detail || '请求异常，结果暂未确认，请核实后再操作'}。后续 ${names.length - completed - 1} 个群名未执行。`,
+              });
+              break;
+            }
+          }
+          if (completed === names.length) message.success(`已处理 ${completed} 个群名，删除 ${deletedCount} 条记录`);
+          setSelectedNames([]);
+          await load(1, pageSize);
+        } finally {
+          setDeleting(false);
+          setDeleteProgress('');
+        }
+      },
+    });
   };
 
   useEffect(() => {
@@ -152,7 +211,7 @@ export default function GroupListPage() {
       title="群列表"
       extra={(
         <Space>
-          <Button icon={<SyncOutlined />} disabled={readingGroups || clearingGroups || !robotId} loading={syncing} onClick={() => void syncNow()}>
+          <Button icon={<SyncOutlined />} disabled={busy || !robotId} loading={syncing} onClick={() => void syncNow()}>
             同步到本页
           </Button>
           <Popconfirm
@@ -161,9 +220,9 @@ export default function GroupListPage() {
             onConfirm={readGroups}
             okText="下发读取指令"
             cancelText="取消"
-            disabled={readingGroups || clearingGroups || syncing || !robotId}
+            disabled={busy || !robotId}
           >
-            <Button loading={readingGroups} disabled={readingGroups || clearingGroups || syncing || !robotId}>读取企微群列表</Button>
+            <Button loading={readingGroups} disabled={busy || !robotId}>读取企微群列表</Button>
           </Popconfirm>
           <Popconfirm
             title="清空当前机器人的群列表？"
@@ -172,11 +231,11 @@ export default function GroupListPage() {
             okText="清空群列表"
             cancelText="取消"
             okButtonProps={{ danger: true }}
-            disabled={readingGroups || clearingGroups || syncing || !robotId}
+            disabled={busy || !robotId}
           >
-            <Button danger disabled={readingGroups || clearingGroups || syncing || !robotId} loading={clearingGroups}>清空群列表</Button>
+            <Button danger disabled={busy || !robotId} loading={clearingGroups}>清空群列表</Button>
           </Popconfirm>
-          <Button icon={<ReloadOutlined />} onClick={() => void load(page, pageSize)}>
+          <Button icon={<ReloadOutlined />} disabled={busy} onClick={() => void load(page, pageSize)}>
             刷新
           </Button>
         </Space>
@@ -192,7 +251,7 @@ export default function GroupListPage() {
       <Space style={{ marginBottom: 12 }}>
         <Select
           style={{ width: 360 }}
-          disabled={readingGroups || clearingGroups}
+          disabled={busy}
           value={robotId}
           onChange={selectRobot}
           options={robotOptions}
@@ -202,19 +261,32 @@ export default function GroupListPage() {
         />
         <Input
           style={{ width: 260 }}
+          disabled={busy}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onPressEnter={() => void load(1, pageSize)}
           placeholder="群名 / 群主搜索"
         />
-        <Button onClick={() => void load(1, pageSize)}>查询</Button>
+        <Button disabled={busy} onClick={() => void load(1, pageSize)}>查询</Button>
         <Typography.Text type="secondary">最近同步：{latestSyncAt || '-'}</Typography.Text>
       </Space>
+      <Space style={{ marginBottom: 12 }}>
+        <Button danger disabled={busy || !robotId || selectedNames.length === 0} loading={deleting} onClick={deleteSelected}>
+          {deleting ? `删除中 ${deleteProgress}` : `删除选中（${selectedNames.length}）`}
+        </Button>
+        <Typography.Text type="secondary">仅选择当前页；按群名删除所有匹配记录，不会退出或解散群。</Typography.Text>
+      </Space>
       <Table
-        rowKey={(r, idx) => `${r.group_name}-${idx}`}
+        rowKey="group_name"
+        rowSelection={{
+          selectedRowKeys: selectedNames,
+          onChange: (keys) => setSelectedNames(keys.map(String)),
+          getCheckboxProps: (row: GroupRow) => ({ disabled: busy || !row.group_name.trim() }),
+        }}
         loading={loading}
         dataSource={rows}
         pagination={{
+          disabled: busy,
           current: page,
           pageSize,
           total,

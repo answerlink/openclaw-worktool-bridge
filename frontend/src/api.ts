@@ -252,6 +252,8 @@ export const api = {
   }) => http.post('/worktool/command-backlog/notice', payload).then((r) => r.data),
   clearRobotGroups: (robotId: string): Promise<{ groupDeletedCount: number }> =>
     http.post('/groups/clear', null, { params: { robot_id: robotId } }).then((r) => r.data),
+  deleteRobotGroup: (robotId: string, groupName: string): Promise<{ deletedCount: number }> =>
+    http.post('/groups/delete', { robot_id: robotId, group_name: groupName }, { timeout: 30000 }).then((r) => r.data),
   readGroupsFromClient: (robotId: string) =>
     http.post('/groups/read-from-client', null, { params: { robot_id: robotId } }).then((r) => r.data),
   syncGroups: (robotId: string) => http.post('/groups/sync', null, { params: { robot_id: robotId } }).then((r) => r.data),
