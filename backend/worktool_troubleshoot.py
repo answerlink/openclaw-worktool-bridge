@@ -1,3 +1,4 @@
+from worktool_http import worktool_session
 import asyncio
 import json
 import logging
@@ -361,7 +362,7 @@ async def _fetch_worktool_api_loose(api_base: str, path: str, params: Dict[str, 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     timeout = aiohttp.ClientTimeout(total=10)
     try:
-        async with safe_outbound_session(timeout, deployment_mode=deployment_mode) as session:
+        async with worktool_session(timeout, primary=api_base, deployment_mode=deployment_mode, session_factory=safe_outbound_session) as session:
             async with session.get(url, params=params, allow_redirects=False) as resp:
                 raw = await read_limited_text(resp)
                 if resp.status != 200:

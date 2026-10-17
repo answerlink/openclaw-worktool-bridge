@@ -38,6 +38,7 @@ from safe_outbound_http import (
     validate_outbound_url,
     validate_outbound_url_shape,
 )
+from worktool_http import worktool_session
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
 from command_tasks import CommandQueryBusy, list_command_tasks
 from feedback import FeedbackPayload, send_wecom_text, submit_feedback, wecom_webhook_url
@@ -2668,6 +2669,13 @@ def get_worktool_api_base() -> str:
     return normalize_worktool_api_base(get_setting("worktool_api_base", WORKTOOL_API_BASE_DEFAULT))
 
 
+def _worktool_session(timeout, deployment_mode):
+    return worktool_session(
+        timeout, primary=get_worktool_api_base(), deployment_mode=deployment_mode,
+        session_factory=safe_outbound_session,
+    )
+
+
 def get_callback_public_base_url() -> str:
     if CALLBACK_PUBLIC_BASE_URL_FIXED_RAW:
         return normalize_public_base_url(CALLBACK_PUBLIC_BASE_URL_FIXED_RAW)
@@ -2688,7 +2696,7 @@ async def fetch_worktool_api(path: str, params: Dict[str, Any]) -> Dict[str, Any
     safe_params = {k: v for k, v in (params or {}).items() if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
     try:
-        async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
             async with session.get(url, params=safe_params, allow_redirects=False) as resp:
                 raw = await read_limited_text(resp)
                 if resp.status != 200:
@@ -2775,7 +2783,7 @@ async def post_worktool_api(path: str, params: Optional[Dict[str, Any]] = None, 
     url = _normalize_user_outbound_url(url)
     safe_params = {k: v for k, v in ((params or {}).items()) if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params=safe_params, json=body, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status != 200:
@@ -2849,7 +2857,7 @@ def _client_log_result_available(response: Any) -> bool:
 
 async def _request_client_log_snippet(robot_id: str, message_id: str) -> None:
     url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/request")
-    async with safe_outbound_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(
             url,
             json={"robotId": robot_id, "targetMessageId": message_id},
@@ -2863,7 +2871,7 @@ async def _request_client_log_snippet(robot_id: str, message_id: str) -> None:
 
 async def _fetch_client_log_detail(message_id: str, robot_id: str) -> Dict[str, Any]:
     url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/detail")
-    async with safe_outbound_session(aiohttp.ClientTimeout(total=3), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(aiohttp.ClientTimeout(total=3), deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.get(url, params={"robotId": robot_id, "targetMessageId": message_id}, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status != 200:
@@ -2917,7 +2925,7 @@ async def post_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[str
     safe_params = {k: v for k, v in (params or {}).items() if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
     headers = {"X-Worktool-Renew-Token": WORKTOOL_RENEW_TOKEN}
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params=safe_params, headers=headers, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status != 200:
@@ -2947,7 +2955,7 @@ async def fetch_worktool_renew_api(path: str, params: Dict[str, Any]) -> Dict[st
     safe_params = {k: v for k, v in (params or {}).items() if v is not None}
     timeout = aiohttp.ClientTimeout(total=10)
     headers = {"X-Worktool-Renew-Token": WORKTOOL_RENEW_TOKEN}
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.get(url, params=safe_params, headers=headers, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status != 200:
@@ -3670,7 +3678,7 @@ async def bind_message_callback(robot_id: str, callback_url: str, reply_all: int
         "callbackUrl": callback_url,
     }
     logger.info("bind_message_callback request robot_id=%s url=%s payload=%s", robot_id, url, payload)
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
             data = await _read_limited_json_response(resp)
             if resp.status != 200:
@@ -3690,7 +3698,7 @@ async def bind_callback_by_type(robot_id: str, callback_url: str, callback_type:
     url = _normalize_user_outbound_url(url)
     timeout = aiohttp.ClientTimeout(total=10)
     payload = {"type": int(callback_type), "callBackUrl": callback_url}
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
             data = await _read_limited_json_response(resp)
             if resp.status != 200:
@@ -3709,7 +3717,7 @@ async def delete_callback_by_type(robot_id: str, callback_type: int) -> Dict[str
     url = _normalize_user_outbound_url(url)
     timeout = aiohttp.ClientTimeout(total=10)
     payload = {"type": int(callback_type)}
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
             data = await _read_limited_json_response(resp)
             if resp.status != 200:
@@ -5010,7 +5018,7 @@ async def _send_worktool_text_to_target(robot_id: str, target: str, text: str) -
         _short_text(text, 160),
     )
     timeout = aiohttp.ClientTimeout(total=15)
-    async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+    async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status >= 400:
