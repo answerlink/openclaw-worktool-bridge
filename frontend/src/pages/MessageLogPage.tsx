@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Checkbox, Input, Popover, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { QuestionCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import { useNavigate } from 'react-router-dom';
+import { canCheckMessageCallback, messageCallbackHint } from '../messageMonitorHint';
+import type { MessageMonitorHint } from '../messageMonitorHint';
 import type { Robot } from '../types';
 import { getLastSelectedRobotId, maskRobotIdForDisplay, setLastSelectedRobotId } from '../robotSelection';
 import HoverPreviewText from '../components/HoverPreviewText';
@@ -86,6 +89,9 @@ const LEGACY_DEFAULT_VISIBLE_COLUMNS = [
 ];
 
 export default function MessageLogPage() {
+  const navigate = useNavigate();
+  const requestVersion = useRef(0);
+  const [callbackHint, setCallbackHint] = useState<MessageMonitorHint>(null);
   const [robots, setRobots] = useState<Robot[]>([]);
   const [robotsLoaded, setRobotsLoaded] = useState(false);
   const [robotId, setRobotId] = useState<string | undefined>(() => getLastSelectedRobotId());
@@ -121,6 +127,8 @@ export default function MessageLogPage() {
   const [detectedNickname, setDetectedNickname] = useState<string>('-');
 
   const selectRobot = (nextRobotId?: string) => {
+    requestVersion.current += 1;
+    setCallbackHint(null);
     setRobotId(nextRobotId);
     setLastSelectedRobotId(nextRobotId);
   };
@@ -144,6 +152,8 @@ export default function MessageLogPage() {
 
   const loadLogs = async (nextPage = page, nextPageSize = pageSize) => {
     if (!robotId) return;
+    const version = ++requestVersion.current;
+    setCallbackHint(null);
     setLoading(true);
     try {
       const res = await api.getMessageMonitorLogs({
@@ -154,6 +164,7 @@ export default function MessageLogPage() {
         scene: sceneFilter,
         name: nameKeyword.trim() || undefined
       });
+      if (version !== requestVersion.current) return;
       const data = res?.data || {};
       const src = res?.source === 'local' ? 'local' : 'worktool';
       setSource(src);
@@ -161,12 +172,25 @@ export default function MessageLogPage() {
       setTotal(data.total || 0);
       setPage(data.pageNum || nextPage);
       setPageSize(data.pageSize || nextPageSize);
+      if (src !== 'local' && canCheckMessageCallback(nextPage, sceneFilter, nameKeyword, data.total, data.list?.length)) {
+        // Do not block rendering the empty table or show errors for this optional check.
+        void Promise.all([
+          api.getRobotInfoCallbacks(robotId),
+          api.getRobotInfoDetail(robotId),
+          api.getWorktoolSettings(),
+        ]).then(([callbacks, detail, settings]) => {
+          if (version === requestVersion.current) {
+            setCallbackHint(messageCallbackHint(callbacks, detail, settings, window.location.origin, robotId));
+          }
+        }).catch(() => { /* Keep the ordinary empty state when configuration is unknown. */ });
+      }
     } catch (e: any) {
+      if (version !== requestVersion.current) return;
       message.error(e?.response?.data?.detail || '拉取消息监控失败');
       setLogs([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -215,6 +239,7 @@ export default function MessageLogPage() {
 
   useEffect(() => {
     void loadLogs(1, pageSize);
+    return () => { requestVersion.current += 1; };
   }, [robotId, sceneFilter]);
 
   useEffect(() => {
@@ -364,7 +389,7 @@ export default function MessageLogPage() {
         <Select
           style={{ width: 120 }}
           value={sceneFilter}
-          onChange={(v) => setSceneFilter(v as 'all' | 'group' | 'private')}
+          onChange={(v) => { requestVersion.current += 1; setCallbackHint(null); setSceneFilter(v as 'all' | 'group' | 'private'); }}
           options={[
             { label: '全部', value: 'all' },
             { label: '群聊', value: 'group' },
@@ -375,7 +400,7 @@ export default function MessageLogPage() {
           style={{ width: 260 }}
           placeholder="聊天对象筛选（群名/提问者）"
           value={nameKeyword}
-          onChange={(e) => setNameKeyword(e.target.value)}
+          onChange={(e) => { requestVersion.current += 1; setLoading(false); setCallbackHint(null); setNameKeyword(e.target.value); }}
           onPressEnter={() => loadLogs(1, pageSize)}
         />
         <Button onClick={() => loadLogs(1, pageSize)}>查询</Button>
@@ -431,6 +456,22 @@ export default function MessageLogPage() {
             : '该机器人消息回调未走本平台处理，系统将展示 WorkTool 原始回调记录；该类消息不会计入本平台本地统计。'
         }
       />
+
+      {!loading && callbackHint && sceneFilter === 'all' && !nameKeyword.trim() ? (
+        <Alert
+          type={callbackHint === 'missing' ? 'warning' : 'info'}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={callbackHint === 'missing' ? '暂无消息记录，尚未配置可用的消息回调' : '暂无消息记录，当前消息回调指向其他系统'}
+          description={callbackHint === 'missing'
+            ? '可前往机器人信息页检查消息回调配置。配置完成后，收到的新消息才可能产生监控记录。'
+            : '消息由其他系统接收，本页仍可查询 WorkTool 回调记录。若这是预期配置，可保持现状；暂无记录不代表回调配置错误。'}
+          action={<Button size="small" onClick={() => {
+            setLastSelectedRobotId(robotId);
+            navigate('/robot-info');
+          }}>查看回调配置</Button>}
+        />
+      ) : null}
 
       <Table
         rowKey={(r, idx) => `${r.messageId || 'no-id'}-${r.startTime}-${idx}`}
