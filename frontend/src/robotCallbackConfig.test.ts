@@ -97,3 +97,11 @@ describe('legacy message callback compatibility', () => {
     expect(withLegacyMessageCallback([], { callbackUrl: '' })).toEqual([]);
   });
 });
+
+describe('event callback display', () => {
+  it('labels an inherited address and retains a disabled event row', () => {
+    expect(callbackAddressLabel(7, '', '')).toBe('沿用消息回调地址');
+    const event = { type: 7, typeName: '事件回调', callBackUrl: '', enabled: false };
+    expect(mergeOnlineStatusCallbacks([event])).toEqual([{ ...event, callbackTypes: [7] }]);
+  });
+});

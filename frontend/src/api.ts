@@ -293,6 +293,10 @@ export const api = {
     const detail = await http.get('/robot-info/detail', { params: { robot_id: robotId } });
     return { ...response.data, data: withLegacyMessageCallback(rows, detail.data?.data) };
   },
+  getRobotEventCallback: (robotId: string): Promise<{ event_callback_url: string; enabled: boolean | null }> =>
+    http.get('/robot-info/event-callback', { params: { robot_id: robotId } }).then((r) => r.data),
+  saveRobotEventCallback: (robotId: string, eventCallbackUrl: string, enabled: boolean) =>
+    http.post('/robot-info/event-callback', { robot_id: robotId, event_callback_url: eventCallbackUrl, enabled }).then((r) => r.data),
   getRobotInfoOnline: (robotId: string) => http.get('/robot-info/online', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoOnlineInfos: (robotId: string) => http.get('/robot-info/online-infos', { params: { robot_id: robotId } }).then((r) => r.data),
   getRobotInfoVersion: (robotId: string) => http.get('/robot-info/version', { params: { robot_id: robotId } }).then((r) => r.data),

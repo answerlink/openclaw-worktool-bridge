@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, Image, Input, Modal, Popover, Row, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
 import { QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import EventCallbackPanel from '../components/EventCallbackPanel';
 import { api } from '../api';
 import { useNavigate } from 'react-router-dom';
 import type { Robot } from '../types';
@@ -12,14 +13,16 @@ interface CallbackItem {
   type: number;
   typeName: string;
   callBackUrl: string;
+  enabled?: boolean;
 }
 
-type CallbackTabKey = 'message' | 'command' | 'group_qr' | 'online_status';
+type CallbackTabKey = 'message' | 'command' | 'group_qr' | 'online_status' | 'event';
 
 const tabToType: Record<CallbackTabKey, number | null> = {
   message: 11,
   command: 1,
   group_qr: 0,
+  event: 7,
   online_status: 5
 };
 
@@ -563,10 +566,13 @@ export default function RobotInfoPage() {
             { key: 'message', label: '消息回调' },
             { key: 'command', label: '指令执行结果回调' },
             { key: 'group_qr', label: '群二维码回调' },
-            { key: 'online_status', label: '机器人上下线回调' }
+            { key: 'event', label: '事件回调' },
+            { key: 'online_status', label: '上下线通知' }
           ]}
         />
-        {tabKey === 'message' && isPlatformCallback(callbackInput, platformUrl) ? (
+        {tabKey === 'event' ? <EventCallbackPanel key={selectedRobotId + JSON.stringify(callbacks.filter((row) => row.type === 7))} robotId={selectedRobotId}
+          messageUrl={callbackMap.get(11) || ''} disabled={busy} onBusyChange={setSaving}
+          onSaved={() => loadInfo(selectedRobotId)} /> : tabKey === 'message' && isPlatformCallback(callbackInput, platformUrl) ? (
           <Alert type="success" showIcon message="由本平台接收消息"
             description="消息已接入本平台。如果需要对接自己的系统，可以填写自定义地址，保存前会确认是否替换现有配置。"
             action={<Button disabled={busy} onClick={() => setCallbackInput('')}>填写自定义地址</Button>} />
@@ -625,7 +631,10 @@ export default function RobotInfoPage() {
                   title: '回调类型',
                   dataIndex: 'typeName',
                   width: 160,
-                  render: (v: string) => <span style={{ whiteSpace: 'nowrap' }}>{v}</span>
+                  render: (v: string, row: CallbackDisplayItem) => <Space direction="vertical" size={4}>
+                    <span>{row.type === 7 ? '事件回调' : v}</span>
+                    {row.type === 7 && <Tag color={row.enabled === false ? 'default' : 'green'}>{row.enabled === false ? '已关闭' : '已开启'}</Tag>}
+                  </Space>
                 },
                 {
                   title: '接收方 / 地址',
@@ -637,7 +646,9 @@ export default function RobotInfoPage() {
                   width: 100,
                   align: 'center',
                   render: (_: any, row: CallbackDisplayItem) => (
-                    <Button
+                    row.type === 7 ? <Button size="small" disabled={busy} onClick={() => {
+                      setTabKey('event');
+                    }}>设置</Button> : <Button
                       danger
                       size="small"
                       loading={deletingType === row.type}

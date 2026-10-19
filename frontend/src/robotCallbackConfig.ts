@@ -23,6 +23,7 @@ interface SavedCallback {
   type: number;
   typeName: string;
   callBackUrl: string;
+  enabled?: boolean;
 }
 
 export function getCallbackReplacements(callbacks: SavedCallback[], types: number[], nextUrl: string) {
@@ -32,6 +33,7 @@ export function getCallbackReplacements(callbacks: SavedCallback[], types: numbe
 }
 
 export function callbackAddressLabel(type: number, url: string, platformUrl: string) {
+  if (type === 7 && !url.trim()) return '沿用消息回调地址';
   return type === 11 && isPlatformCallback(url, platformUrl) ? '由本平台接收消息' : url;
 }
 

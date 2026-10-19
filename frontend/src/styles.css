@@ -807,3 +807,8 @@ html, body, #root {
 }
 
 .robot-reply-channels { display: flex; gap: 40px; flex-wrap: wrap; }
+
+.event-callback-panel { padding: 8px 0 4px; }
+.event-callback-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.event-callback-heading .ant-tag { margin-left: 12px; }
+.event-callback-heading .ant-switch { flex-shrink: 0; margin-top: 2px; }

@@ -1874,6 +1874,12 @@ class RobotCallbackBindPayload(BaseModel):
     type: int
 
 
+class EventCallbackPayload(BaseModel):
+    robot_id: str
+    event_callback_url: str = Field(default="", max_length=2048)
+    enabled: bool
+
+
 class RobotCallbackDeletePayload(BaseModel):
     robot_id: str
     type: int
@@ -8663,6 +8669,43 @@ async def clear_robot_groups(robot_id: str, user: Dict[str, Any] = Depends(get_c
 async def get_robot_info_callbacks(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
     return await fetch_worktool_api("/robot/robotInfo/callBack/get", {"robotId": robot_id})
+
+
+@app.get("/api/v1/robot-info/event-callback")
+async def get_robot_event_callback(robot_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    rid = robot_id.strip()
+    _require_robot_access(int(user["id"]), rid)
+    result = await fetch_worktool_api("/robot/robotInfo/callBack/eventConfig", {"robotId": rid})
+    _ensure_worktool_ok(result, "读取事件回调")
+    data = result.get("data")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="事件回调配置响应格式异常")
+    enabled = data.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise HTTPException(status_code=502, detail="事件回调开关响应格式异常")
+    return {"event_callback_url": data.get("eventCallbackUrl") or "", "enabled": enabled}
+
+
+@app.post("/api/v1/robot-info/event-callback")
+async def save_robot_event_callback(body: EventCallbackPayload, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    rid = body.robot_id.strip()
+    _require_robot_access(int(user["id"]), rid)
+    _reject_demo_robot_write(rid, "事件回调", user=user)
+    url = body.event_callback_url.strip()
+    if url:
+        url = await _validate_user_outbound_url(url)
+    try:
+        result = await post_worktool_api(
+            "/robot/robotInfo/callBack/eventConfig",
+            params={"robotId": rid},
+            body={"eventCallbackUrl": url, "enabled": body.enabled},
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="保存超时，结果暂未确认，请刷新配置后查看") from exc
+    except aiohttp.ClientError as exc:
+        raise HTTPException(status_code=502, detail="连接中断，保存结果暂未确认，请刷新配置后查看") from exc
+    _ensure_worktool_ok(result, "保存事件回调")
+    return {"ok": True}
 
 
 @app.get("/api/v1/robot-info/online")
