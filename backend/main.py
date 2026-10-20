@@ -1685,6 +1685,7 @@ class WeworkAuthorizationSaveRequest(BaseModel):
     expireTime: Optional[str] = None
     remark: Optional[str] = None
     deploymentType: Literal["all", "saas", "private"] = "all"
+    tagIds: Optional[List[int]] = Field(default=None, max_length=100)
 
 
 class RobotMigrateRequest(BaseModel):
@@ -9855,10 +9856,20 @@ async def admin_wework_authorization_save(
         "expireTime": _normalize_wework_expire_time(body.expireTime),
         "remark": (body.remark or "").strip(),
     }
+    tag_ids = list(dict.fromkeys(body.tagIds)) if body.tagIds is not None else None
+    tag_store = EnterpriseTagStore(db_conn) if tag_ids is not None else None
+    if tag_store is not None:
+        if any(tag_id <= 0 for tag_id in tag_ids):
+            raise HTTPException(400, "标签参数无效")
+        available_tag_ids = {int(tag["id"]) for tag in tag_store.tags()}
+        if not set(tag_ids).issubset(available_tag_ids):
+            raise HTTPException(404, "标签不存在，请刷新后重试")
     before = await _get_wework_authorization_snapshot(corp_id)
     before_metadata = _get_enterprise_authorization_metadata([corp_id]).get(corp_id, "all")
     before_with_metadata = dict(before or {})
     before_with_metadata["deploymentType"] = before_metadata
+    if tag_store is not None:
+        before_with_metadata["tags"] = tag_store.assignments([corp_id]).get(corp_id, [])
     deployment_type = _normalize_enterprise_deployment_type(body.deploymentType)
     audit_id = _begin_admin_audit(
         user,
@@ -9880,14 +9891,16 @@ async def admin_wework_authorization_save(
         raise
     try:
         _save_enterprise_authorization_metadata(corp_id, deployment_type)
+        if tag_store is not None:
+            tag_store.apply([corp_id], tag_ids, "replace")
     except Exception as exc:
         _finish_admin_audit(
             audit_id,
             status="unknown",
-            after={"request": payload, "deploymentType": deployment_type, "upstream_result": res},
-            error_text=f"上游已返回成功，但保存部署类型失败：{exc}",
+            after={"request": payload, "deploymentType": deployment_type, "tagIds": tag_ids, "upstream_result": res},
+            error_text=f"上游已返回成功，但保存本地部署类型或标签失败：{exc}",
         )
-        raise HTTPException(status_code=500, detail="企业授权已保存到上游，但部署类型保存失败") from exc
+        raise HTTPException(status_code=500, detail="企业授权已保存到上游，但本地部署类型或标签保存失败，请重试") from exc
     try:
         after = await _get_wework_authorization_snapshot(corp_id)
     except Exception as exc:
@@ -9900,6 +9913,8 @@ async def admin_wework_authorization_save(
     else:
         after_with_metadata = dict(after or payload)
         after_with_metadata["deploymentType"] = deployment_type
+        if tag_store is not None:
+            after_with_metadata["tagIds"] = tag_ids
         _finish_admin_audit(audit_id, status="success", after=after_with_metadata)
     return res
 

@@ -121,6 +121,7 @@ export const api = {
     expireTime?: string;
     remark?: string;
     deploymentType?: 'all' | 'saas' | 'private';
+    tagIds?: number[];
   }) => http.post('/admin/wework/authorization/save', payload).then((r) => r.data),
   adminWeworkAuthorizationDelete: (corpId: string) =>
     http.post('/admin/wework/authorization/delete', null, { params: { corp_id: corpId } }).then((r) => r.data),

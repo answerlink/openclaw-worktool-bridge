@@ -107,3 +107,52 @@ class TagApiTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException):
                 main.create_enterprise_tag(main.EnterpriseTagName(name='集团'), {'id': 2})
             store.assert_not_called()
+
+
+class AuthorizationSaveTagsTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.connection = Connection()
+        self.store = EnterpriseTagStore(lambda: self.connection)
+        self.first = self.store.save('集团')['id']
+        self.second = self.store.save('重点客户')['id']
+        self.store.apply(['source'], [self.first], 'replace')
+
+    def tearDown(self):
+        self.connection.conn.close()
+
+    async def save(self, **fields):
+        with patch.object(main, '_require_admin'), patch.object(main, '_require_feature_enabled'), patch.object(main, '_require_configured_path', return_value='/save'), patch.object(main, '_get_wework_authorization_snapshot', new=AsyncMock(return_value={'corpId': fields['corpId']})), patch.object(main, '_get_enterprise_authorization_metadata', return_value={}), patch.object(main, '_save_enterprise_authorization_metadata'), patch.object(main, '_begin_admin_audit', return_value=1), patch.object(main, '_finish_admin_audit'), patch.object(main, 'EnterpriseTagStore', return_value=self.store), patch.object(main, 'post_worktool_api', new=AsyncMock(return_value={'code': 200})) as upstream:
+            self.upstream = upstream
+            return await main.admin_wework_authorization_save(main.WeworkAuthorizationSaveRequest(**fields), MagicMock(), {'id': 1})
+
+    async def test_edit_replaces_tags_and_keeps_them_out_of_upstream_payload(self):
+        await self.save(corpId='source', tagIds=[self.second, self.second])
+        self.assertEqual([t['id'] for t in self.store.assignments(['source'])['source']], [self.second])
+        self.assertNotIn('tagIds', self.upstream.call_args.kwargs['body'])
+
+    async def test_copy_assigns_destination_without_changing_source(self):
+        await self.save(corpId='destination', tagIds=[self.first, self.second])
+        assigned = self.store.assignments(['source', 'destination'])
+        self.assertEqual([t['id'] for t in assigned['source']], [self.first])
+        self.assertEqual({t['id'] for t in assigned['destination']}, {self.first, self.second})
+
+    async def test_empty_selection_clears_tags(self):
+        await self.save(corpId='source', tagIds=[])
+        self.assertEqual(self.store.assignments(['source']), {})
+
+    async def test_legacy_omission_preserves_tags(self):
+        await self.save(corpId='source')
+        self.assertEqual(self.store.assignments(['source'])['source'][0]['id'], self.first)
+
+    async def test_missing_tag_rejected_before_upstream_save(self):
+        with self.assertRaises(HTTPException) as error:
+            await self.save(corpId='source', tagIds=[999])
+        self.assertEqual(error.exception.status_code, 404)
+        self.upstream.assert_not_called()
+        self.assertEqual(self.store.assignments(['source'])['source'][0]['id'], self.first)
+
+    async def test_upstream_failure_preserves_tags(self):
+        with patch.object(main, '_ensure_worktool_ok', side_effect=HTTPException(502, 'upstream failed')), patch.object(main, '_audit_failure'):
+            with self.assertRaises(HTTPException):
+                await self.save(corpId='source', tagIds=[self.second])
+        self.assertEqual(self.store.assignments(['source'])['source'][0]['id'], self.first)

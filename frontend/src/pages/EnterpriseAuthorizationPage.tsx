@@ -525,6 +525,7 @@ export default function EnterpriseAuthorizationPage() {
                   expireTime: row.expireTime ? dayjs(row.expireTime) : null,
                   remark: row.remark || '',
                   deploymentType: row.deploymentType || 'all',
+                  tagIds: (row.tags || []).map((tag) => tag.id),
                 });
                 setOpen(true);
               }}
@@ -545,6 +546,7 @@ export default function EnterpriseAuthorizationPage() {
                   expireTime: row.expireTime ? dayjs(row.expireTime) : null,
                   remark: row.remark || '',
                   deploymentType: row.deploymentType || 'all',
+                  tagIds: (row.tags || []).map((tag) => tag.id),
                 });
                 setOpen(true);
               }}
@@ -621,7 +623,7 @@ export default function EnterpriseAuthorizationPage() {
             onClick={() => {
               setEditing(null);
               form.resetFields();
-              form.setFieldsValue({ isEnabled: true, deploymentType: 'all' });
+              form.setFieldsValue({ isEnabled: true, deploymentType: 'all', tagIds: [] });
               setOpen(true);
             }}
           >
@@ -759,6 +761,7 @@ export default function EnterpriseAuthorizationPage() {
               expireTime: values.expireTime ? `${(values.expireTime as Dayjs).format('YYYY-MM-DD')}T23:59:59` : undefined,
               remark: String(values.remark || '').trim() || undefined,
               deploymentType: values.deploymentType || 'all',
+              tagIds: values.tagIds || [],
             });
             message.success('保存成功');
             setOpen(false);
@@ -783,6 +786,10 @@ export default function EnterpriseAuthorizationPage() {
           </Form.Item>
           <Form.Item name="deploymentType" label="部署类型" initialValue="all">
             <Select options={[{ value: 'all', label: '全部' }, { value: 'saas', label: 'SaaS' }, { value: 'private', label: 'Private' }]} />
+          </Form.Item>
+          <Form.Item name="tagIds" label="标签" extra="可选择多个标签；清空后保存则不设置标签。">
+            <Select mode="multiple" allowClear options={tags.map((tag) => ({ value: tag.id, label: tag.name }))}
+              placeholder="选择企业标签（选填）" optionFilterProp="label" />
           </Form.Item>
           <Form.Item name="isEnabled" label="启用" valuePropName="checked">
             <Switch />
