@@ -41,5 +41,19 @@ async def _run_loop() -> None:
         await asyncio.sleep(POLL_SECONDS)
 
 
+async def _run_event_loop() -> None:
+    while True:
+        try:
+            await main.event_service.tick(limit=min(BATCH_LIMIT, 10))
+        except Exception:
+            logger.exception('event task tick failed')
+        await asyncio.sleep(POLL_SECONDS)
+
+
+async def _run_workers() -> None:
+    # _run_loop initializes the schema before its first await.
+    await asyncio.gather(_run_loop(), _run_event_loop())
+
+
 if __name__ == '__main__':
-    asyncio.run(_run_loop())
+    asyncio.run(_run_workers())

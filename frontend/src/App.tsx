@@ -34,7 +34,6 @@ import { track, trackPage } from './analytics';
 const EnterpriseSharePage = lazy(() => import('./pages/EnterpriseSharePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const RobotPage = lazy(() => import('./pages/RobotPage'));
-const MessageLogPage = lazy(() => import('./pages/MessageLogPage'));
 const AIHubPage = lazy(() => import('./pages/AIHubPage'));
 const ForwardPage = lazy(() => import('./pages/ForwardPage'));
 const RobotInfoPage = lazy(() => import('./pages/RobotInfoPage'));
@@ -44,6 +43,8 @@ const CommandTaskPage = lazy(() => import('./pages/CommandTaskPage'));
 const GroupListPage = lazy(() => import('./pages/GroupListPage'));
 const GroupTagLibraryPage = lazy(() => import('./pages/GroupTagLibraryPage'));
 const TaskCenterPage = lazy(() => import('./pages/TaskCenterPage'));
+const EventTaskPage = lazy(() => import('./pages/EventTaskPage'));
+const MonitorPage = lazy(() => import('./pages/MonitorPage'));
 const ScheduledTaskPage = lazy(() => import('./pages/ScheduledTaskPage'));
 const InboxPage = lazy(() => import('./pages/InboxPage'));
 const InboxAdminPage = lazy(() => import('./pages/InboxAdminPage'));
@@ -328,6 +329,7 @@ function ConsoleApp() {
       { key: '/groups', icon: <TeamOutlined />, label: <Link to="/groups">群列表</Link> },
       { key: '/task-center', icon: <ProfileOutlined />, label: <Link to="/task-center">指令任务下发</Link> },
       { key: '/command-tasks', icon: <ProfileOutlined />, label: <Link to="/command-tasks">指令任务查询</Link> },
+      { key: '/event-tasks', icon: <ProfileOutlined />, label: <Link to="/event-tasks">事件任务</Link> },
       { key: '/scheduled-tasks', icon: <ProfileOutlined />, label: <Link to="/scheduled-tasks">定时任务</Link> },
       { key: '/forward', icon: <ShareAltOutlined />, label: <Link to="/forward">消息转发</Link> },
       { key: '/providers', icon: <ApiOutlined />, label: <Link to="/providers">AI回复引擎</Link> }
@@ -431,9 +433,10 @@ function ConsoleApp() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/robot-info" element={<RobotInfoPage />} />
         <Route path="/robots" element={<RobotPage />} />
-        <Route path="/logs" element={<MessageLogPage />} />
+        <Route path="/logs" element={<MonitorPage />} />
         <Route path="/group-tags" element={<GroupTagLibraryPage />} />
         <Route path="/task-center" element={<TaskCenterPage />} />
+        <Route path="/event-tasks" element={<EventTaskPage />} />
         <Route path="/scheduled-tasks" element={<ScheduledTaskPage />} />
         <Route path="/groups" element={<GroupListPage />} />
         <Route path="/inbox" element={<InboxPage />} />

@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shlex
+import sys
 import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -25,10 +26,11 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import pkcs1_15
 from Crypto.Util.Padding import pad
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from safe_outbound_http import (
     UnsafeOutboundUrlError,
@@ -40,6 +42,7 @@ from safe_outbound_http import (
 )
 from worktool_http import worktool_session
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
+from event_tasks import init_schema as init_event_schema, install as install_event_tasks, event_type as callback_event_type
 from command_tasks import CommandQueryBusy, list_command_tasks
 from feedback import FeedbackPayload, send_wecom_text, submit_feedback, wecom_webhook_url
 from enterprise_tags import EnterpriseTagStore, TAG_TABLE_SQL, LINK_TABLE_SQL
@@ -1179,6 +1182,7 @@ def init_db() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            init_event_schema(cur)
             cur.execute("SHOW INDEX FROM scheduled_task_runs WHERE Key_name='idx_str_task_status_id'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE scheduled_task_runs ADD INDEX idx_str_task_status_id (task_id, status, id)")
@@ -3514,18 +3518,8 @@ def _parse_json_object(value: Any) -> Dict[str, Any]:
     return {}
 
 
-async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    robot = _require_robot_access(int(user_id), robot_id)
-    action = (action or "").strip().lower()
-    payload = payload if isinstance(payload, dict) else {}
-    tag_ids_raw = payload.get("tag_ids") or []
-    tag_ids = [int(x) for x in tag_ids_raw if str(x).strip().isdigit()]
-    target_names = _resolve_targets_by_group_tags(
-        int(user_id),
-        int(robot["id"]),
-        tag_ids,
-        payload.get("target_names") or [],
-    )
+def _build_task_action_items(action: str, payload: Dict[str, Any], target_names: List[str]) -> List[Dict[str, Any]]:
+    """Build commands without sending, shared by manual tasks and ordered event actions."""
     list_items: List[Dict[str, Any]] = []
     if action == "send_text":
         content = str(payload.get("content") or "").strip()
@@ -3627,6 +3621,22 @@ async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: st
     else:
         raise HTTPException(status_code=400, detail="暂不支持的 action")
 
+    return list_items
+
+
+async def _dispatch_task_action_internal(user_id: int, robot_id: str, action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    robot = _require_robot_access(int(user_id), robot_id)
+    action = (action or "").strip().lower()
+    payload = payload if isinstance(payload, dict) else {}
+    tag_ids_raw = payload.get("tag_ids") or []
+    tag_ids = [int(x) for x in tag_ids_raw if str(x).strip().isdigit()]
+    target_names = _resolve_targets_by_group_tags(
+        int(user_id),
+        int(robot["id"]),
+        tag_ids,
+        payload.get("target_names") or [],
+    )
+    list_items = _build_task_action_items(action, payload, target_names)
     send_res = await _send_raw_message_batch(robot_id, list_items)
     return {
         "ok": True,
@@ -3683,7 +3693,7 @@ async def bind_message_callback(robot_id: str, callback_url: str, reply_all: int
         "replyAll": int(reply_all),
         "callbackUrl": callback_url,
     }
-    logger.info("bind_message_callback request robot_id=%s url=%s payload=%s", robot_id, url, payload)
+    logger.info("bind_message_callback request robot_id=%s url=%s", robot_id, url)
     async with _worktool_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
         async with session.post(url, params={"robotId": robot_id}, json=payload, allow_redirects=False) as resp:
             data = await _read_limited_json_response(resp)
@@ -6838,7 +6848,7 @@ async def _is_platform_message_callback(robot_id: str) -> bool:
         if cb_type != 11:
             continue
         current = str(row.get("callBackUrl") or row.get("callbackUrl") or "").strip().rstrip("/")
-        return bool(current) and current == expected
+        return bool(current) and current.split("?", 1)[0].rstrip("/") == expected
     return False
 
 
@@ -7226,15 +7236,22 @@ async def _qa_callback_worker_loop(worker_no: int) -> None:
 
 
 @app.post("/api/v1/callback/qa/{robot_id}", response_model=QAResponse)
-async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResponse:
+async def qa_callback(robot_id: str, request: Request) -> QAResponse:
     robot = _get_robot_by_id_or_404(robot_id)
     robot_pk = int(robot["id"])
     try:
         raw_payload = await request.json()
-    except Exception:
-        raw_payload = {}
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="回调内容必须是 JSON 对象") from exc
     if not isinstance(raw_payload, dict):
-        raw_payload = {}
+        raise HTTPException(status_code=422, detail="回调内容必须是 JSON 对象")
+    if callback_event_type(raw_payload) is not None:
+        event_service.receive(robot, raw_payload, request.query_params.get("event_token"))
+        return QAResponse(code=200, message="success")
+    try:
+        req = QARequest.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
     # Name normalization rule: prefer remark when available for both groups and private chats.
     req.groupName = _resolve_callback_group_name(req, raw_payload) or None
     req.receivedName = _resolve_callback_received_name(req, raw_payload)
@@ -7286,8 +7303,8 @@ async def qa_callback(robot_id: str, req: QARequest, request: Request) -> QAResp
         )
         return QAResponse(code=0, message="参数接收成功")
 
-    callback_url = str(request.url)
-    local_log_id = _insert_qa_monitor_log(robot_pk, req, inbound_text, str(request.url))
+    callback_url = str(request.url.replace(query=""))
+    local_log_id = _insert_qa_monitor_log(robot_pk, req, inbound_text, callback_url)
     logger.info(
         "qa_callback_received robot_id=%s robot_pk=%s scene=%s room_type=%s at_me=%s message_id=%s match_target=%s text=%s",
         robot_id,
@@ -11679,6 +11696,9 @@ async def admin_update_user_status(
             raise
     finally:
         conn.close()
+
+
+event_service = install_event_tasks(sys.modules[__name__])
 
 
 if __name__ == "__main__":

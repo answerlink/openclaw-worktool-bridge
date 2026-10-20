@@ -3,6 +3,7 @@ import { ArrowDownOutlined, ArrowUpOutlined, DownloadOutlined, QuestionCircleOut
 import { Alert, Button, Card, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Popover, Select, Space, Switch, Table, Tabs, Tag, Tour, Typography, Upload, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { isPlatformCallback, resolvePlatformCallback } from '../robotCallbackConfig';
 import type { Provider, Robot, Rule } from '../types';
 import { getLastSelectedRobotId, setLastSelectedRobotId } from '../robotSelection';
 import { createRobotCsvTemplate, parseRobotCsv, type RobotCsvRow } from '../robotCsvImport';
@@ -142,10 +143,8 @@ export default function RobotPage() {
       const messageCallback = callbackRows.find((row: any) => Number(row?.type) === 11);
       const currentUrl = String(messageCallback?.callBackUrl || messageCallback?.callbackUrl || '').trim().replace(/\/+$/, '');
       const configuredTemplate = String(settingsRes?.callback_example_url || '').trim();
-      const expectedUrl = configuredTemplate
-        .replace(/\{robot_id\}/g, robotId)
-        .replace(/\/+$/, '');
-      setCustomCallbackWarning(!currentUrl || !expectedUrl || currentUrl !== expectedUrl);
+      const expectedUrl = resolvePlatformCallback(configuredTemplate, window.location.origin, robotId);
+      setCustomCallbackWarning(!isPlatformCallback(currentUrl, expectedUrl));
       try {
         const ruleRes = await api.listRules(robotId);
         setRules(ruleRes);

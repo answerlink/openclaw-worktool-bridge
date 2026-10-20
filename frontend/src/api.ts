@@ -276,6 +276,12 @@ export const api = {
   suggestGroupNames: (params: { robot_id: string; keyword?: string; limit?: number }) =>
     http.get('/group-tags/group-suggestions', { params }).then((r) => r.data),
   dispatchTask: (payload: any) => http.post('/tasks/dispatch', payload, { timeout: 30000 }).then((r) => r.data),
+  eventConnection: (robotId: string) => http.get('/event-tasks/connection', { params: { robot_id: robotId } }).then(r => r.data),
+  listEventTasks: (robotId: string) => http.get('/event-tasks', { params: { robot_id: robotId } }).then(r => r.data),
+  saveEventTask: (payload: any, id?: number) => (id ? http.put(`/event-tasks/${id}`, payload) : http.post('/event-tasks', payload)).then(r => r.data),
+  deleteEventTask: (id: number) => http.delete(`/event-tasks/${id}`).then(r => r.data),
+  listEvents: (robotId: string, page = 1) => http.get('/events', { params: { robot_id: robotId, page } }).then(r => r.data),
+  listEventRuns: (robotId: string, taskId?: number, page = 1) => http.get('/event-task-runs', { params: { robot_id: robotId, task_id: taskId, page } }).then(r => r.data),
   listScheduledTasks: (robotId: string) => http.get('/scheduled-tasks', { params: { robot_id: robotId } }).then((r) => r.data),
   createScheduledTask: (payload: any) => http.post('/scheduled-tasks', payload).then((r) => r.data),
   updateScheduledTask: (id: number, payload: any) => http.put(`/scheduled-tasks/${id}`, payload).then((r) => r.data),

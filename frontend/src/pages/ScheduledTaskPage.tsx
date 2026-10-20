@@ -667,7 +667,7 @@ export default function ScheduledTaskPage() {
               <Form.Item name="file_type" label="文件类型" initialValue="image"> 
                 <Select options={[{ label: '图片', value: 'image' }, { label: '音频', value: 'audio' }, { label: '视频', value: 'video' }, { label: '其他', value: '*' }]} />
               </Form.Item>
-              <Form.Item name="extra_text" label="附加留言（可选）"> 
+              <Form.Item name="extra_text" label="附带文本消息（可选）">
                 <Input />
               </Form.Item>
             </>
@@ -688,7 +688,7 @@ export default function ScheduledTaskPage() {
               <Form.Item name="destination_names_text" label="转发到群或人（每行一个）" rules={[{ required: true, whitespace: true, message: '请至少输入一个转发目标' }]}>
                 <Input.TextArea rows={3} placeholder={'例如：\n仑哥\n测试群A'} />
               </Form.Item>
-              <Form.Item name="extra_text" label="附加留言（可选）"><Input.TextArea rows={2} /></Form.Item>
+              <Form.Item name="extra_text" label="附带文本消息（可选）"><Input.TextArea rows={2} /></Form.Item>
             </>
           )}
 

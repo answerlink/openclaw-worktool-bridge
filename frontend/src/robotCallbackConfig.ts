@@ -5,7 +5,14 @@ export function resolvePlatformCallback(template: string, origin: string, robotI
 }
 
 export function isPlatformCallback(current: string, expected: string) {
-  return Boolean(current.trim()) && current.trim().replace(/\/+$/, '') === expected.trim().replace(/\/+$/, '');
+  const normalize = (value: string) => {
+    try {
+      const url = new URL(value.trim());
+      url.searchParams.delete('event_token');
+      return url.toString().replace(/\/+$/, '');
+    } catch { return value.trim().replace(/\/+$/, ''); }
+  };
+  return Boolean(current.trim()) && normalize(current) === normalize(expected);
 }
 
 export function isWecomWebhook(value: string) {

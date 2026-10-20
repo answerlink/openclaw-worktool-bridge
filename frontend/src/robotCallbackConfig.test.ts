@@ -105,3 +105,19 @@ describe('event callback display', () => {
     expect(mergeOnlineStatusCallbacks([event])).toEqual([{ ...event, callbackTypes: [7] }]);
   });
 });
+
+describe('统一接收消息和事件的回调地址', () => {
+  it('带事件校验参数的平台地址仍识别为平台消息接入', () => {
+    expect(isPlatformCallback('https://console.example/api/v1/callback/qa/r?event_token=abc', 'https://console.example/api/v1/callback/qa/r')).toBe(true);
+    expect(isPlatformCallback('https://other.example/api/v1/callback/qa/r?event_token=abc', 'https://console.example/api/v1/callback/qa/r')).toBe(false);
+    expect(isPlatformCallback('https://console.example/api/v1/callback/qa/other?event_token=abc', 'https://console.example/api/v1/callback/qa/r')).toBe(false);
+  });
+});
+
+
+it('recognizes the signed Console callback with a missing configured URL template', () => {
+  const expected = resolvePlatformCallback('', 'https://console.worktool.ymdyes.cn', 'worktool1');
+  expect(isPlatformCallback('https://console.worktool.ymdyes.cn/api/v1/callback/qa/worktool1?event_token=test', expected)).toBe(true);
+  expect(isPlatformCallback('https://other.example/api/v1/callback/qa/worktool1?event_token=test', expected)).toBe(false);
+  expect(isPlatformCallback('https://console.worktool.ymdyes.cn/api/v1/callback/qa/other?event_token=test', expected)).toBe(false);
+});

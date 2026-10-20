@@ -83,6 +83,7 @@ export default function RobotInfoPage() {
 
   const [modeOverride, setModeOverride] = useState<ConfigMode | null>(null);
   const [platformUrl, setPlatformUrl] = useState('');
+  const [eventsConnected, setEventsConnected] = useState(false);
   const [notificationInput, setNotificationInput] = useState('');
   const [notificationSaving, setNotificationSaving] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -132,15 +133,18 @@ export default function RobotInfoPage() {
   const loadInfo = async (robotId?: string) => {
     if (!robotId) return;
     setLoading(true);
+    setEventsConnected(false);
     try {
-      const [detailRes, callbackRes, onlineRes, onlineInfosRes, versionRes, settings] = await Promise.all([
+      const [detailRes, callbackRes, onlineRes, onlineInfosRes, versionRes, settings, eventState] = await Promise.all([
         api.getRobotInfoDetail(robotId),
         api.getRobotInfoCallbacks(robotId),
         api.getRobotInfoOnline(robotId),
         api.getRobotInfoOnlineInfos(robotId),
         api.getRobotInfoVersion(robotId),
-        api.getWorktoolSettings()
+        api.getWorktoolSettings(),
+        api.eventConnection(robotId).catch(() => null)
       ]);
+      setEventsConnected(eventState?.connected === true);
       setPlatformUrl(resolvePlatformCallback(String(settings?.callback_example_url || ''), window.location.origin, robotId));
       const detailData = detailRes?.data || null;
       const callbackData = callbackRes?.data || [];
@@ -264,7 +268,8 @@ export default function RobotInfoPage() {
   const confirmCallbackOverwrite = async (robotId: string, url: string, types: number[], targetPlatformUrl = platformUrl) => {
     // Re-read saved settings so changes made elsewhere are also protected.
     const latest = await api.getRobotInfoCallbacks(robotId);
-    const replacements = getCallbackReplacements(latest?.data || [], types, url);
+    const replacements = getCallbackReplacements(latest?.data || [], types, url)
+      .filter(item => !(isPlatformCallback(url, targetPlatformUrl) && isPlatformCallback(item.callBackUrl, targetPlatformUrl)));
     if (replacements.length === 0) return true;
     return new Promise<boolean>((resolve) => {
       Modal.confirm({
@@ -338,16 +343,29 @@ export default function RobotInfoPage() {
     }
     setPlatformBinding(true);
     try {
-      const settings = await api.getWorktoolSettings();
-      const template = String(settings?.callback_example_url || '').trim();
-      const resolved = resolvePlatformCallback(template, window.location.origin, selectedRobotId);
+      const eventState = await api.eventConnection(selectedRobotId);
+      const resolved = eventState.callback_url;
       if (!resolved || !/^https?:\/\//.test(resolved)) {
         throw new Error('未拿到有效的平台回调地址');
       }
       if (!await confirmCallbackOverwrite(selectedRobotId, resolved, [11], resolved)) return;
+      if (eventState.event_callback_url && !isPlatformCallback(eventState.event_callback_url, resolved)) {
+        const confirmed = await new Promise<boolean>(resolve => Modal.confirm({
+          title: '确认将事件一起接入平台？',
+          content: '当前事件已配置独立接收地址。继续后事件将交给 Console，原系统将不再接收这些事件。',
+          onOk: () => resolve(true), onCancel: () => resolve(false),
+        }));
+        if (!confirmed) return;
+      }
       setCallbackInput(resolved);
       await api.bindRobotMessageCallback(selectedRobotId, resolved);
-      message.success('已接入平台，收到的消息将交给本平台处理。');
+      try {
+        await api.saveRobotEventCallback(selectedRobotId, '', true);
+      } catch (error: any) {
+        await loadInfo(selectedRobotId);
+        throw new Error('消息已接入，但事件接入尚未确认，请刷新后重试。' + (typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : ''));
+      }
+      message.success('消息和事件已一起接入平台。');
       await loadInfo(selectedRobotId);
     } catch (e: any) {
       Modal.error({
@@ -360,7 +378,8 @@ export default function RobotInfoPage() {
   };
 
   const platformBound = isPlatformCallback(callbackMap.get(11) || '', platformUrl);
-  const platformConnected = platformBound && detail?.openCallback === 1;
+  const messagesConnected = platformBound && detail?.openCallback === 1;
+  const platformConnected = messagesConnected && eventsConnected;
   const configMode = modeOverride || (callbackMap.get(11) && !platformBound ? 'custom' : 'beginner');
   const busy = loading || saving || platformBinding || notificationSaving || deletingType !== null;
   const notificationConfigured = isWecomWebhook(callbackMap.get(5) || '') && isWecomWebhook(callbackMap.get(6) || '');
@@ -515,7 +534,7 @@ export default function RobotInfoPage() {
       <Card className="robot-callback-config" title="机器人使用设置" extra={<Button type="text" icon={<ReloadOutlined />} disabled={busy || !selectedRobotId} onClick={() => loadInfo(selectedRobotId)}>刷新状态</Button>}>
         <div className="callback-mode-options" role="group" aria-label="配置模式">
           {([
-            ['beginner', '小白模式', '无需开发，直接使用本平台接收消息和自动回复。'],
+            ['beginner', '小白模式', '无需开发，直接使用本平台接收消息、事件和自动回复。'],
             ['custom', '自定义模式', '对接自己的系统，手动配置各类回调接口。']
           ] as const).map(([mode, title, description]) => (
             <button key={mode} type="button" className={`callback-mode-option ${configMode === mode ? 'is-selected' : ''}`}
@@ -528,12 +547,13 @@ export default function RobotInfoPage() {
         {configMode === 'beginner' ? (
           <Space direction="vertical" size={24} style={{ width: '100%' }}>
             <section className="callback-beginner-section">
-              <Typography.Title level={5}>1. 接收消息与自动回复 <Tag color={platformConnected ? 'green' : 'default'}>{platformConnected ? '已接入平台' : '待接入'}</Tag></Typography.Title>
-              <Typography.Paragraph type="secondary">让本平台接收 WorkTool 机器人的消息，按你设置的回复规则处理。点击一次即可完成接入，无需填写接口地址。</Typography.Paragraph>
-              {!platformConnected && callbackMap.get(11) && <Alert style={{ marginBottom: 12 }} type="warning" showIcon message="当前消息已接入其他系统" description="接入平台会替换现有消息地址，操作前会请你确认。切换模式不会修改任何配置。" />}
+              <Typography.Title level={5}>1. 接收消息与事件 <Tag color={platformConnected ? 'green' : 'default'}>{platformConnected ? '已接入平台' : '待接入'}</Tag></Typography.Title>
+              <Typography.Paragraph type="secondary">让本平台接收 WorkTool 机器人的消息和事件，按你设置的回复规则、事件任务处理。点击一次即可完成接入，无需填写接口地址。</Typography.Paragraph>
+              {!messagesConnected && callbackMap.get(11) && <Alert style={{ marginBottom: 12 }} type="warning" showIcon message="当前消息已接入其他系统" description="接入平台会替换现有消息地址，操作前会请你确认。切换模式不会修改任何配置。" />}
               <Space wrap>
-                <Button type="primary" disabled={busy || !selectedRobotId || platformConnected} loading={platformBinding} onClick={onBindPlatformCallback}>{platformConnected ? '已接入平台' : '一键接入平台'}</Button>
-                {platformConnected && <Button onClick={() => navigate('/robots')}>设置回复规则</Button>}
+                <Button type="primary" disabled={busy || !selectedRobotId || platformConnected} loading={platformBinding} onClick={onBindPlatformCallback}>{platformConnected ? '已接入平台' : messagesConnected ? '补全事件接入' : '一键接入平台'}</Button>
+                {messagesConnected && <Button onClick={() => navigate('/robots')}>设置回复规则</Button>}
+                {platformConnected && <Button onClick={() => navigate('/event-tasks')}>设置事件任务</Button>}
               </Space>
               <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>接入后，还需要在「机器人配置」中开启需要的私聊 / 群聊回复，并配置回复规则。</Typography.Paragraph>
             </section>

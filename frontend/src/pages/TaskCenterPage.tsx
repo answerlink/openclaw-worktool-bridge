@@ -300,7 +300,7 @@ export default function TaskCenterPage() {
                 <Form.Item label="文件类型" name="file_type" initialValue="image">
                   <Select options={[{ label: 'image', value: 'image' }, { label: 'audio', value: 'audio' }, { label: 'video', value: 'video' }, { label: 'other(*)', value: '*' }]} />
                 </Form.Item>
-                <Form.Item label="附加留言" name="extra_text">
+                <Form.Item label="附带文本消息（可选）" name="extra_text">
                   <Input />
                 </Form.Item>
                 <Button type="primary" htmlType="submit" loading={submitting}>下发发送文件</Button>
