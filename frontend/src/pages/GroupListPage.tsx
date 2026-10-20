@@ -8,6 +8,7 @@ import HoverPreviewText from '../components/HoverPreviewText';
 
 interface GroupRow {
   group_name: string;
+  group_remark: string;
   master_name: string;
   msg_insert_time: string;
   msg_num: number | null;
@@ -294,9 +295,10 @@ export default function GroupListPage() {
           showTotal: (t) => `共 ${t} 条`,
           onChange: (p, ps) => void load(p, ps),
         }}
-        scroll={{ x: 1300 }}
+        scroll={{ x: 1500 }}
         columns={[
           { title: '群名', dataIndex: 'group_name', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} /> },
+          { title: '群备注', dataIndex: 'group_remark', width: 220, render: (v: string) => <HoverPreviewText value={v} maxWidth={200} /> },
           { title: '群主', dataIndex: 'master_name', width: 160, render: (v: string) => <HoverPreviewText value={v} maxWidth={140} /> },
           { title: '成员数', dataIndex: 'members_num', width: 90, render: (v: number | null) => v ?? '-' },
           { title: '消息数', dataIndex: 'msg_num', width: 90, render: (v: number | null) => v ?? '-' },

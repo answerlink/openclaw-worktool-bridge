@@ -8433,7 +8433,9 @@ async def list_groups_cache(
                 offset = (page - 1) * page_size
                 cur.execute(
                     f"""
-                    SELECT group_name,master_name,msg_insert_time,msg_num,members_num,group_announcement,level,source_create_time,source_update_time,synced_at
+                    SELECT group_name,master_name,msg_insert_time,msg_num,members_num,group_announcement,level,source_create_time,source_update_time,synced_at,
+                      CASE WHEN JSON_TYPE(JSON_EXTRACT(raw_json, '$.groupRemark')) = 'STRING'
+                        THEN JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.groupRemark')) ELSE '' END AS group_remark
                     FROM robot_group_cache
                     WHERE {where_sql}
                     ORDER BY synced_at DESC, id DESC
@@ -8471,6 +8473,7 @@ async def list_groups_cache(
         items.append(
             {
                 "group_name": row.get("group_name") or "",
+                "group_remark": row.get("group_remark") or "",
                 "master_name": row.get("master_name") or "",
                 "msg_insert_time": row.get("msg_insert_time") or "",
                 "msg_num": row.get("msg_num"),
