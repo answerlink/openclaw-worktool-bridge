@@ -1,14 +1,14 @@
 # WorkTool 官网
 
-独立静态官网，不改变管理控制台。无需构建，可部署到静态托管服务的域名根目录。
+独立静态官网，无需构建。与管理控制台共用域名，由 Nginx 按路径提供页面。
 
 ## 页面结构
 
 - `/`：产品官网首页
 - `/videos/`：视频中心
 - `/videos/worktool-overview/`：产品短片详情，含播放器、章节跳转及原片链接
-- `assets/media.js`：所有视频、图片的地址配置
-- `assets/style.css`、`assets/site.js`：共享样式与交互
+- `marketing-assets/media.js`：所有视频、图片的地址配置
+- `marketing-assets/style.css`、`marketing-assets/site.js`：共享样式与交互
 
 ## 本地预览
 
@@ -22,10 +22,21 @@
 
 上传包中的 `worktool/v1/` 对应 CDN 的 `static/worktool_console/v1/`。保留其下的 `images/` 和 `videos/` 文件名与层级。例如视频地址为 `https://cdn.asrtts.cn/static/worktool_console/v1/videos/worktool-overview-1080p.mp4`。
 
-更换媒体目录时修改 `assets/media.js` 的 `CDN_BASE`；单个文件地址不同可填写 `MEDIA_OVERRIDES`。仅使用 1080p 视频与最大 1920×1080 图片。
+更换媒体目录时修改 `marketing-assets/media.js` 的 `CDN_BASE`；单个文件地址不同可填写 `MEDIA_OVERRIDES`。仅使用 1080p 视频与最大 1920×1080 图片。
 
 ## 部署
 
-只需发布本目录的 HTML 与 assets 文件夹，保留 videos 的目录结构。不发布 media 符号链接、scripts、README 或 .qa。静态服务需支持目录 index.html，网站需位于域名根目录。媒体独立由七牛云提供。
+只需发布本目录的 HTML 与 marketing-assets 文件夹，保留 videos 的目录结构。不发布 media 符号链接、scripts、README 或 .qa。静态服务需支持目录 index.html，网站需位于域名根目录。媒体独立由七牛云提供。
 
 控制台与文档链接使用 console.worktool.ymdyes.cn。最终官网域名确定后，可补充 canonical、社交分享绝对地址与站点地图。
+
+## 与控制台一起部署
+
+在仓库根目录执行 `docker compose build frontend`，镜像会同时包含官网和控制台。
+
+- `/`、`/videos/`：官网页面。
+- `/marketing-assets/`：官网静态资源，与控制台 `/assets/` 隔离。
+- `/dashboard`：进入控制台，未登录时沿用控制台登录流程。
+- 现有控制台页面、`/docs/` 和 API 地址保持不变。
+
+官网文案和 WorkTool 品牌名称保持现有内容。

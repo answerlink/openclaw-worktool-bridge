@@ -126,8 +126,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         VITE_ANALYTICS_ENABLED: ${VITE_ANALYTICS_ENABLED:-false}
         VITE_ANALYTICS_URL: ${VITE_ANALYTICS_URL:-https://analytics.ymdyes.cn}
