@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
@@ -12,6 +13,7 @@ const outRoot = path.join(projectRoot, 'public', 'docs');
 const siteTitle = 'WorkTool Console 文档';
 const siteBase = '/docs';
 const publicOrigin = 'https://console.worktool.ymdyes.cn';
+let stylesheetVersion = '';
 
 function currentShanghaiDate() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -31,11 +33,15 @@ const groups = [
     defaultOpen: true,
     pages: [
       { slug: 'overview', file: '01-overview.md', title: '概览', description: '平台定位、能力与目标' },
-      { slug: 'quickstart', file: '02-quickstart.md', title: '快速开始', description: '5分钟跑通链路' },
+      { slug: 'quickstart', file: '02-quickstart.md', title: '快速开始', description: '绑定机器人并验证消息与事件链路' },
       { slug: 'core-concepts', file: '03-core-concepts.md', title: '核心概念', description: '机器人、规则、引擎、回调' },
       { slug: 'robot-callback', file: '04-robot-callback.md', title: '机器人与回调', description: '机器人添加与回调绑定' },
       { slug: 'rules', file: '05-rules.md', title: '规则配置', description: '匹配模式、优先级与模板' },
       { slug: 'ai-provider', file: '06-ai-provider.md', title: 'AI回复引擎', description: '引擎配置、测试与常见问题' },
+      { slug: 'groups-tags', file: '13-groups-tags.md', title: '群列表与标签', description: '群备注、同步、读取与标签目标' },
+      { slug: 'command-tasks', file: '14-command-tasks.md', title: '指令下发与查询', description: '立即发送、群操作、执行结果与取消' },
+      { slug: 'scheduled-tasks', file: '15-scheduled-tasks.md', title: '定时任务', description: '单次、每天、每周、Cron 与错过执行' },
+      { slug: 'event-tasks', file: '16-event-tasks.md', title: '事件任务', description: '好友申请、群事件、顺序动作与日期变量' },
       { slug: 'forwarding', file: '07-forwarding.md', title: '消息转发', description: '转发规则与日志排查' },
       { slug: 'monitoring', file: '08-monitoring.md', title: '消息监控与排障', description: '监控视图与常见异常' },
       { slug: 'faq', file: '11-faq.md', title: '常见问题', description: '高频问题与处理方式' },
@@ -85,14 +91,8 @@ function pagerHtml(index) {
   </div>`;
 }
 
-function renderPage({ title, description, slug, articleHtml, pageIndex, headings }) {
-  const searchData = JSON.stringify(
-    pages.map((p) => ({
-      title: p.title,
-      slug: p.slug,
-      description: p.description,
-    }))
-  );
+function renderPage({ title, description, slug, articleHtml, pageIndex, headings, searchIndex }) {
+  const searchData = JSON.stringify(searchIndex).replaceAll('<', '\\u003c');
   const toc = headings
     .filter((h) => h.depth <= 3)
     .map((h) => `<a class=\"toc-item toc-${h.depth}\" href=\"#${esc(h.id)}\">${esc(h.text)}</a>`)
@@ -106,14 +106,14 @@ function renderPage({ title, description, slug, articleHtml, pageIndex, headings
   <title>${esc(title)} - ${esc(siteTitle)}</title>
   <meta name="description" content="${esc(description)}" />
   <link rel="canonical" href="${siteBase}/${slug}.html" />
-  <link rel="stylesheet" href="${siteBase}/assets/docs.css" />
+  <link rel="stylesheet" href="${siteBase}/assets/docs.css?v=${stylesheetVersion}" />
 </head>
-<body>
+<body data-page="${esc(slug)}">
   <div class="layout">
     <aside class="sidebar">
       <a class="brand" href="${siteBase}/index.html">${esc(siteTitle)}</a>
-      <input id="doc-search" class="search" type="search" placeholder="搜索文档..." />
-      <div id="search-results" class="search-results"></div>
+      <input id="doc-search" class="search" type="search" aria-label="搜索文档全文" placeholder="搜索文档全文..." />
+      <div id="search-results" class="search-results" aria-live="polite"></div>
       <nav class="nav">${navHtml(slug)}</nav>
     </aside>
     <main class="main">
@@ -143,7 +143,9 @@ function renderPage({ title, description, slug, articleHtml, pageIndex, headings
       const key = el.getAttribute('data-group-key') || '';
       const defaultOpen = (el.getAttribute('data-default-open') || '') === '1';
       const saved = navState[key];
-      if (typeof saved === 'boolean') {
+      if (el.querySelector('.active')) {
+        el.open = true;
+      } else if (typeof saved === 'boolean') {
         el.open = saved;
       } else {
         el.open = defaultOpen;
@@ -162,7 +164,7 @@ function renderPage({ title, description, slug, articleHtml, pageIndex, headings
         return;
       }
       const list = DOC_ITEMS
-        .filter((d) => (d.title + ' ' + (d.description || '')).toLowerCase().includes(q))
+        .filter((d) => (d.title + ' ' + (d.description || '') + ' ' + d.content).toLowerCase().includes(q))
         .slice(0, 8);
       if (!list.length) {
         resultEl.innerHTML = '<div class="result-empty">没有匹配结果</div>';
@@ -181,49 +183,33 @@ function renderPage({ title, description, slug, articleHtml, pageIndex, headings
 async function main() {
   await fs.mkdir(path.join(outRoot, 'assets'), { recursive: true });
 
-  const searchIndex = [];
+  stylesheetVersion = createHash('sha256').update(await fs.readFile(path.join(outRoot, 'assets/docs.css'))).digest('hex').slice(0, 12);
+  const documents = await Promise.all(pages.map(async (p) => ({
+    ...p, md: await fs.readFile(path.join(docsRoot, p.file), 'utf8'),
+  })));
+  const searchIndex = documents.map(({ slug, title, description, md }) => ({
+    slug, title, description, content: md,
+  }));
 
-  for (let i = 0; i < pages.length; i++) {
-    const p = pages[i];
-    const mdPath = path.join(docsRoot, p.file);
-    const md = await fs.readFile(mdPath, 'utf8');
-    const tokens = marked.lexer(md);
-    const headings = tokens
-      .filter((t) => t.type === 'heading')
-      .map((t) => ({
-        depth: t.depth,
-        text: t.text,
-        id: String(t.text)
-          .trim()
-          .toLowerCase()
-          .replace(/\s+/g, '-')
-          .replace(/[^\u4e00-\u9fa5a-z0-9\-_]/g, ''),
-      }));
-
+  for (let i = 0; i < documents.length; i++) {
+    const p = documents[i];
+    const headings = [];
+    const seenIds = new Set();
     const renderer = new marked.Renderer();
     renderer.heading = ({ tokens: headingTokens, depth }) => {
       const text = marked.Parser.parseInline(headingTokens);
-      const plainText = headingTokens.map((x) => x.raw || '').join('').replace(/[#`*_~\[\]()]/g, '');
-      const id = String(plainText)
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^\u4e00-\u9fa5a-z0-9\-_]/g, '');
+      const plainText = text.replace(/<[^>]*>/g, '');
+      const base = plainText.trim().toLowerCase().replace(/\s+/g, '-')
+        .replace(/[^\u4e00-\u9fa5a-z0-9\-_]/g, '') || 'section';
+      let id = base;
+      for (let suffix = 2; seenIds.has(id); suffix++) id = `${base}-${suffix}`;
+      seenIds.add(id);
+      headings.push({ depth, text: plainText, id });
       return `<h${depth} id="${esc(id)}">${text}</h${depth}>`;
     };
-
-    const articleHtml = marked.parse(md, { renderer });
-    const html = renderPage({
-      title: p.title,
-      description: p.description,
-      slug: p.slug,
-      articleHtml,
-      pageIndex: i,
-      headings,
-    });
-
+    const articleHtml = marked.parse(p.md, { renderer });
+    const html = renderPage({ ...p, articleHtml, pageIndex: i, headings, searchIndex });
     await fs.writeFile(path.join(outRoot, `${p.slug}.html`), html, 'utf8');
-    searchIndex.push({ slug: p.slug, title: p.title, description: p.description, headings: headings.map((h) => h.text) });
   }
 
   await fs.writeFile(path.join(outRoot, 'index.html'), `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${siteBase}/overview.html">`, 'utf8');
@@ -250,6 +236,20 @@ async function main() {
     '</urlset>',
   ].join('\n');
   await fs.writeFile(path.join(projectRoot, 'public', 'sitemap.xml'), rootSitemap, 'utf8');
+
+  const llmsIntro = `# WorkTool Console
+
+Console manages WorkTool robots, callbacks, AI reply rules, groups, manual commands, scheduled tasks and event tasks.
+
+Canonical site: ${publicOrigin}
+Console API: ${publicOrigin}/api/v1
+Language: zh-CN
+
+## Documentation
+
+`;
+  await fs.writeFile(path.join(projectRoot, 'public', 'llms.txt'), llmsIntro + pages.map((p) => `- [${p.title}](${publicOrigin}${siteBase}/${p.slug}.html): ${p.description}`).join('\n') + '\n', 'utf8');
+  await fs.writeFile(path.join(projectRoot, 'public', 'llms-full.txt'), `# WorkTool Console — 完整使用文档\n\nLast-Updated: ${today}\nCanonical-Docs: ${publicOrigin}${siteBase}/overview.html\n\n` + documents.map((p) => `Source: ${publicOrigin}${siteBase}/${p.slug}.html\n\n${p.md}`).join('\n---\n\n'), 'utf8');
 
   console.log(`docs built: ${pages.length} pages -> ${outRoot}`);
 }

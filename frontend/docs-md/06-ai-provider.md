@@ -1,49 +1,44 @@
 # AI 回复引擎
 
-## 字段说明
+在「AI回复引擎」新增配置并测试，然后到机器人回复规则中选择它。创建引擎本身不会自动让机器人回复。
 
-- AI 回复引擎：用于区分不同渠道配置
-- Base URL：模型服务地址
-- API Token：模型访问凭证（OpenClaw 可留空）
-- Model：模型名或 model_id
-- 引擎类型：例如 OpenAI 或 OpenClaw
+## 选择类型
 
-## Model 从哪里找
+| 类型 | 配置重点 | 谁负责后续回复 |
+| --- | --- | --- |
+| OpenAI 兼容接口 | 完整聊天接口 URL、API Token、Model | Console 取得模型文本后下发 |
+| FastGPT | 已发布应用的 API 地址和应用密钥 | Console 取得结果后下发 |
+| OpenClaw | Webhook 地址及需要的认证方式 | 交给接收端处理 |
+| WorkTool 消息回调格式 | 接收 WorkTool 回调的业务地址 | 交给接收端处理 |
 
-通常在模型平台的 API 文档中查找。
+回调类型引擎显示成功表示第三方已接受请求，不代表 Console 会把响应正文自动当成聊天回复。
 
-示例：
+## 填写与测试
 
-- `doubao-seed-2.0-lite`
-- `gpt-4o-mini`
-- `Qwen/Qwen3-8B`
+- 名称：方便在规则中识别，例如“售后知识库”。
+- Base URL：OpenAI 兼容类型填写完整接口，如 `https://模型服务域名/v1/chat/completions`。以服务商实际地址为准。
+- API Token：填写该服务所需凭证；回调类型按接收端要求选择认证方式。
+- Model：填写服务商支持的模型 ID，不要把产品展示名称直接当模型 ID。
+- 扩展 JSON：按页面支持范围传入模型参数，必须是合法 JSON。
 
-## 新增与测试
+FastGPT 支持填写站点地址、`/api` 前缀或完整发布聊天接口，会补齐聊天接口路径。请使用发布应用的密钥。
 
-新增或编辑引擎后，建议先点“测试接口”。
+保存前后可使用「测试接口」，核对响应与耗时。测试失败先检查地址、认证、模型权限及服务端网络。平台模拟引擎返回固定文本，仅用于验证接入。
 
-测试成功会显示响应耗时，失败会显示错误信息。
+## 提问人信息
 
-## 提问人信息注入模式
+支持关闭、注入 system prompt、或通过额外字段传递。
 
-引擎支持 3 档配置：
+- system prompt 模式把身份与提问人信息交给模型。
+- 额外字段模式写入 `variables.prompt_inject`，需要第三方工作流自行使用，不会自动改写对方的 system prompt。
+- “我的同事”名单也参与信息注入及群聊未 @ 同事消息的跳过逻辑。
 
-- 关闭：不注入提问人信息
-- 注入到 system prompt：把机器人身份/同事名单/当前提问者写入 system 消息
-- 通过额外字段 variables：把 `variables.prompt_inject` 传给第三方编排层
+模板可使用 `{robot_name}`、`{current_asker}`、`{colleague_line}`、`{colleague_list}`、`{scene}`、`{sender_name}`、`{group_name}`、`{last_message}`、`{recent_context}`。这些单花括号变量与事件任务的双花括号变量用途不同。
 
-说明：
+## 上下文与共享引擎
 
-- 当你选择“额外字段”模式时，console 只发送 `variables.prompt_inject`，不会覆盖 system prompt；需在第三方工作流里自行把 `variables.prompt_inject` 合并到 system prompt。
-- 若配置了“我的同事”名单，会自动参与注入内容，并用于群聊未@同事发言的跳过策略。
+模型回复使用轻量会话上下文，默认最近 20 条、保留 15 天。群聊内容会针对当前提问者整理，不是整个群历史的完整转录。
 
-## OpenClaw 模式
+共享引擎可能可用但不可修改。显示“无法修改”表示当前账号没有管理权限，不代表引擎不可用。回调类型引擎按其接入协议处理数据，不应假设与模型类型拥有相同的上下文行为。
 
-- OpenClaw 走 webhook 透传，平台会把 WorkTool 回调负载直接转发到你配置的地址。
-- OpenClaw 不要求 `model` 和 `扩展JSON`，可按实际渠道留空。
-
-## 多账号可见性
-
-系统支持“可见但不可改”的共享引擎能力。
-
-如果你无权管理某引擎，会显示“无法修改”。
+群聊“是否需要回复”的判定配置见[规则配置](/docs/rules.html)。

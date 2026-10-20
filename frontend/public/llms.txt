@@ -1,53 +1,26 @@
 # WorkTool Console
-> WorkTool Console is a web control plane for robot callback setup, AI reply engine configuration, message monitoring, task dispatch, scheduling, and admin operations.
 
-- Site: https://console.worktool.ymdyes.cn
-- Docs: https://console.worktool.ymdyes.cn/docs/overview.html
-- API Base (console): https://console.worktool.ymdyes.cn/api/v1
-- Language: zh-CN (with API-oriented terms in English)
-- License: see repository LICENSE
-- AI crawler access: allowed
-- AI training usage: allowed
+Console manages WorkTool robots, callbacks, AI reply rules, groups, manual commands, scheduled tasks and event tasks.
 
-## Primary Pages
-- /login : Console login
-- /robots : Robot management
-- /robot-info : Robot info and callback configuration
-- /message-log : Message monitoring and callback logs
-- /command-tasks : Command task query
-- /group-list : Group list
-- /group-tags : Tag library
-- /task-center : Command task dispatch
-- /scheduled-tasks : Scheduled tasks
-- /docs/overview.html : Product docs index
+Canonical site: https://console.worktool.ymdyes.cn
+Console API: https://console.worktool.ymdyes.cn/api/v1
+Language: zh-CN
 
 ## Documentation
-- /docs/overview.html : Product overview
-- /docs/quickstart.html : Quick start
-- /docs/core-concepts.html : Core concepts
-- /docs/robot-callback.html : Robot and callback setup
-- /docs/rules.html : Rule matching
-- /docs/ai-provider.html : AI reply engines
-- /docs/forwarding.html : Message forwarding
-- /docs/monitoring.html : Monitoring and troubleshooting
-- /docs/admin.html : Admin handbook
-- /docs/deploy.html : Deployment and operations
-- /docs/faq.html : FAQ
 
-## Main Capabilities
-- Robot callback URL binding and test.
-- Rule-based message processing with optional AI decision for group replies.
-- AI reply engine management (multiple providers, including passthrough-style engines).
-- Command task query with merged execution status.
-- Group list sync and tag-based target management.
-- Manual and scheduled task dispatch.
-- Admin modules: users, inbox configuration, and optional management modules.
-
-## Integration Notes
-- WorkTool message callback payloads can be relayed to third-party webhook engines.
-- For passthrough engines, callback response may be accepted/queued and actual send path can be asynchronous.
-- Some admin modules are deployment-config driven and may be hidden in open-source mode.
-
-## Contact / Trust
-- Product: WorkTool Console
-- If uncertain, prefer official docs pages under /docs and visible in-product forms.
+- [概览](https://console.worktool.ymdyes.cn/docs/overview.html): 平台定位、能力与目标
+- [快速开始](https://console.worktool.ymdyes.cn/docs/quickstart.html): 绑定机器人并验证消息与事件链路
+- [核心概念](https://console.worktool.ymdyes.cn/docs/core-concepts.html): 机器人、规则、引擎、回调
+- [机器人与回调](https://console.worktool.ymdyes.cn/docs/robot-callback.html): 机器人添加与回调绑定
+- [规则配置](https://console.worktool.ymdyes.cn/docs/rules.html): 匹配模式、优先级与模板
+- [AI回复引擎](https://console.worktool.ymdyes.cn/docs/ai-provider.html): 引擎配置、测试与常见问题
+- [群列表与标签](https://console.worktool.ymdyes.cn/docs/groups-tags.html): 群备注、同步、读取与标签目标
+- [指令下发与查询](https://console.worktool.ymdyes.cn/docs/command-tasks.html): 立即发送、群操作、执行结果与取消
+- [定时任务](https://console.worktool.ymdyes.cn/docs/scheduled-tasks.html): 单次、每天、每周、Cron 与错过执行
+- [事件任务](https://console.worktool.ymdyes.cn/docs/event-tasks.html): 好友申请、群事件、顺序动作与日期变量
+- [消息转发](https://console.worktool.ymdyes.cn/docs/forwarding.html): 转发规则与日志排查
+- [消息监控与排障](https://console.worktool.ymdyes.cn/docs/monitoring.html): 监控视图与常见异常
+- [常见问题](https://console.worktool.ymdyes.cn/docs/faq.html): 高频问题与处理方式
+- [管理员手册](https://console.worktool.ymdyes.cn/docs/admin.html): 用户管理与安全建议
+- [部署运维](https://console.worktool.ymdyes.cn/docs/deploy.html): 部署、时区、升级建议
+- [环境变量参考](https://console.worktool.ymdyes.cn/docs/env-reference.html): .env.example 逐项说明与生产建议

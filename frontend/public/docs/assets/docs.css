@@ -178,3 +178,22 @@ body {
   .main { padding: 18px; }
   .doc h1 { font-size: 28px; }
 }
+
+/* Keep long environment-variable tables readable on narrow screens. */
+.doc table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; margin: 18px 0; line-height: 1.65; }
+.doc th, .doc td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; min-width: 100px; }
+.doc th { background: #f0fdfa; }
+.doc td code { overflow-wrap: anywhere; }
+.doc p, .doc li { overflow-wrap: anywhere; }
+.doc a { color: #0f766e; }
+.doc h1, .doc h2, .doc h3 { scroll-margin-top: 20px; }
+@media (max-width: 860px) {
+  .sidebar .nav { max-height: 240px; overflow-y: auto; }
+  .doc th, .doc td { padding: 8px; }
+}
+
+/* Environment tables need readable descriptions even when horizontally scrolled. */
+[data-page="env-reference"] .doc th:first-child,
+[data-page="env-reference"] .doc td:first-child { min-width: 220px; }
+[data-page="env-reference"] .doc th:last-child,
+[data-page="env-reference"] .doc td:last-child { min-width: 260px; }
