@@ -26,6 +26,25 @@ const tabToType: Record<CallbackTabKey, number | null> = {
   online_status: 5
 };
 
+const callbackHelp = {
+  message: {
+    title: '消息回调',
+    description: '接收机器人读取到的聊天消息，包含消息内容、发送者和会话信息，用于 AI 回复、客服等业务对接。'
+  },
+  command: {
+    title: '指令执行结果回调',
+    description: '接收发送消息、建群、拉人等指令的执行结果，包含成功或失败状态、错误原因和 messageId。'
+  },
+  group_qr: {
+    title: '群二维码回调',
+    description: '机器人获取群二维码后，推送群名称和二维码地址，用于展示入群入口。'
+  },
+  online_status: {
+    title: '上下线通知',
+    description: '机器人上线或掉线时发送通知。支持企微群机器人 Webhook，可直接在群里接收状态提醒。'
+  }
+};
+
 const groupQrCallbackExample = `{
   "messageId": "1942501372444566650",
   "type": 207,
@@ -432,7 +451,7 @@ export default function RobotInfoPage() {
         width: 720,
         content: (
           <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Typography.Text>创建群和修改群配置指令执行时会触发回调，二维码始终为最新二维码，有效期为 7 天。</Typography.Text>
+            <Typography.Text>创建群或修改群配置等流程中，客户端成功获取并上报群二维码后触发回调。二维码是否可用及有效期以企业微信为准。</Typography.Text>
             <Typography.Text>也可在 App 的“设置 - 高级设置”中打开“获取群二维码”。</Typography.Text>
             <Typography.Text>平台会向回调地址发送 POST 请求，Content-Type 为 application/json。</Typography.Text>
             <pre style={{ margin: 0, padding: 12, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f5f5f5', borderRadius: 6 }}>
@@ -573,7 +592,7 @@ export default function RobotInfoPage() {
             </section>
           </Space>
         ) : <>
-          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="将机器人事件发送到你自己的系统" description="仅配置你需要的接口。保存消息回调会改变消息接收方，切换模式不会自动修改已保存的配置。" />
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>按业务需要配置消息、指令结果和事件的接收地址。</Typography.Paragraph>
         <Tabs
           activeKey={tabKey}
           onChange={(k) => {
@@ -590,11 +609,14 @@ export default function RobotInfoPage() {
             { key: 'online_status', label: '上下线通知' }
           ]}
         />
+        {tabKey !== 'event' && <section aria-label={`${callbackHelp[tabKey].title}说明`} style={{ marginBottom: 16 }}>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 8 }}>{callbackHelp[tabKey].description}</Typography.Paragraph>
+        </section>}
         {tabKey === 'event' ? <EventCallbackPanel key={selectedRobotId + JSON.stringify(callbacks.filter((row) => row.type === 7))} robotId={selectedRobotId}
           messageUrl={callbackMap.get(11) || ''} disabled={busy} onBusyChange={setSaving}
           onSaved={() => loadInfo(selectedRobotId)} /> : tabKey === 'message' && isPlatformCallback(callbackInput, platformUrl) ? (
           <Alert type="success" showIcon message="由本平台接收消息"
-            description="消息已接入本平台。如果需要对接自己的系统，可以填写自定义地址，保存前会确认是否替换现有配置。"
+            description="当前消息由 Console 接收，可切换为自己的业务接口。"
             action={<Button disabled={busy} onClick={() => setCallbackInput('')}>填写自定义地址</Button>} />
         ) : <>
         <div className="callback-form-row">
@@ -611,14 +633,14 @@ export default function RobotInfoPage() {
             disabled={busy}
             value={callbackInput}
             onChange={(e) => setCallbackInput(e.target.value)}
-            placeholder="请输入回调地址"
+            placeholder={tabKey === 'online_status' ? '企微群机器人 Webhook 或自定义通知接口' : 'https://你的域名/callback'}
           />
         </div>
         <div className="callback-action-row">
           <Button type="primary" loading={saving} disabled={busy || !selectedRobotId} onClick={onSaveCallback}>保存设置</Button>
           <Button type="link" loading={testing} disabled={busy || !selectedRobotId} onClick={onTestCallback}>测试回调地址</Button>
           <Button type="link" onClick={onOpenCallbackDoc}>
-            {callbackDoc.label}
+            回调说明
           </Button>
         </div>
         </>}
