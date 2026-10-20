@@ -45,16 +45,16 @@ export function useEventRobot() {
 
 export function EventConnection({ robotId, refresh = 0 }: { robotId?: string; refresh?: number }) {
   const navigate = useNavigate();
-  const [state, setState] = useState<'loading' | 'connected' | 'waiting' | 'missing' | 'error'>('loading');
+  const [state, setState] = useState<'loading' | 'connected' | 'missing' | 'error'>('loading');
   useEffect(() => {
     let active = true;
     setState('loading');
-    if (robotId) api.eventConnection(robotId).then(r => { if (active) setState(r.connected ? (r.last_event_received_at ? 'connected' : 'waiting') : 'missing'); }).catch(() => { if (active) setState('error'); });
+    if (robotId) api.eventConnection(robotId).then(r => { if (active) setState(r.connected ? 'connected' : 'missing'); }).catch(() => { if (active) setState('error'); });
     return () => { active = false; };
   }, [robotId, refresh]);
   return <Alert showIcon style={{ marginBottom: 16 }} type={state === 'connected' ? 'success' : state === 'missing' ? 'warning' : 'info'}
-    message={{ loading: '正在检查事件接入状态', connected: '配置已完成，已收到过事件', waiting: '配置已完成，但尚未收到事件', missing: '尚未完成事件接入', error: '暂时无法确认事件接入状态，请刷新重试' }[state]}
-    description={state === 'connected' ? '当前回调配置指向 Console，最近30天已有事件记录。仅对新收到的事件执行任务。' : state === 'waiting' ? '配置正确不代表投递已经成功。如果已发生机器人入群、改群名等操作，记录仍为空，需要检查客户端是否上报事件，以及 WorkTool 后端是否转发。' : state === 'missing' ? '到机器人信息的小白模式点击一键接入，消息和事件会一起交给平台处理。已有消息接入也可能需要补全事件接入。' : undefined}
+    message={{ loading: '正在检查事件接入状态', connected: '事件已接入平台', missing: '尚未完成事件接入', error: '暂时无法确认事件接入状态，请刷新重试' }[state]}
+    description={state === 'connected' ? '这里展示机器人上下线、入群、群名变更、群解散、被移出群、通过好友申请等事件，以及客户端返回的查询结果，可查看事件详情和任务触发结果。' : state === 'missing' ? '到机器人信息的小白模式点击一键接入，消息和事件会一起交给平台处理。已有消息接入也可能需要补全事件接入。' : undefined}
     action={state === 'missing' && <Button onClick={() => { if (robotId) setLastSelectedRobotId(robotId); navigate('/robot-info'); }}>前往接入</Button>} />;
 }
 
