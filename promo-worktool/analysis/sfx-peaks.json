@@ -1,0 +1,32 @@
+{
+  "riser.wav": {
+    "peakSeconds": 0.8215833333333333,
+    "peakFrames": 24.6475,
+    "maxDB": -0.9840538501739502,
+    "duration": 1.27475
+  },
+  "swoosh-quick.mp3": {
+    "peakSeconds": 0.33645833333333336,
+    "peakFrames": 10.09375,
+    "maxDB": -3.878476619720459,
+    "duration": 0.7813958333333333
+  },
+  "impact-deep-whoosh.mp3": {
+    "peakSeconds": 0.6324375,
+    "peakFrames": 18.973125,
+    "maxDB": -0.8667135238647461,
+    "duration": 4.063125
+  },
+  "transition-soft.mp3": {
+    "peakSeconds": 0.45316666666666666,
+    "peakFrames": 13.595,
+    "maxDB": -0.9455472826957703,
+    "duration": 1.27475
+  },
+  "shimmer-sparkle-sweep.mp3": {
+    "peakSeconds": 0.92975,
+    "peakFrames": 27.8925,
+    "maxDB": -1.9738216400146484,
+    "duration": 2.9981458333333335
+  }
+}

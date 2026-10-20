@@ -1,0 +1,112 @@
+[
+  {
+    "name": "blur-slide",
+    "summary": "标题逐词入场，y 0.38em→0 + blur 18→0 + opacity 0→1 三通道走同一条 ease-out 同步收敛，词间隔约 4f；副标题在标题收完前就错峰跟进",
+    "use": "几乎所有标题/副标题成对出现的场合；产品页首屏文案、章节小标题；需要\"专业但不抢戏\"的默认文字 reveal",
+    "duration": "约 4.0s（120f@30fps）",
+    "energy": "低（一次性收敛，无峰值无循环）",
+    "intention": "这是文字 reveal 的**默认解**——没有奇观、没有机械感，只是把词一个个 柔和地放到位。它的专业感全来自一件事：y、blur、opacity 三个通道共用 同一个进度 `p`、同一条缓动，所以词是\"从虚焦里浮出来\"而不是\"滑进来 顺便淡一下\"。当一支片里已经有别的重手法（乱码/滚轮），标题就该 用这一卡，让位给主角。",
+    "source": "references/shots/typography/blur-slide.md",
+    "updatedAt": "2026-10-02T21:01:48.000Z",
+    "styles": [
+      {
+        "key": "blur-slide",
+        "label": "blur-slide",
+        "description": "标题逐词入场，y 0.38em→0 + blur 18→0 + opacity 0→1 三通道走同一条 ease-out 同步收敛，词间隔约 4f；副标题在标题收完前就错峰跟进",
+        "media": {
+          "url": "./media/blur-slide.mp4?v=1790980736774",
+          "type": "mp4"
+        }
+      }
+    ],
+    "sourceUrl": "./source/blur-slide.md",
+    "category": "typography",
+    "tags": [
+      "typography"
+    ],
+    "addedAt": "2026-08-07T04:03:34.000Z"
+  },
+  {
+    "name": "crane-rise-reveal",
+    "summary": "升降臂拉升揭示——开场怼在一行数据特写，相机沿 Y 轴减速升起后拉，行行涌入直到整面 dashboard 铺满全幅",
+    "use": "\"从细节到全局\"的开场定场；与 drone-dive-landing（全局→单点俯冲）互为反向",
+    "duration": "5.5s（165f：特写 hold 24f + 拉升 102f + 落定/余波/静止 39f）",
+    "energy": "中高（持续单向运动，无冲击拍）",
+    "intention": "开场定场库内已有 drone-dive-landing——从上帝视角砸进 hero 特写， \"全局→焦点\"。本卡是它的镜像：\"焦点→全局\"——先怼在一行真实数据上 让观众看清\"这是什么\"，再升降臂式拉升后退，一排排内容涌入画面， 最后整面产品铺满——\"你看到的这一行，只是这一面墙的一格\"。 适合以产品体量/内容丰富度为卖点的开场；两卡同片只用一个方向。",
+    "source": "references/shots/opening/crane-rise-reveal.md",
+    "updatedAt": "2026-10-02T21:01:48.000Z",
+    "styles": [
+      {
+        "key": "crane-rise-reveal",
+        "label": "crane-rise-reveal",
+        "description": "升降臂拉升揭示——开场怼在一行数据特写，相机沿 Y 轴减速升起后拉，行行涌入直到整面 dashboard 铺满全幅",
+        "media": {
+          "url": "./media/crane-rise-reveal.mp4?v=1790980736793",
+          "type": "mp4"
+        }
+      }
+    ],
+    "sourceUrl": "./source/crane-rise-reveal.md",
+    "category": "opening",
+    "tags": [
+      "opening",
+      "camera",
+      "data"
+    ],
+    "addedAt": "2026-07-19T05:45:41.000Z"
+  },
+  {
+    "name": "outro-group-photo-launch",
+    "summary": "全片元素从四面八方飞来围住字标合影，crane 落机位+舞台光+金尘做成发布会收场",
+    "use": "outro/品牌收尾；多功能产品的\"全家福\"式终镜",
+    "duration": "约 4.8s（145f）",
+    "energy": "峰值（全片最高点）",
+    "intention": "把看过的每个功能各抽一个代表元素叫回来合影，字标压轴登场——观众离场前最后记住的是\"这些东西属于同一个产品\"。规格必须是发布会级：能量推到全片最高。",
+    "source": "references/shots/outro/outro-group-photo-launch.md",
+    "updatedAt": "2026-10-02T21:01:48.000Z",
+    "styles": [
+      {
+        "key": "outro-group-photo-launch",
+        "label": "outro-group-photo-launch",
+        "description": "全片元素从四面八方飞来围住字标合影，crane 落机位+舞台光+金尘做成发布会收场",
+        "media": {
+          "url": "./media/outro-group-photo-launch.mp4?v=1790980736839",
+          "type": "mp4"
+        }
+      }
+    ],
+    "sourceUrl": "./source/outro-group-photo-launch.md",
+    "category": "outro",
+    "tags": [
+      "outro"
+    ],
+    "addedAt": "2026-07-19T05:45:41.000Z"
+  },
+  {
+    "name": "row-embed",
+    "summary": "内容行像卡片一样从空中降下、rotateX 收平、嵌入瞬间底边亮一道强调色的缝",
+    "use": "\"结构化数据长进页面\"的详情页/列表镜头；行级内容的批量入场",
+    "duration": "约 2s（12–68f）",
+    "energy": "中",
+    "intention": "详情页的行不是\"显示出来\"而是\"长进去\"——每一行从空中降下并严丝合缝嵌入页面布局，嵌入瞬间的强调色缝是\"咔哒\"扣上的视觉拟音。",
+    "source": "references/shots/ui-entrance/row-embed.md",
+    "updatedAt": "2026-10-02T21:01:48.000Z",
+    "styles": [
+      {
+        "key": "row-embed",
+        "label": "row-embed",
+        "description": "内容行像卡片一样从空中降下、rotateX 收平、嵌入瞬间底边亮一道强调色的缝",
+        "media": {
+          "url": "./media/row-embed.mp4?v=1790980736857",
+          "type": "mp4"
+        }
+      }
+    ],
+    "sourceUrl": "./source/row-embed.md",
+    "category": "ui-entrance",
+    "tags": [
+      "ui-entrance"
+    ],
+    "addedAt": "2026-07-19T05:45:41.000Z"
+  }
+]

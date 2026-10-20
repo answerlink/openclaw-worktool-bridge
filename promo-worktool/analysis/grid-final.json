@@ -1,0 +1,11 @@
+{
+  "selected_source_section": [
+    0.08350430323644636,
+    15.82216969314608
+  ],
+  "match": 1.0,
+  "mean_abs_ms": 1.758147586378665,
+  "max_abs_ms": 9.680216416970922,
+  "drift_ms": -4.7566334211349066e-12,
+  "reason": "Full song has breakdown; use first 32 steady beats, repeat source segment. Half/double tempo rejected from prior candidate report."
+}

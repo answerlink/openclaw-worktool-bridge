@@ -1,0 +1,8 @@
+{
+  "method": "SHA256 of extracted H264 video bitstream",
+  "identical": true,
+  "hashes": {
+    "worktool-promo": "7db9f4e57829289bfb4f91bc60bc593f74cf7f475d131660d5f23bcc73779f5a",
+    "worktool-promo-sfx": "7db9f4e57829289bfb4f91bc60bc593f74cf7f475d131660d5f23bcc73779f5a"
+  }
+}

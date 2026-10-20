@@ -52,3 +52,28 @@ recreate.sh
 
 # Local backup artifacts
 backup/sqlite/
+
+# Promo projects: keep sources and small images; exclude builds and media
+promo-worktool/node_modules/
+promo-worktool/out/
+promo-worktool/.remotion/
+promo-worktool/**/*.mp4
+promo-worktool/**/*.webm
+promo-worktool/**/*.mov
+promo-worktool/**/*.wav
+promo-worktool/**/*.mp3
+promo-worktool/**/*.m4a
+宣传片/**/node_modules/
+宣传片/**/out/
+宣传片/**/.remotion/
+宣传片/**/网页版/
+宣传片/**/audio-src/
+宣传片/**/public/audio/
+宣传片/**/public/fonts/
+宣传片/**/fonts-src/
+宣传片/**/*.mp4
+宣传片/**/*.webm
+宣传片/**/*.mov
+宣传片/**/*.wav
+宣传片/**/*.mp3
+宣传片/**/*.m4a

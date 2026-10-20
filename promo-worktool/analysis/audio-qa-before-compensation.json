@@ -1,0 +1,73 @@
+{
+  "pipeline": "Remotion 4.0.484 / AAC / 48000Hz / MP4",
+  "musicOffsetSeconds": 0.042666666666666665,
+  "cuts": [
+    {
+      "beat": 8,
+      "cutFrame": 118,
+      "audioFrame": 119.31996598639456,
+      "errorFrames": -1.319965986394564
+    },
+    {
+      "beat": 20,
+      "cutFrame": 295,
+      "audioFrame": 296.3799149659864,
+      "errorFrames": -1.3799149659864156
+    },
+    {
+      "beat": 32,
+      "cutFrame": 472,
+      "audioFrame": 473.4398639455783,
+      "errorFrames": -1.4398639455782813
+    },
+    {
+      "beat": 36,
+      "cutFrame": 531,
+      "audioFrame": 532.4598469387754,
+      "errorFrames": -1.4598469387753994
+    },
+    {
+      "beat": 48,
+      "cutFrame": 708,
+      "audioFrame": 709.5197959183673,
+      "errorFrames": -1.519795918367322
+    },
+    {
+      "beat": 60,
+      "cutFrame": 885,
+      "audioFrame": 886.5797448979592,
+      "errorFrames": -1.5797448979592446
+    },
+    {
+      "beat": 68,
+      "cutFrame": 1003,
+      "audioFrame": 1004.6197108843537,
+      "errorFrames": -1.619710884353708
+    }
+  ],
+  "probes": [
+    {
+      "source": "transition-soft.mp3",
+      "target": 163,
+      "from": 149,
+      "offsetFrames": 1.2900000000000045,
+      "peakResidualFrames": 0.8849999999999909
+    },
+    {
+      "source": "swoosh-quick.mp3",
+      "target": 295,
+      "from": 285,
+      "offsetFrames": 1.280000000000019,
+      "peakResidualFrames": 1.3737500000000296
+    },
+    {
+      "source": "impact-deep-whoosh.mp3",
+      "target": 1051,
+      "from": 1032,
+      "offsetFrames": 1.2800000000000722,
+      "peakResidualFrames": 1.253125000000182
+    }
+  ],
+  "mixedPeakDB": -6.555200576782227,
+  "sfxPeakDB": -6.5710015296936035
+}

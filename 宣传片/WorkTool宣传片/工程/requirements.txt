@@ -1,0 +1,7 @@
+numpy
+scipy
+Pillow
+fonttools
+brotli
+playwright
+beautifulsoup4

@@ -1,0 +1,56 @@
+{
+  "name": "promo",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@remotion/bundler": "4.0.529",
+    "@remotion/cli": "4.0.529",
+    "@remotion/fonts": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "@remotion/light-leaks": "4.0.529",
+    "@remotion/media": "4.0.529",
+    "@remotion/motion-blur": "4.0.529",
+    "@remotion/noise": "4.0.529",
+    "@remotion/paths": "4.0.529",
+    "@remotion/player": "4.0.529",
+    "@remotion/renderer": "4.0.529",
+    "@remotion/shapes": "4.0.529",
+    "@remotion/tailwind-v4": "4.0.529",
+    "@remotion/transitions": "4.0.529",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.529",
+    "tailwindcss": "4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.529",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@types/web": "0.0.166",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3",
+    "vite": "^6.4.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "lint": "eslint src && tsc",
+    "web": "vite --config web/vite.config.ts",
+    "web:build": "vite build --config web/vite.config.ts",
+    "web:serve": "npx -y http-server out/web -p 18765 -a 127.0.0.1 -c-1",
+    "mix": "python3 scripts/mix.py",
+    "fonts": "python3 scripts/fonts.py",
+    "stills": "node scripts/stills.mjs",
+    "sheet": "python3 scripts/sheet.py",
+    "check:assets": "python3 scripts/check_assets.py",
+    "render:preview": "remotion render PromoPreview out/preview.mp4 --concurrency=4 --scale=0.5 --crf=18",
+    "render:1080": "mkdir -p out && bash -o pipefail -c 'remotion render Promo out/final-1080p.mp4 --concurrency=12 --crf=14 2>&1 | tee out/render.log'",
+    "render:4k": "mkdir -p out && bash -o pipefail -c 'remotion render Promo out/final-4k.mp4 --scale=2 --concurrency=6 --crf=14 2>&1 | tee out/render.log'"
+  },
+  "sideEffects": [
+    "*.css",
+    "./src/lib/fonts.ts"
+  ]
+}

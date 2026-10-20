@@ -1,0 +1,10 @@
+import React from 'react';
+import {Audio,Sequence,staticFile,interpolate} from 'remotion';
+import {SHOTS,TOTAL} from './timeline';
+import peaks from './sfx-peaks.json';
+export const OUTPUT_AUDIO_OFFSET_F=1.28;
+const sfxFrom=(target:number,src:keyof typeof peaks)=>Math.max(0,Math.round(target-peaks[src].peakFrames-OUTPUT_AUDIO_OFFSET_F));
+const cue=(target:number,src:keyof typeof peaks,volume:number,label:string)=>({from:sfxFrom(target,src),target,src,volume,label,duration:Math.ceil(peaks[src].duration*30)});
+export const SFX=[cue(SHOTS[0].from+30,'swoosh-quick.mp3',.3,'品牌标题揭示'),cue(SHOTS[1].from+45,'transition-soft.mp3',.32,'升降运镜启动'),cue(SHOTS[2].from,'swoosh-quick.mp3',.3,'AI引擎转场'),cue(SHOTS[3].from+10,'transition-soft.mp3',.28,'自动化引导'),cue(SHOTS[4].from+24,'transition-soft.mp3',.3,'任务行归位'),cue(SHOTS[5].from,'swoosh-quick.mp3',.28,'消息记录换章'),cue(SHOTS[6].from,'swoosh-quick.mp3',.28,'运营图表换章'),cue(SHOTS[7].from+28,'riser.wav',.3,'四方组装渐强'),cue(SHOTS[7].from+48,'impact-deep-whoosh.mp3',.52,'品牌压印落地'),cue(SHOTS[7].from+70,'shimmer-sparkle-sweep.mp3',.24,'品牌线条余韵')];
+export const BGM={from:0,duration:TOTAL,src:'audio/music-master.wav',volume:.28};
+export const Sound:React.FC<{bgm?:boolean}>=({bgm=true})=><>{bgm&&<Audio src={staticFile(BGM.src)} volume={BGM.volume}/>} {SFX.map((s,i)=><Sequence key={i} from={s.from} durationInFrames={Math.min(s.duration,TOTAL-s.from)}><Audio src={staticFile('audio/'+s.src)} volume={s.volume}/></Sequence>)}</>;

@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Tailwind preflight 给 img/video 加了 max-width: 100%：图片宽度一旦超过容器（放大、平移截图）就被压回容器宽，高度不变，画面被横向压扁 */
+img,
+video {
+  max-width: none;
+}

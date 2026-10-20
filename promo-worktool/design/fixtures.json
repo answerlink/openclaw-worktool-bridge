@@ -1,0 +1,339 @@
+{
+  "robots": [
+    {
+      "robot_id": "demo-robot-1",
+      "name": "演示·客服助手",
+      "private_chat_enabled": true,
+      "group_chat_enabled": true,
+      "group_reply_mode": "ai_decide",
+      "group_reply_only_when_mentioned": false,
+      "created_at": "2026-10-20 09:00:00",
+      "updated_at": "2026-10-20 09:00:00"
+    },
+    {
+      "robot_id": "demo-robot-2",
+      "name": "演示·运营助手",
+      "private_chat_enabled": true,
+      "group_chat_enabled": true,
+      "group_reply_mode": "ai_decide",
+      "group_reply_only_when_mentioned": false,
+      "created_at": "2026-10-20 09:00:00",
+      "updated_at": "2026-10-20 09:00:00"
+    },
+    {
+      "robot_id": "demo-robot-3",
+      "name": "演示·团队助手",
+      "private_chat_enabled": true,
+      "group_chat_enabled": true,
+      "group_reply_mode": "ai_decide",
+      "group_reply_only_when_mentioned": false,
+      "created_at": "2026-10-20 09:00:00",
+      "updated_at": "2026-10-20 09:00:00"
+    }
+  ],
+  "providers": [
+    {
+      "id": 1,
+      "name": "OpenAI 兼容引擎",
+      "provider_type": "openai",
+      "base_url": "https://api.example.com/v1/chat/completions",
+      "api_token_masked": "••••••••",
+      "enabled": true,
+      "can_manage": true,
+      "used_robot_ids": [
+        "demo-robot-1"
+      ],
+      "used_robot_count": 1,
+      "auth_scheme": "bearer"
+    },
+    {
+      "id": 2,
+      "name": "FastGPT 知识库",
+      "provider_type": "fastgpt",
+      "base_url": "https://knowledge.example.com/api",
+      "api_token_masked": "••••••••",
+      "enabled": true,
+      "can_manage": true,
+      "used_robot_ids": [
+        "demo-robot-2"
+      ],
+      "used_robot_count": 1,
+      "auth_scheme": "bearer"
+    },
+    {
+      "id": 3,
+      "name": "OpenClaw 工作流",
+      "provider_type": "openclaw",
+      "base_url": "https://agent.example.com/webhook",
+      "api_token_masked": "••••••••",
+      "enabled": true,
+      "can_manage": true,
+      "used_robot_ids": [
+        "demo-robot-3"
+      ],
+      "used_robot_count": 1,
+      "auth_scheme": "bearer"
+    }
+  ],
+  "rules": [
+    {
+      "id": 1,
+      "robot_id": "demo-robot-1",
+      "scene": "group",
+      "pattern_match_type": "regex",
+      "pattern": "演示·产品咨询群",
+      "content_match_type": "regex",
+      "content_pattern": "功能|价格|方案",
+      "provider_id": 1,
+      "provider_name": "OpenAI 兼容引擎",
+      "priority": 1,
+      "enabled": true
+    },
+    {
+      "id": 2,
+      "robot_id": "demo-robot-1",
+      "scene": "group",
+      "pattern_match_type": "regex",
+      "pattern": "演示·售后支持群",
+      "content_match_type": "regex",
+      "content_pattern": "使用|帮助|支持",
+      "provider_id": 2,
+      "provider_name": "FastGPT 知识库",
+      "priority": 2,
+      "enabled": true
+    },
+    {
+      "id": 3,
+      "robot_id": "demo-robot-1",
+      "scene": "group",
+      "pattern_match_type": "regex",
+      "pattern": "演示·团队协作群",
+      "content_match_type": "regex",
+      "content_pattern": "任务|进度|安排",
+      "provider_id": 3,
+      "provider_name": "OpenClaw 工作流",
+      "priority": 3,
+      "enabled": true
+    },
+    {
+      "id": 4,
+      "robot_id": "demo-robot-1",
+      "scene": "group",
+      "pattern_match_type": "regex",
+      "pattern": "演示·活动答疑群",
+      "content_match_type": "regex",
+      "content_pattern": "活动|报名|时间",
+      "provider_id": 1,
+      "provider_name": "OpenAI 兼容引擎",
+      "priority": 4,
+      "enabled": true
+    },
+    {
+      "id": 5,
+      "robot_id": "demo-robot-1",
+      "scene": "group",
+      "pattern_match_type": "regex",
+      "pattern": "演示·默认回复群",
+      "content_match_type": "all",
+      "content_pattern": "",
+      "provider_id": 2,
+      "provider_name": "FastGPT 知识库",
+      "priority": 5,
+      "enabled": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "robot_id": "demo-robot-1",
+      "name": "每日服务提醒",
+      "action": "send_text",
+      "payload_json": {
+        "target_names": [
+          "演示·服务群"
+        ],
+        "content": "此内容为虚构演示"
+      },
+      "schedule_type": "daily",
+      "daily_time": "09:00",
+      "weekly_days": "1",
+      "timezone": "Asia/Shanghai",
+      "status": "enabled",
+      "next_run_at": "2026-10-21 09:00:00",
+      "last_run_at": "2026-10-20 09:00:00",
+      "created_at": "2026-10-19 10:00:00"
+    },
+    {
+      "id": 2,
+      "robot_id": "demo-robot-1",
+      "name": "产品资料发送",
+      "action": "send_file",
+      "payload_json": {
+        "target_names": [
+          "演示·服务群"
+        ],
+        "content": "此内容为虚构演示"
+      },
+      "schedule_type": "daily",
+      "daily_time": "10:30",
+      "weekly_days": "1",
+      "timezone": "Asia/Shanghai",
+      "status": "enabled",
+      "next_run_at": "2026-10-21 10:30:00",
+      "last_run_at": "2026-10-20 10:30:00",
+      "created_at": "2026-10-19 10:00:00"
+    },
+    {
+      "id": 3,
+      "robot_id": "demo-robot-1",
+      "name": "周会通知",
+      "action": "send_text",
+      "payload_json": {
+        "target_names": [
+          "演示·服务群"
+        ],
+        "content": "此内容为虚构演示"
+      },
+      "schedule_type": "weekly",
+      "daily_time": "14:00",
+      "weekly_days": "1",
+      "timezone": "Asia/Shanghai",
+      "status": "enabled",
+      "next_run_at": "2026-10-26 14:00:00",
+      "last_run_at": "2026-10-19 14:00:00",
+      "created_at": "2026-10-19 10:00:00"
+    },
+    {
+      "id": 4,
+      "robot_id": "demo-robot-1",
+      "name": "活动进度同步",
+      "action": "send_text",
+      "payload_json": {
+        "target_names": [
+          "演示·服务群"
+        ],
+        "content": "此内容为虚构演示"
+      },
+      "schedule_type": "daily",
+      "daily_time": "16:00",
+      "weekly_days": "1",
+      "timezone": "Asia/Shanghai",
+      "status": "enabled",
+      "next_run_at": "2026-10-21 16:00:00",
+      "last_run_at": "2026-10-20 16:00:00",
+      "created_at": "2026-10-19 10:00:00"
+    },
+    {
+      "id": 5,
+      "robot_id": "demo-robot-1",
+      "name": "团队日报提醒",
+      "action": "send_text",
+      "payload_json": {
+        "target_names": [
+          "演示·服务群"
+        ],
+        "content": "此内容为虚构演示"
+      },
+      "schedule_type": "daily",
+      "daily_time": "18:00",
+      "weekly_days": "1",
+      "timezone": "Asia/Shanghai",
+      "status": "enabled",
+      "next_run_at": "2026-10-21 18:00:00",
+      "last_run_at": "2026-10-20 18:00:00",
+      "created_at": "2026-10-19 10:00:00"
+    }
+  ],
+  "logs": [
+    {
+      "robotId": "demo-robot-1",
+      "startTime": "2026-10-20 09:35:00",
+      "timeCost": 1.2,
+      "groupName": "演示·产品服务群",
+      "receivedName": "演示访客 1",
+      "roomType": 1,
+      "textType": 1,
+      "openThirdParty": 1,
+      "url": "https://callback.example.com",
+      "rawSpoken": "如何查看产品使用指南？",
+      "question": "如何查看产品使用指南？",
+      "answer": "打开控制台使用文档，即可查看配置与操作指南。",
+      "providerName": "OpenAI 兼容引擎",
+      "aiDecisionReply": true,
+      "messageId": "demo-message-1",
+      "atMe": true
+    },
+    {
+      "robotId": "demo-robot-1",
+      "startTime": "2026-10-20 09:32:00",
+      "timeCost": 1.4,
+      "groupName": "演示·产品服务群",
+      "receivedName": "演示访客 2",
+      "roomType": 1,
+      "textType": 1,
+      "openThirdParty": 1,
+      "url": "https://callback.example.com",
+      "rawSpoken": "可以按计划发送群消息吗？",
+      "question": "可以按计划发送群消息吗？",
+      "answer": "可以在定时任务中设置发送内容、目标与执行时间。",
+      "providerName": "FastGPT 知识库",
+      "aiDecisionReply": true,
+      "messageId": "demo-message-2",
+      "atMe": true
+    },
+    {
+      "robotId": "demo-robot-1",
+      "startTime": "2026-10-20 09:29:00",
+      "timeCost": 1.6,
+      "groupName": "演示·产品服务群",
+      "receivedName": "演示访客 3",
+      "roomType": 1,
+      "textType": 1,
+      "openThirdParty": 1,
+      "url": "https://callback.example.com",
+      "rawSpoken": "如何切换 AI 回复引擎？",
+      "question": "如何切换 AI 回复引擎？",
+      "answer": "在 AI 回复引擎中配置服务，再为机器人设置回复规则。",
+      "providerName": "OpenClaw 工作流",
+      "aiDecisionReply": true,
+      "messageId": "demo-message-3",
+      "atMe": true
+    },
+    {
+      "robotId": "demo-robot-1",
+      "startTime": "2026-10-20 09:26:00",
+      "timeCost": 1.8,
+      "groupName": "演示·产品服务群",
+      "receivedName": "演示访客 4",
+      "roomType": 1,
+      "textType": 1,
+      "openThirdParty": 1,
+      "url": "https://callback.example.com",
+      "rawSpoken": "在哪里查看执行结果？",
+      "question": "在哪里查看执行结果？",
+      "answer": "可在任务查询与消息监控中查看对应记录。",
+      "providerName": "OpenAI 兼容引擎",
+      "aiDecisionReply": true,
+      "messageId": "demo-message-4",
+      "atMe": true
+    },
+    {
+      "robotId": "demo-robot-1",
+      "startTime": "2026-10-20 09:23:00",
+      "timeCost": 2,
+      "groupName": "演示·产品服务群",
+      "receivedName": "演示访客 5",
+      "roomType": 1,
+      "textType": 1,
+      "openThirdParty": 1,
+      "url": "https://callback.example.com",
+      "rawSpoken": "支持哪些回复方式？",
+      "question": "支持哪些回复方式？",
+      "answer": "支持群聊与私聊，可按规则调用已配置的 AI 引擎。",
+      "providerName": "FastGPT 知识库",
+      "aiDecisionReply": true,
+      "messageId": "demo-message-5",
+      "atMe": true
+    }
+  ]
+}
