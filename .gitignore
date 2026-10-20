@@ -77,3 +77,8 @@ promo-worktool/**/*.m4a
 宣传片/**/*.wav
 宣传片/**/*.mp3
 宣传片/**/*.m4a
+
+# Website CDN handoff bundle and local preview
+/七牛云上传/
+/website/media
+/website/.qa/
