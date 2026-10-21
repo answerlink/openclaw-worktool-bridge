@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, DatePicker, Form, Input, Modal, Select, Space, Table, Typography, message } from 'antd';
+import { Alert, Button, Card, DatePicker, Form, Input, Modal, Space, Table, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { api } from '../api';
 import HoverPreviewText from '../components/HoverPreviewText';
+import BatchRobotRenew from '../components/BatchRobotRenew';
+import BatchRobotCreate from '../components/BatchRobotCreate';
 
 type MigrateAction = {
   key: string;
@@ -40,9 +42,6 @@ export default function RobotMigratePage() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [robotInfo, setRobotInfo] = useState<RobotInfoResult | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
-  const [createType, setCreateType] = useState<0 | 1>(0);
-  const [creating, setCreating] = useState(false);
-  const [createdRobotId, setCreatedRobotId] = useState('');
 
   const actions = useMemo<MigrateAction[]>(
     () => [
@@ -105,24 +104,6 @@ export default function RobotMigratePage() {
     void loadLogs();
   }, []);
 
-  const createRobot = async () => {
-    setCreating(true);
-    try {
-      const res = await api.adminRobotCreate(createType);
-      setCreatedRobotId(res.robot_id);
-      form.setFieldsValue({ robotId: res.robot_id, expireDate: undefined });
-      setRobotInfo(null);
-      setResultText('');
-      message.success('机器人已创建，ID已填入下方表单，可继续续期');
-      if (res.warning) message.warning(res.warning);
-      void loadLogs();
-    } catch (e: any) {
-      message.error(e?.response?.data?.detail || '创建失败，请先查询操作记录确认结果');
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const queryRobotInfo = async (autoSetExpireDate = true) => {
     const values = await form.validateFields(['robotId']);
     const robotId = String(values.robotId || '').trim();
@@ -181,24 +162,14 @@ export default function RobotMigratePage() {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="新增机器人">
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Space wrap>
-            <Typography.Text>机器人类型</Typography.Text>
-            <Select<0 | 1>
-              aria-label="机器人类型"
-              value={createType}
-              onChange={setCreateType}
-              disabled={creating}
-              style={{ width: 180 }}
-              options={[{ value: 0, label: '企微（企业微信）' }, { value: 1, label: '个微（个人微信）' }]}
-            />
-            <Button type="primary" loading={creating} onClick={() => void createRobot()}>生成机器人ID</Button>
-          </Space>
-          <Typography.Text type="secondary">企微 ID 为 wt + 30 位随机字符，个微 ID 为 wc + 30 位随机字符。每次生成一个，创建后可在下方续期。</Typography.Text>
-          {createdRobotId ? <Alert type="success" showIcon message={<Space wrap>新机器人ID：<Typography.Text copyable>{createdRobotId}</Typography.Text></Space>} /> : null}
-        </Space>
-      </Card>
+      <BatchRobotCreate onComplete={(ids) => {
+        if (ids.length === 1) {
+          form.setFieldsValue({ robotId: ids[0], expireDate: undefined });
+          setRobotInfo(null);
+          setResultText('');
+        }
+        void loadLogs();
+      }} />
       <Card title="机器人更换续期">
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Alert
@@ -247,6 +218,7 @@ export default function RobotMigratePage() {
           ) : null}
         </Space>
       </Card>
+      <BatchRobotRenew onComplete={() => void loadLogs()} />
       <Card title="最近10条操作记录">
         <Table
           rowKey="id"
