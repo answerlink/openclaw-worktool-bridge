@@ -1807,6 +1807,12 @@ class ProviderTestRequest(BaseModel):
     extra_json: Optional[str] = None
 
 
+class ClientLogTimeRequest(BaseModel):
+    robot_id: str
+    start_time: str
+    end_time: str
+
+
 class ClientLogSnippetRequest(BaseModel):
     message_id: str
 
@@ -8912,6 +8918,70 @@ async def admin_client_log_snippet(
 
     await _request_client_log_snippet(robot_id, message_id)
     return await _query_client_log_snippet(message_id, robot_id)
+
+
+def _validate_client_log_time(body: ClientLogTimeRequest) -> Dict[str, str]:
+    rid = body.robot_id.strip()
+    if not rid:
+        raise HTTPException(400, "robot_id required")
+    values = [body.start_time.strip(), body.end_time.strip()]
+    try:
+        dates = [datetime.strptime(value, "%Y-%m-%d %H:%M:%S") for value in values]
+        if any(date.strftime("%Y-%m-%d %H:%M:%S") != value for date, value in zip(dates, values)):
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(400, "时间必须为北京时间 YYYY-MM-DD HH:mm:ss")
+    if dates[0] > dates[1]:
+        raise HTTPException(400, "开始时间不能晚于结束时间")
+    return {"robotId": rid, "startTime": values[0], "endTime": values[1]}
+
+
+@app.post("/api/v1/admin/client-log-snippet/request-by-time")
+async def admin_client_log_request_by_time(
+    body: ClientLogTimeRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    payload = _validate_client_log_time(body)
+    url = _normalize_user_outbound_url(f"{get_worktool_api_base()}/robot/clientLogSnippet/requestByTime")
+    async with _worktool_session(aiohttp.ClientTimeout(total=10), deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        async with session.post(url, json=payload, allow_redirects=False) as resp:
+            raw = await read_limited_text(resp)
+            if resp.status != 200:
+                raise HTTPException(502, f"时间段采集请求失败：HTTP {resp.status}")
+            try:
+                response = json.loads(raw)
+            except ValueError:
+                raise HTTPException(502, "时间段采集接口返回无效 JSON")
+    if not isinstance(response, dict) or str(response.get("code")) != "200":
+        raise HTTPException(502, str(response.get("message") or "时间段采集请求失败") if isinstance(response, dict) else "时间段采集请求失败")
+    data = response.get("data")
+    request_id = data.get("requestMessageId") if isinstance(data, dict) else None
+    if not request_id:
+        raise HTTPException(502, "采集接口未返回 requestMessageId，请勿直接重复发起采集")
+    return {"status": "pending", "robot_id": payload["robotId"], "request_message_id": str(request_id),
+            "start_time": payload["startTime"], "end_time": payload["endTime"]}
+
+
+@app.get("/api/v1/admin/client-log-snippet/time-result")
+async def admin_client_log_time_result(
+    robot_id: str, request_message_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    rid, mid = robot_id.strip(), request_message_id.strip()
+    if not rid or not mid:
+        raise HTTPException(400, "robot_id and request_message_id required")
+    response = await fetch_worktool_api("/robot/clientLogSnippet/list", {"robotId": rid, "requestMessageId": mid})
+    if str(response.get("code")) != "200":
+        raise HTTPException(502, str(response.get("message") or "时间段日志查询失败"))
+    page = response.get("data")
+    if not isinstance(page, dict) or not isinstance(page.get("list"), list):
+        raise HTTPException(502, "时间段日志查询返回格式异常")
+    records = page["list"]
+    failed = any(str(row.get("errorCode", 0)) != "0" for row in records if isinstance(row, dict))
+    return {"status": "failed" if failed else ("success" if records else "pending"),
+            "robot_id": rid, "request_message_id": mid, "data": page}
 
 
 @app.post("/api/v1/admin/client-log-snippet/request")

@@ -320,6 +320,10 @@ export const api = {
   troubleshootSearch: (payload: any) => http.post('/troubleshoot/search', payload).then((r) => r.data),
   getClientLogRobotStatus: (robotId: string) =>
     http.get('/admin/client-log-snippet/robot-status', { params: { robot_id: robotId }, timeout: 15000 }).then((r) => r.data),
+  requestClientLogByTime: (robotId: string, startTime: string, endTime: string) =>
+    http.post('/admin/client-log-snippet/request-by-time', { robot_id: robotId, start_time: startTime, end_time: endTime }, { timeout: 15000 }).then(r => r.data),
+  getClientLogTimeResult: (robotId: string, requestMessageId: string) =>
+    http.get('/admin/client-log-snippet/time-result', { params: { robot_id: robotId, request_message_id: requestMessageId }, timeout: 15000 }).then(r => r.data),
   queryClientLogSnippet: (messageId: string) =>
     http.post('/admin/client-log-snippet/query', { message_id: messageId }, { timeout: 70000 }).then((r) => r.data)
   ,requestClientLogSnippet: (messageId: string) =>
