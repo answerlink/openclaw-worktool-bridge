@@ -133,7 +133,11 @@ export default function TroubleshootPage() {
           <Col span={8}>
             <AutoComplete
               value={messageId}
-              onChange={setMessageId}
+              onChange={(value) => {
+                setMessageId(value);
+                // A newly entered message must resolve its own robot, not reuse the previous one.
+                if (value !== messageId) setRobotId('');
+              }}
               options={recentMessageOptions}
               filterOption={(input, option) => String(option?.value || '').includes(input)}
               style={{ width: '100%' }}
