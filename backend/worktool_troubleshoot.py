@@ -31,6 +31,24 @@ class TroubleshootSearchPayload(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
+def build_robot_status(robot_id: str, detail_data: Dict[str, Any], online_data: Any) -> Dict[str, Any]:
+    return {
+        "机器人ID": detail_data.get("robotId") or robot_id,
+        "机器人名称": detail_data.get("name") or "-",
+        "识别账号昵称": detail_data.get("showName") or "-",
+        "企业名称": detail_data.get("corporation") or "-",
+        "首次登录": detail_data.get("firstLogin") or "-",
+        "授权到期": detail_data.get("authExpir") or detail_data.get("authExpire") or "-",
+        "当前在线": bool(online_data),
+        "是否有效": bool(detail_data.get("robotType") != 4),
+        "登录IP": detail_data.get("loginIp") or "-",
+        "App名称": detail_data.get("appName") or "-",
+        "WorkTool版本": detail_data.get("workToolVersion") or "-",
+        "企业微信版本": detail_data.get("weComVersion") or "-",
+        "最近登录": detail_data.get("loginTime") or "-",
+    }
+
+
 def _safe_limit(limit: int, default: int = 20, max_limit: int = 100) -> int:
     if limit <= 0:
         return default
@@ -822,21 +840,7 @@ async def run_troubleshoot_search(
         },
         "resolved": {"robot_id": robot_id, "message_resolved_robot": resolved_from_message},
         "sections": {
-            "机器人状态": {
-                "机器人ID": detail_data.get("robotId") or robot_id,
-                "机器人名称": detail_data.get("name") or "-",
-                "识别账号昵称": detail_data.get("showName") or "-",
-                "企业名称": detail_data.get("corporation") or "-",
-                "首次登录": detail_data.get("firstLogin") or "-",
-                "授权到期": detail_data.get("authExpir") or detail_data.get("authExpire") or "-",
-                "当前在线": bool(online_data),
-                "是否有效": bool(detail_data.get("robotType") != 4),
-                "登录IP": detail_data.get("loginIp") or "-",
-                "App名称": detail_data.get("appName") or "-",
-                "WorkTool版本": detail_data.get("workToolVersion") or "-",
-                "企业微信版本": detail_data.get("weComVersion") or "-",
-                "最近登录": detail_data.get("loginTime") or "-",
-            },
+            "机器人状态": build_robot_status(robot_id, detail_data, online_data),
             "回调配置": [
                 {"回调类型": x.get("typeName"), "回调地址": x.get("callBackUrl"), "类型编号": x.get("type")}
                 for x in callbacks_data[:20]

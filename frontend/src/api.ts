@@ -318,6 +318,8 @@ export const api = {
   deleteRobotCallbackByType: (robotId: string, type: number, robotKey = '') =>
     http.post('/robot-info/callbacks/delete-by-type', { robot_id: robotId, type, robot_key: robotKey }).then((r) => r.data),
   troubleshootSearch: (payload: any) => http.post('/troubleshoot/search', payload).then((r) => r.data),
+  getClientLogRobotStatus: (robotId: string) =>
+    http.get('/admin/client-log-snippet/robot-status', { params: { robot_id: robotId }, timeout: 15000 }).then((r) => r.data),
   queryClientLogSnippet: (messageId: string) =>
     http.post('/admin/client-log-snippet/query', { message_id: messageId }, { timeout: 70000 }).then((r) => r.data)
   ,requestClientLogSnippet: (messageId: string) =>

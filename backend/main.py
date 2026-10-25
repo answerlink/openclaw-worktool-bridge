@@ -41,7 +41,7 @@ from safe_outbound_http import (
     validate_outbound_url_shape,
 )
 from worktool_http import worktool_session
-from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search
+from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search, build_robot_status
 from event_tasks import init_schema as init_event_schema, install as install_event_tasks, event_type as callback_event_type
 from command_tasks import CommandQueryBusy, list_command_tasks
 from feedback import FeedbackPayload, send_wecom_text, submit_feedback, wecom_webhook_url
@@ -8859,6 +8859,24 @@ async def troubleshoot_search(body: TroubleshootSearchPayload, user: Dict[str, A
         fetch_worktool_api=fetch_worktool_api,
         db_conn_factory=db_conn,
     )
+
+
+@app.get("/api/v1/admin/client-log-snippet/robot-status")
+async def admin_client_log_robot_status(
+    robot_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    _require_admin(user)
+    rid = robot_id.strip()
+    if not rid:
+        raise HTTPException(status_code=400, detail="robot_id required")
+    detail = (await fetch_worktool_api("/robot/robotInfo/getDetail", {"robotId": rid})).get("data")
+    if not isinstance(detail, dict) or not detail:
+        raise HTTPException(status_code=502, detail="未获取到机器人详情")
+    online = (await fetch_worktool_api("/robot/robotInfo/online", {"robotId": rid})).get("data")
+    if online is None:
+        raise HTTPException(status_code=502, detail="未获取到机器人在线状态")
+    return build_robot_status(rid, detail, online)
 
 
 @app.post("/api/v1/admin/client-log-snippet/query")

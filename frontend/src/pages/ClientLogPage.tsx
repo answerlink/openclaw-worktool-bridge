@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AutoComplete, Button, Card, Descriptions, Input, Space, Spin, Tooltip, Typography, message } from 'antd';
 import { CopyOutlined, DownOutlined, SearchOutlined, UpOutlined, CloseOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import RobotStatusCard from '../components/RobotStatusCard';
 
 const RECENT_MESSAGE_IDS_KEY = 'client_log_recent_message_ids';
 const MAX_RECENT_MESSAGE_IDS = 10;
@@ -39,6 +40,28 @@ export default function ClientLogPage() {
   });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [robotStatus, setRobotStatus] = useState<Record<string, unknown> | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusError, setStatusError] = useState('');
+  const queryVersion = useRef(0);
+  const queryInFlight = useRef(false);
+
+  useEffect(() => () => { queryVersion.current += 1; }, []);
+
+  const loadRobotStatus = async (robotId: string, version: number) => {
+    setStatusLoading(true);
+    try {
+      const status = await api.getClientLogRobotStatus(robotId);
+      if (queryVersion.current === version) setRobotStatus(status);
+    } catch (e: any) {
+      if (queryVersion.current === version) {
+        setStatusError(e?.response?.data?.detail || e?.message || '请稍后重新查询');
+      }
+    } finally {
+      if (queryVersion.current === version) setStatusLoading(false);
+    }
+  };
+
   const [logText, setLogText] = useState('');
   const [logSearch, setLogSearch] = useState('');
   const [findOpen, setFindOpen] = useState(false);
@@ -115,16 +138,25 @@ export default function ClientLogPage() {
   }, [recentMessageIds]);
 
   const query = async () => {
+    if (queryInFlight.current) return;
     const value = messageId.trim();
     if (!value) {
       message.warning('请输入 messageId');
       return;
     }
     setRecentMessageIds((ids) => [value, ...ids.filter((id) => id !== value)].slice(0, MAX_RECENT_MESSAGE_IDS));
+    queryInFlight.current = true;
+    const version = ++queryVersion.current;
     setLoading(true);
     setResult(null);
+    setRobotStatus(null);
+    setStatusError('');
+    setStatusLoading(false);
     try {
       let data = await api.requestClientLogSnippet(value);
+      if (queryVersion.current === version && data?.robot_id) {
+        void loadRobotStatus(String(data.robot_id), version);
+      }
       if (data?.status === 'pending') {
         for (let attempt = 1; attempt <= 12; attempt += 1) {
           await new Promise((resolve) => window.setTimeout(resolve, 5000));
@@ -146,6 +178,7 @@ export default function ClientLogPage() {
     } catch (e: any) {
       message.error(e?.response?.data?.detail || e?.message || '客户端日志查询失败');
     } finally {
+      queryInFlight.current = false;
       setLoading(false);
     }
   };
@@ -172,6 +205,10 @@ export default function ClientLogPage() {
           系统会根据 messageId 从 WorkTool 指令记录中反查机器人，并等待客户端回传日志，最长等待 60 秒。
         </Typography.Paragraph>
       </Card>
+
+      {statusLoading || robotStatus || statusError ? (
+        <RobotStatusCard status={robotStatus} loading={statusLoading} error={statusError} />
+      ) : null}
 
       {loading ? (
         <Card>
