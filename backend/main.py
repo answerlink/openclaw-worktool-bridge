@@ -4713,7 +4713,7 @@ async def _should_reply_group_by_ai_decision(
     robot: Dict[str, Any],
     req: QARequest,
     inbound_text: str,
-) -> bool:
+) -> Optional[bool]:
     provider_id = robot.get("group_decision_provider_id")
     provider = _load_provider_for_decision(int(provider_id)) if provider_id is not None else {
         "id": None, "name": "平台官方群聊判定引擎", "base_url": GROUP_DECISION_PROVIDER_BASE_URL,
@@ -4722,14 +4722,14 @@ async def _should_reply_group_by_ai_decision(
     }
     if provider_id is None and not (GROUP_DECISION_PROVIDER_BASE_URL and GROUP_DECISION_PROVIDER_API_KEY and GROUP_DECISION_PROVIDER_MODEL):
         logger.warning("group_ai_decide_skipped robot_id=%s reason=official_provider_not_configured", robot.get("robot_id"))
-        return False
+        return None
     if not provider:
         logger.warning(
             "group_ai_decide_skipped robot_id=%s provider_id=%s reason=provider_not_found_or_disabled",
             robot.get("robot_id"),
             provider_id,
         )
-        return False
+        return None
 
     history_rows = _load_group_recent_context(int(robot["id"]), (req.groupName or "").strip(), 8)
     history_lines: List[str] = []
@@ -4773,7 +4773,7 @@ async def _should_reply_group_by_ai_decision(
             provider_id,
             str(e),
         )
-        return False
+        return None
     token = (text or "").strip().upper()
     decision = token.startswith("YES") or token.startswith("A")
     logger.info(
@@ -6918,7 +6918,7 @@ async def _process_qa_callback_task(
         if colleague_name_keys and sender_key and sender_key in colleague_name_keys and not bool(req.atMe):
             logger.info("qa_callback_skipped robot_id=%s reason=group_colleague_speaker_no_at", robot_id)
             _insert_message_log(robot_pk, "outbound", scene, "", "skipped")
-            _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at, ai_decision_reply=False)
+            _update_qa_monitor_log(local_log_id, "", "skipped", time.perf_counter() - started_at)
             return
         if not bool(robot.get("group_chat_enabled")):
             logger.info("qa_callback_skipped robot_id=%s reason=group_chat_disabled", robot_id)
@@ -6937,7 +6937,7 @@ async def _process_qa_callback_task(
                 return
             if group_reply_mode == "ai_decide":
                 should_reply = await _should_reply_group_by_ai_decision(robot, req, inbound_text)
-                ai_decision_reply = bool(should_reply)
+                ai_decision_reply = should_reply
                 if not should_reply:
                     logger.info("qa_callback_skipped robot_id=%s reason=group_ai_decide_no", robot_id)
                     _insert_message_log(robot_pk, "outbound", scene, "", "skipped")

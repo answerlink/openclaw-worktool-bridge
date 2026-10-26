@@ -68,3 +68,41 @@ class DecisionCreateTest(unittest.IsolatedAsyncioTestCase):
         resolve.assert_called_once_with(None, 1)
         insert = next(call for call in cursor.execute.call_args_list if 'INSERT INTO robots(' in call.args[0])
         self.assertIsNone(insert.args[1][6])
+
+class DecisionOutcomeTest(unittest.IsolatedAsyncioTestCase):
+    """Unavailable decisions must remain distinct from an explicit rejection."""
+
+    def setUp(self):
+        self.robot = {'id': 4, 'robot_id': 'test', 'group_decision_provider_id': 37}
+        self.req = main.QARequest(groupName='test group', receivedName='tester')
+        for name, value in (
+            ('_load_provider_for_decision', {'id': 37}),
+            ('_load_group_recent_context', []),
+        ):
+            p = patch.object(main, name, return_value=value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = patch.object(main, 'db_conn', side_effect=AssertionError('No real database access'))
+        p.start()
+        self.addCleanup(p.stop)
+
+    async def test_missing_official_engine_has_no_decision(self):
+        robot = dict(self.robot, group_decision_provider_id=None)
+        with patch.object(main, 'GROUP_DECISION_PROVIDER_BASE_URL', ''):
+            self.assertIsNone(await main._should_reply_group_by_ai_decision(robot, self.req, 'hello'))
+
+    async def test_missing_custom_engine_has_no_decision(self):
+        with patch.object(main, '_load_provider_for_decision', return_value=None):
+            self.assertIsNone(await main._should_reply_group_by_ai_decision(self.robot, self.req, 'hello'))
+
+    async def test_provider_failure_has_no_decision(self):
+        with patch.object(main, '_call_provider', new=AsyncMock(side_effect=RuntimeError('test failure'))):
+            self.assertIsNone(await main._should_reply_group_by_ai_decision(self.robot, self.req, 'hello'))
+
+    async def test_explicit_no_remains_false(self):
+        with patch.object(main, '_call_provider', new=AsyncMock(return_value='NO')):
+            self.assertIs(await main._should_reply_group_by_ai_decision(self.robot, self.req, 'hello'), False)
+
+    async def test_explicit_yes_remains_true(self):
+        with patch.object(main, '_call_provider', new=AsyncMock(return_value='YES')):
+            self.assertIs(await main._should_reply_group_by_ai_decision(self.robot, self.req, 'hello'), True)
