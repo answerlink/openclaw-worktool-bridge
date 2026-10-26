@@ -2356,8 +2356,10 @@ def _normalize_wework_expire_time(raw: Optional[str]) -> str:
 
 
 def _normalize_recipient_scope(scope: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    data = scope if isinstance(scope, dict) else {}
-    scope_type = str(data.get("type") or "all").strip().lower()
+    if not isinstance(scope, dict) or not scope.get("type"):
+        raise HTTPException(status_code=400, detail="接收范围缺失，请明确选择接收范围")
+    data = scope
+    scope_type = str(data["type"]).strip().lower()
     if scope_type not in {"all", "admins", "phones"}:
         raise HTTPException(status_code=400, detail="recipient_scope.type 必须是 all/admins/phones")
     if scope_type != "phones":
@@ -2380,12 +2382,23 @@ def _normalize_recipient_scope(scope: Optional[Dict[str, Any]]) -> Dict[str, Any
     return {"type": "phones", "phones": phones}
 
 
+def _decode_recipient_scope(raw: Any) -> Dict[str, Any]:
+    """Decode database JSON and validate it; never infer a broadcast scope."""
+    if isinstance(raw, (str, bytes, bytearray)):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise HTTPException(status_code=400, detail="接收范围数据损坏，请编辑修正后再发布")
+    return _normalize_recipient_scope(raw)
+
+
 def _recipient_scope_json(scope: Dict[str, Any]) -> str:
     return json.dumps(scope, ensure_ascii=False)
 
 
 def _resolve_recipient_user_ids(cur: Any, scope: Dict[str, Any]) -> List[int]:
-    scope_type = str(scope.get("type") or "all")
+    scope = _normalize_recipient_scope(scope)
+    scope_type = scope["type"]
     if scope_type == "all":
         cur.execute("SELECT id FROM users WHERE is_active=1")
         return [int(x["id"]) for x in (cur.fetchall() or [])]
@@ -2423,10 +2436,7 @@ def _publish_inbox_message(conn: Any, message_id: int) -> Dict[str, Any]:
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="站内信不存在")
-        scope_raw = row.get("recipient_scope_json")
-        scope = scope_raw if isinstance(scope_raw, dict) else {}
-        if not scope:
-            scope = {"type": "all"}
+        scope = _decode_recipient_scope(row.get("recipient_scope_json"))
         recipients = _resolve_recipient_user_ids(cur, scope)
         inserted = _insert_inbox_deliveries(cur, int(row["id"]), recipients)
         cur.execute(
@@ -9071,8 +9081,11 @@ async def admin_list_inbox_messages(
             rows = cur.fetchall() or []
             items = []
             for x in rows:
-                scope = x.get("recipient_scope_json")
-                scope_obj = scope if isinstance(scope, dict) else {}
+                try:
+                    scope_obj = _decode_recipient_scope(x.get("recipient_scope_json"))
+                except HTTPException:
+                    # Keep malformed legacy rows editable without implying a broadcast.
+                    scope_obj = {"type": "invalid"}
                 items.append(
                     {
                         "id": int(x["id"]),
@@ -9229,10 +9242,10 @@ async def admin_update_inbox_message(
         with conn.cursor() as cur:
             params.append(int(message_id))
             cur.execute(f"UPDATE inbox_messages SET {', '.join(updates)} WHERE id=%s", tuple(params))
-            if cur.rowcount <= 0:
-                raise HTTPException(status_code=404, detail="站内信不存在")
             cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
             after = cur.fetchone()
+            if not after:
+                raise HTTPException(status_code=404, detail="站内信不存在")
         conn.commit()
         _finish_admin_audit(audit_id, status="success", after=after, target_name=str((after or {}).get("title") or ""))
         return {"ok": True}
@@ -9337,10 +9350,10 @@ async def admin_offline_inbox_message(
                 target_type="inbox_message", target_id=str(message_id), target_name=str(before.get("title") or ""), before=before,
             )
             cur.execute("UPDATE inbox_messages SET status='offline' WHERE id=%s", (int(message_id),))
-            if cur.rowcount <= 0:
-                raise HTTPException(status_code=404, detail="站内信不存在")
             cur.execute("SELECT * FROM inbox_messages WHERE id=%s", (int(message_id),))
             after = cur.fetchone()
+            if not after:
+                raise HTTPException(status_code=404, detail="站内信不存在")
         conn.commit()
         _finish_admin_audit(audit_id, status="success", after=after)
         return {"ok": True}
