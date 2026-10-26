@@ -378,7 +378,12 @@ export default function TaskCenterPage() {
             label: '清理企微存储空间',
             children: (
               <Space direction="vertical" style={{ width: '100%' }}>
-                <Alert type="warning" showIcon message="该动作会向机器人发送清理企微存储空间指令，请确认机器人在线且目标账号允许执行。" />
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="该动作会向机器人发送清理企微存储空间指令，请确认机器人在线且目标账号允许执行。"
+                  description="注意：清理企微存储空间仅支持 Android 11 及以上版本。"
+                />
                 <Button danger type="primary" loading={submitting} onClick={() => void submitClearStorage()}>
                   下发清理企微存储空间
                 </Button>

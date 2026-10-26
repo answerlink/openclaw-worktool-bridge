@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Upload, message } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { CopyOutlined, UploadOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { api } from '../api';
 import HoverPreviewText from '../components/HoverPreviewText';
@@ -76,6 +76,32 @@ export default function AppManagementPage() {
     () => apps.map((x) => ({ label: `${x.app_name} (${x.version_count})`, value: x.app_name })),
     [apps]
   );
+
+  const copyDownloadUrl = async (url: string) => {
+    if (!url) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const previousFocus = document.activeElement;
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        try {
+          textarea.select();
+          if (!document.execCommand('copy')) throw new Error('Copy failed');
+        } finally {
+          textarea.remove();
+          if (previousFocus instanceof HTMLElement) previousFocus.focus();
+        }
+      }
+      message.success('下载地址已复制');
+    } catch {
+      message.error('复制失败，请手动复制下载地址');
+    }
+  };
 
   const applyTemplate = (appName: string, latestRow: AppUpdateRow | null) => {
     form.setFieldsValue({
@@ -256,7 +282,24 @@ export default function AppManagementPage() {
             { title: 'min_version_code', dataIndex: 'min_version_code', width: 150 },
             { title: '标题', dataIndex: 'title', width: 180, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={160} popupWidth={520} /> },
             { title: '更新日志', dataIndex: 'update_log', width: 220, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={200} popupWidth={640} /> },
-            { title: '下载地址', dataIndex: 'download_url', width: 260, render: (v: string) => <HoverPreviewText value={v || '-'} maxWidth={240} popupWidth={760} /> },
+            {
+              title: '下载地址',
+              dataIndex: 'download_url',
+              width: 340,
+              render: (v: string) => (
+                <Space size={8}>
+                  <HoverPreviewText value={v || '-'} maxWidth={240} popupWidth={760} />
+                  <Button
+                    size="small"
+                    icon={<CopyOutlined />}
+                    disabled={!v}
+                    onClick={() => void copyDownloadUrl(v)}
+                  >
+                    复制
+                  </Button>
+                </Space>
+              ),
+            },
             { title: '大小', dataIndex: 'size', width: 90, render: (v: string) => v || '-' },
             { title: '启用', dataIndex: 'enable', width: 80, render: (v: boolean) => (v ? '是' : '否') },
             {
