@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import unittest
 import re
@@ -75,8 +76,42 @@ class CommandTaskTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def query(self, status='all', page=1, size=30, mid=''):
-        return list_command_tasks(lambda: Connection(self.db), 'a', status, page, size, mid)
+    def query(self, status='all', page=1, size=30, mid='', content=''):
+        return list_command_tasks(lambda: Connection(self.db), 'a', status, page, size, mid, content)
+
+    def test_content_filter_before_pagination_and_combined_filters(self):
+        self.db.execute("UPDATE raw_message_record SET body=? WHERE id IN (1,3)",
+                        (json.dumps({"list": [{"receivedContent": "工地动态 100%_AbC"}]}),))
+        first = self.query(size=1, content='工地动态')
+        second = self.query(page=2, size=1, content='工地动态')
+        self.assertEqual(first['total'], 2)
+        self.assertEqual(second['items'][0]['command']['messageId'], 'retry')
+        self.assertEqual(self.query('success', content='工地动态')['total'], 1)
+        self.assertEqual(self.query('failed', content='工地动态')['total'], 0)
+        self.assertEqual(self.query(mid='retry', content='工地动态')['total'], 1)
+        self.assertEqual(self.query(mid='failed', content='工地动态')['total'], 0)
+        self.assertEqual(self.query(content='100%_abc')['total'], 2)
+        self.assertEqual(self.query(content="' OR 1=1 --")['total'], 0)
+        self.assertEqual(self.query(content='  ')['total'], 3)
+        self.assertEqual(self.query('success', page=2, size=1, content='工地动态')['total'], 1)
+        with patch.object(command_tasks, 'MAX_COMMANDS', 2):
+            self.assertEqual(self.query(content='工地动态')['total'], 1)
+        self.db.execute("UPDATE raw_message_record SET create_time='2026-09-10' WHERE id=1")
+        self.assertEqual(self.query(content='工地动态')['total'], 1)
+
+    def test_visible_content_only_and_supported_body_shapes(self):
+        extract = command_tasks.command_content
+        self.assertEqual(extract('{bad json'), '')
+        self.assertEqual(extract({'list': []}), '')
+        self.assertEqual(extract([{'extraText': ' caption '}]), 'caption')
+        self.assertEqual(extract({'body': json.dumps({'objectName': '文件'})}), '文件')
+        self.assertEqual(extract(json.dumps(json.dumps({'fileUrl': 'https://file'}))), 'https://file')
+        body = {'list': [{'receivedContent': 'visible', 'extraText': 'hidden',
+                          'titleList': ['hidden']}, {'receivedContent': 'hidden'}]}
+        self.assertEqual(extract(body), 'visible')
+        self.db.execute("UPDATE raw_message_record SET body=?", (json.dumps(body),))
+        self.assertEqual(self.query(content='hidden')['total'], 0)
+        self.assertEqual(self.query(content='VISIBLE')['total'], 3)
 
     def test_latest_receipt_before_status_filter_and_robot_isolation(self):
         success = self.query('success')

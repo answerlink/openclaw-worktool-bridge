@@ -1,4 +1,6 @@
 """Bounded, read-only queries against the WorkTool source database."""
+import json
+
 from datetime import datetime, timedelta
 from threading import BoundedSemaphore
 from typing import Any, Callable, Dict
@@ -13,7 +15,35 @@ class CommandQueryBusy(Exception):
     pass
 
 
-def list_command_tasks(connect: Callable, robot_id: str, status: str, page: int, size: int, message_id: str = "") -> Dict[str, Any]:
+def command_content(raw: Any) -> str:
+    """Match frontend commandContent: first command, visible field priority."""
+    for _ in range(20):
+        for _ in range(2):
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except (ValueError, TypeError):
+                    return ""
+        if isinstance(raw, list):
+            first = raw[0] if raw else None
+        elif isinstance(raw, dict):
+            if isinstance(raw.get("list"), list):
+                first = raw["list"][0] if raw["list"] else None
+            elif raw.get("body") is not None:
+                raw = raw["body"]
+                continue
+            else:
+                first = raw
+        else:
+            return ""
+        if not isinstance(first, dict):
+            return ""
+        return str(first.get("receivedContent") or first.get("extraText") or
+                   first.get("objectName") or first.get("fileUrl") or "").strip()
+    return ""
+
+
+def list_command_tasks(connect: Callable, robot_id: str, status: str, page: int, size: int, message_id: str = "", content: str = "") -> Dict[str, Any]:
     if status not in ("all", "success", "failed"):
         raise ValueError("invalid command status")
     if page < 1 or not 1 <= size <= 200:
@@ -22,12 +52,12 @@ def list_command_tasks(connect: Callable, robot_id: str, status: str, page: int,
     if not _query_slots.acquire(blocking=False):
         raise CommandQueryBusy()
     try:
-        return _query_command_tasks(connect, robot_id, status, page, size, message_id)
+        return _query_command_tasks(connect, robot_id, status, page, size, message_id, content.strip())
     finally:
         _query_slots.release()
 
 
-def _query_command_tasks(connect: Callable, robot_id: str, status: str, page: int, size: int, message_id: str) -> Dict[str, Any]:
+def _query_command_tasks(connect: Callable, robot_id: str, status: str, page: int, size: int, message_id: str, content: str) -> Dict[str, Any]:
     cutoff = (datetime.now() - timedelta(days=RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
     params = [robot_id, cutoff]
     exact = ""
@@ -50,10 +80,6 @@ def _query_command_tasks(connect: Callable, robot_id: str, status: str, page: in
         WHERE r2.robot_id=c.robot_id AND r2.message_id=c.message_id
         ORDER BY r2.run_time DESC,r2.id DESC LIMIT 1
     )"""
-    filtered_scope = scope.rstrip() + f""", resolved AS (
-        SELECT c.id,c.create_time,r.id result_id,r.raw_success,r.run_time
-        FROM scoped c {latest_join}
-    ) """
     status_where = "raw_success=0" if status == "success" else "raw_success<>0"
     select = f"SELECT /*+ MAX_EXECUTION_TIME({QUERY_TIMEOUT_MS}) */"
     conn = connect()
@@ -61,6 +87,23 @@ def _query_command_tasks(connect: Callable, robot_id: str, status: str, page: in
         with conn.cursor() as cur:
             cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             cur.execute("START TRANSACTION READ ONLY")
+            if content:
+                # Read only bounded bodies, in the same snapshot as count/page.
+                cur.execute(scope + f"{select} c.id,c.body FROM scoped s "
+                            "JOIN raw_message_record c ON c.id=s.id", tuple(params))
+                keyword = content.casefold()
+                matched = [row["id"] for row in cur.fetchall()
+                           if keyword in command_content(row["body"]).casefold()]
+                if not matched:
+                    return {"items": [], "total": 0, "page": page, "size": size,
+                            "scope": {"days": RETENTION_DAYS, "max_commands": MAX_COMMANDS, "since": cutoff}}
+                scope = scope.replace("create_time>=%s", "create_time>=%s AND id IN (" +
+                                      ",".join(["%s"] * len(matched)) + ")")
+                params[2:2] = matched
+            filtered_scope = scope.rstrip() + f""", resolved AS (
+                SELECT c.id,c.create_time,r.id result_id,r.raw_success,r.run_time
+                FROM scoped c {latest_join}
+            ) """
             if status == "all":
                 cur.execute(scope + f"{select} COUNT(*) total FROM scoped", tuple(params))
                 total = int(cur.fetchone()["total"])

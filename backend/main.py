@@ -7369,11 +7369,12 @@ def get_worktool_command_tasks(
     size: int = Query(default=30, ge=1, le=200),
     status: Literal["all", "success", "failed"] = "all",
     message_id: str = "",
+    content: str = Query(default="", max_length=500),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     _require_robot_access(int(user["id"]), robot_id)
     try:
-        return list_command_tasks(worktool_db_conn, robot_id, status, page, size, message_id.strip())
+        return list_command_tasks(worktool_db_conn, robot_id, status, page, size, message_id.strip(), content.strip())
     except CommandQueryBusy:
         raise HTTPException(status_code=429, detail="指令查询繁忙，请稍后重试", headers={"Retry-After": "3"})
     except pymysql.MySQLError as exc:

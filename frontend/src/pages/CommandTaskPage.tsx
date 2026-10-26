@@ -230,6 +230,8 @@ export default function CommandTaskPage() {
   const [rows, setRows] = useState<CommandTaskRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState('');
+  const [contentInput, setContentInput] = useState('');
+  const [contentFilter, setContentFilter] = useState('');
   const [messageIdInput, setMessageIdInput] = useState('');
   const [messageIdFilter, setMessageIdFilter] = useState('');
   const [resultStatusFilter, setResultStatusFilter] = useState<ResultStatusFilter>('all');
@@ -296,6 +298,7 @@ export default function CommandTaskPage() {
         size: requestedStatus === 'all' ? 30 : 100,
         status: requestedStatus,
         message_id: mid || undefined,
+        content: contentFilter || undefined,
       });
       const commandRows = response.items.map((item: { command: RawCommandRecord }) => item.command);
       const resultRows = response.items.flatMap((item: { result: RawResultRecord | null }) => item.result ? [item.result] : []);
@@ -312,7 +315,7 @@ export default function CommandTaskPage() {
       setLastUpdatedAt(new Date().toLocaleString());
 
       const midForQuery = mid;
-      if (!midForQuery && requestedStatus === 'all' && requestedPage === 1) {
+      if (!midForQuery && !contentFilter && requestedStatus === 'all' && requestedPage === 1) {
         let resultLatestTime = '';
         let resultLatestMs = 0;
         for (const row of resultRows) {
@@ -402,7 +405,7 @@ export default function CommandTaskPage() {
 
   useEffect(() => {
     void loadRows();
-  }, [robotId, messageIdFilter, resultStatusFilter, resultPage, queryVersion]);
+  }, [robotId, messageIdFilter, contentFilter, resultStatusFilter, resultPage, queryVersion]);
 
   useEffect(() => {
     if (!robotId) return;
@@ -415,7 +418,7 @@ export default function CommandTaskPage() {
       void loadRows();
     }, 60000);
     return () => window.clearInterval(timer);
-  }, [robotId, rows, messageIdFilter, resultStatusFilter, resultPage]);
+  }, [robotId, rows, messageIdFilter, contentFilter, resultStatusFilter, resultPage]);
 
   const columns = useMemo(
     () => [
@@ -454,6 +457,9 @@ export default function CommandTaskPage() {
 
   const runMessageIdQuery = () => {
     setResultPage(1);
+    loadRequestIdRef.current += 1;
+    setSelectedRowKeys([]);
+    setContentFilter(contentInput.trim());
     setMessageIdFilter(messageIdInput.trim());
     setQueryVersion((version) => version + 1);
   };
@@ -520,7 +526,7 @@ export default function CommandTaskPage() {
       title={(
         <Space direction="vertical" size={0}>
           <span>指令任务查询</span>
-          <Typography.Text type="secondary">仅查询最近2天、最新2000条下发指令范围内的数据（含 messageId 查询）；全部每页30条，成功/失败每页100条</Typography.Text>
+          <Typography.Text type="secondary">仅查询最近2天、最新2000条下发指令范围内的数据（含 messageId 和指令内容查询）；全部每页30条，成功/失败每页100条</Typography.Text>
         </Space>
       )}
       extra={(
@@ -573,6 +579,16 @@ export default function CommandTaskPage() {
           placeholder="按 messageId 精准查询"
           value={messageIdInput}
           onChange={(e) => setMessageIdInput(e.target.value)}
+          onPressEnter={runMessageIdQuery}
+          allowClear
+        />
+        <Input
+          style={{ width: 260 }}
+          placeholder="按指令内容关键词搜索"
+          aria-label="指令内容关键词"
+          maxLength={500}
+          value={contentInput}
+          onChange={(e) => setContentInput(e.target.value)}
           onPressEnter={runMessageIdQuery}
           allowClear
         />
