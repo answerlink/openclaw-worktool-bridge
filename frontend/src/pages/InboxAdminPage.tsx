@@ -12,7 +12,7 @@ interface InboxAdminRow {
   level: 'info' | 'warning' | 'error';
   title: string;
   content: string;
-  recipient_scope?: { type?: 'all' | 'admins' | 'phones'; phones?: string[] };
+  recipient_scope?: { type?: 'all' | 'admins' | 'phones' | 'invalid'; phones?: string[] };
   status: 'draft' | 'published' | 'offline';
   publish_at?: string | null;
   expire_at?: string | null;
@@ -36,8 +36,9 @@ function toScopePayload(values: any) {
   return { type: 'phones', phones };
 }
 
-function fromScope(scope?: { type?: 'all' | 'admins' | 'phones'; phones?: string[] }) {
-  const tp = String(scope?.type || 'all');
+function fromScope(scope?: { type?: 'all' | 'admins' | 'phones' | 'invalid'; phones?: string[] }) {
+  const tp = scope?.type;
+  if (!tp || tp === 'invalid') return { recipient_type: undefined, recipient_phones: '' };
   if (tp !== 'phones') {
     return { recipient_type: tp, recipient_phones: '' };
   }
@@ -145,10 +146,10 @@ export default function InboxAdminPage() {
   };
 
   const scopeText = (row: InboxAdminRow) => {
-    const tp = String(row?.recipient_scope?.type || 'all');
+    const tp = row?.recipient_scope?.type;
     if (tp === 'admins') return '仅管理员';
     if (tp === 'phones') return `指定手机号(${(row?.recipient_scope?.phones || []).length})`;
-    return '全部用户';
+    return tp === 'all' ? '全部用户' : '范围异常，请编辑修正';
   };
 
   const columns = useMemo(
