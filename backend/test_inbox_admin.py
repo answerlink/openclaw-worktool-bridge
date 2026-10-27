@@ -85,3 +85,34 @@ class InboxAdminTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class SystemInboxSafetyTests(InboxAdminTests):
+    def test_system_creation_records_exact_targets(self):
+        with patch.object(main, '_insert_inbox_deliveries') as insert:
+            main._create_system_inbox_message(self.conn, title='alert', content='body', level='warning', user_ids=[7], system_key='robot_login_flap', system_ref='robot:date:7')
+            scope = json.loads(self.cur.execute.call_args.args[1][3])
+            self.assertEqual(scope, {'type': 'system_users', 'user_ids': [7]})
+            self.assertEqual(insert.call_args.args[2], [7])
+
+    def test_legacy_system_cannot_republish_as_all(self):
+        self.cur.fetchone.return_value = dict(self.row, system_key='robot_login_flap', recipient_scope_json='{"type":"all"}')
+        with patch.object(main, '_insert_inbox_deliveries') as insert:
+            with self.assertRaises(HTTPException):
+                main._publish_inbox_message(self.conn, 2947)
+            insert.assert_not_called()
+
+    def test_system_edit_cannot_remove_protection(self):
+        self.cur.fetchone.return_value = dict(self.row, system_key='robot_login_flap')
+        with self.assertRaises(HTTPException):
+            asyncio.run(main.admin_update_inbox_message(2947, main.InboxMessageUpdate(category='ops', recipient_scope={'type':'all'}), None, {'id':1}))
+        self.conn.commit.assert_not_called()
+
+    def test_legacy_system_list_uses_delivery_count(self):
+        self.cur.fetchone.return_value = {'c':1}
+        self.cur.fetchall.return_value = [dict(self.row, system_key='robot_login_flap', recipient_scope_json='{"type":"all"}', delivery_count=1)]
+        result = asyncio.run(main.admin_list_inbox_messages(1,20,'all',{'id':1}))
+        self.assertEqual(result['items'][0]['recipient_scope'], {'type':'system_users','count':1})
+
+    def test_internal_scope_cannot_be_created_by_admin(self):
+        with self.assertRaises(HTTPException):
+            main._normalize_recipient_scope({'type':'system_users','user_ids':[7]})

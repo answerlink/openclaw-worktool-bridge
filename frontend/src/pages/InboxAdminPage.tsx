@@ -9,10 +9,11 @@ type AdminStatus = 'all' | 'draft' | 'published' | 'offline';
 interface InboxAdminRow {
   id: number;
   category: 'system' | 'ops';
+  system_key?: string | null;
   level: 'info' | 'warning' | 'error';
   title: string;
   content: string;
-  recipient_scope?: { type?: 'all' | 'admins' | 'phones' | 'invalid'; phones?: string[] };
+  recipient_scope?: { type?: 'all' | 'admins' | 'phones' | 'invalid' | 'system_users'; phones?: string[]; count?: number };
   status: 'draft' | 'published' | 'offline';
   publish_at?: string | null;
   expire_at?: string | null;
@@ -36,7 +37,7 @@ function toScopePayload(values: any) {
   return { type: 'phones', phones };
 }
 
-function fromScope(scope?: { type?: 'all' | 'admins' | 'phones' | 'invalid'; phones?: string[] }) {
+function fromScope(scope?: { type?: 'all' | 'admins' | 'phones' | 'invalid' | 'system_users'; phones?: string[]; count?: number }) {
   const tp = scope?.type;
   if (!tp || tp === 'invalid') return { recipient_type: undefined, recipient_phones: '' };
   if (tp !== 'phones') {
@@ -147,6 +148,7 @@ export default function InboxAdminPage() {
 
   const scopeText = (row: InboxAdminRow) => {
     const tp = row?.recipient_scope?.type;
+    if (tp === 'system_users') return `关联账号定向投递(${row.recipient_scope?.count || 0})`;
     if (tp === 'admins') return '仅管理员';
     if (tp === 'phones') return `指定手机号(${(row?.recipient_scope?.phones || []).length})`;
     return tp === 'all' ? '全部用户' : '范围异常，请编辑修正';
@@ -180,12 +182,12 @@ export default function InboxAdminPage() {
         width: 280,
         render: (_: any, row: InboxAdminRow) => (
           <Space>
-            <Button size="small" onClick={() => openEdit(row)}>编辑</Button>
+            <Button size="small" disabled={!!row.system_key} title={row.system_key ? "系统自动通知不可编辑，可下线或删除" : undefined} onClick={() => openEdit(row)}>编辑</Button>
             <Button
               size="small"
               type="primary"
               ghost
-              disabled={row.status === 'published'}
+              disabled={!!row.system_key || row.status === 'published'}
               onClick={async () => {
                 try {
                   await api.adminPublishInboxMessage(row.id);

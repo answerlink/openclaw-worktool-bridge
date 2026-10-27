@@ -2436,6 +2436,8 @@ def _publish_inbox_message(conn: Any, message_id: int) -> Dict[str, Any]:
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="站内信不存在")
+        if row.get("system_key"):
+            raise HTTPException(status_code=400, detail="系统自动通知不可手动重新发布，避免扩大接收范围")
         scope = _decode_recipient_scope(row.get("recipient_scope_json"))
         recipients = _resolve_recipient_user_ids(cur, scope)
         inserted = _insert_inbox_deliveries(cur, int(row["id"]), recipients)
@@ -2470,7 +2472,7 @@ def _create_system_inbox_message(
                 level,
                 title.strip()[:255],
                 content.strip(),
-                _recipient_scope_json({"type": "all"}),
+                _recipient_scope_json({"type": "system_users", "user_ids": sorted(set(user_ids))}),
                 expire_at,
                 system_key,
                 system_ref[:255],
@@ -9070,7 +9072,7 @@ async def admin_list_inbox_messages(
             offset = (page - 1) * page_size
             cur.execute(
                 f"""
-                SELECT m.*
+                SELECT m.*, (SELECT COUNT(*) FROM inbox_deliveries d WHERE d.message_id=m.id) AS delivery_count
                 FROM inbox_messages m
                 {where_sql}
                 ORDER BY m.id DESC
@@ -9086,9 +9088,12 @@ async def admin_list_inbox_messages(
                 except HTTPException:
                     # Keep malformed legacy rows editable without implying a broadcast.
                     scope_obj = {"type": "invalid"}
+                if x.get("system_key"):
+                    scope_obj = {"type": "system_users", "count": int(x.get("delivery_count") or 0)}
                 items.append(
                     {
                         "id": int(x["id"]),
+                        "system_key": x.get("system_key"),
                         "category": x.get("category"),
                         "level": x.get("level"),
                         "title": x.get("title") or "",
@@ -9230,6 +9235,8 @@ async def admin_update_inbox_message(
         before_conn.close()
     if not before:
         raise HTTPException(status_code=404, detail="站内信不存在")
+    if before.get("system_key"):
+        raise HTTPException(status_code=400, detail="系统自动通知不可手动编辑；可下线或删除")
     audit_id = _begin_admin_audit(
         user, request,
         module="inbox", action_key="update", action_name="编辑站内信",
