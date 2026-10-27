@@ -10709,6 +10709,7 @@ def _decode_audit_json(value: Any) -> Any:
 @app.get("/api/v1/admin/audit-logs")
 async def admin_operation_logs(
     module: Optional[str] = None,
+    keyword: Optional[str] = Query(default=None, max_length=200),
     action_key: Optional[str] = None,
     target_id: Optional[str] = None,
     target_name: Optional[str] = None,
@@ -10723,6 +10724,16 @@ async def admin_operation_logs(
     _require_admin(user)
     where: List[str] = []
     params: List[Any] = []
+    if isinstance(keyword, str) and keyword.strip():
+        # Literal substring search; JSON_SEARCH searches decoded JSON string values,
+        # including historical remarks, without expanding percent/underscore wildcards.
+        term = keyword.strip().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        pattern = f"%{term}%"
+        where.append("""(target_id LIKE %s ESCAPE '!' OR target_name LIKE %s ESCAPE '!'
+            OR action_name LIKE %s ESCAPE '!' OR error_text LIKE %s ESCAPE '!'
+            OR JSON_SEARCH(before_json, 'one', %s, '!') IS NOT NULL
+            OR JSON_SEARCH(after_json, 'one', %s, '!') IS NOT NULL)""")
+        params.extend([pattern] * 6)
     if (module or "").strip():
         where.append("module=%s")
         params.append((module or "").strip())

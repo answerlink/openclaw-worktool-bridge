@@ -155,6 +155,7 @@ export const api = {
   }) => http.post('/admin/private-license/generate', payload).then((r) => r.data),
   adminPrivateLicenseLogs: (limit = 10) => http.get('/admin/private-license/logs', { params: { limit } }).then((r) => r.data),
   adminAuditLogs: (params?: {
+    keyword?: string;
     module?: string;
     action_key?: string;
     target_id?: string;

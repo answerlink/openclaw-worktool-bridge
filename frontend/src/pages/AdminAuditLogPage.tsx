@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
+import { auditValue, licenseScope } from '../auditLogDisplay';
 import HoverPreviewText from '../components/HoverPreviewText';
 
 interface AuditLogRow {
@@ -56,8 +57,7 @@ export default function AdminAuditLogPage() {
     try {
       const res = await api.adminAuditLogs({
         module: module || undefined,
-        target_id: target.trim() || undefined,
-        target_name: target.trim() || undefined,
+        keyword: target.trim() || undefined,
         operator_phone: operatorPhone.trim() || undefined,
         status: (status || undefined) as any,
         page: nextPage,
@@ -82,10 +82,15 @@ export default function AdminAuditLogPage() {
 
   const columns = useMemo(
     () => [
-      { title: '时间', dataIndex: 'created_at', width: 180 },
-      { title: '模块', dataIndex: 'module', width: 160 },
+      { title: '时间', dataIndex: 'created_at', width: 180, render: (v: string) => v.replace('T', ' ') },
+      { title: '模块', dataIndex: 'module', width: 160, render: (v: string) => moduleOptions.find(o => o.value === v)?.label || v },
       { title: '动作', dataIndex: 'action_name', width: 150 },
       { title: '目标', width: 220, render: (_: unknown, row: AuditLogRow) => <HoverPreviewText value={row.target_name || row.target_id || '-'} maxWidth={200} popupWidth={680} /> },
+      { title: '备注', width: 240, render: (_: unknown, row: AuditLogRow) => <HoverPreviewText value={String(auditValue(row, 'remark') ?? '-')} maxWidth={220} popupWidth={680} /> },
+      ...(rows.some(row => row.module === 'private_license') ? [
+        { title: '授权到期日期', width: 140, render: (_: unknown, row: AuditLogRow) => row.module === 'private_license' ? String(auditValue(row, 'expire_date') ?? '-') : '-' },
+        { title: '机器人限制', width: 210, render: (_: unknown, row: AuditLogRow) => row.module === 'private_license' ? licenseScope(row) : '-' },
+      ] : []),
       { title: '操作者', dataIndex: 'operator_phone', width: 140, render: (v: string) => v || '-' },
       { title: '来源 IP', dataIndex: 'source_ip', width: 140, render: (v: string) => v || '-' },
       { title: '结果', dataIndex: 'status', width: 100, render: (v: AuditLogRow['status']) => statusTag(v) },
@@ -112,14 +117,14 @@ export default function AdminAuditLogPage() {
         ),
       },
     ],
-    []
+    [rows]
   );
 
   return (
     <Card title="管理员审计日志" extra={<Button icon={<ReloadOutlined />} onClick={() => void load(1, pageSize)}>刷新</Button>}>
       <Space wrap style={{ marginBottom: 12 }}>
         <Select style={{ width: 180 }} value={module} options={moduleOptions} onChange={setModule} />
-        <Input style={{ width: 220 }} value={target} placeholder="目标 ID 或名称" onChange={(e) => setTarget(e.target.value)} onPressEnter={() => void load(1, pageSize)} />
+        <Input allowClear maxLength={200} style={{ width: 340 }} value={target} placeholder="关键词：目标 ID / 名称 / 备注 / 详情" onChange={(e) => setTarget(e.target.value)} onPressEnter={() => void load(1, pageSize)} />
         <Input style={{ width: 160 }} value={operatorPhone} placeholder="操作者手机号" onChange={(e) => setOperatorPhone(e.target.value)} onPressEnter={() => void load(1, pageSize)} />
         <Select
           style={{ width: 130 }}
@@ -133,7 +138,7 @@ export default function AdminAuditLogPage() {
         rowKey="id"
         loading={loading}
         dataSource={rows}
-        scroll={{ x: 1180 }}
+        scroll={{ x: rows.some(row => row.module === 'private_license') ? 1770 : 1420 }}
         columns={columns}
         pagination={{
           current: page,
