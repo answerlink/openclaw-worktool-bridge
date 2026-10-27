@@ -105,6 +105,9 @@ export default function RobotInfoPage() {
   const [eventsConnected, setEventsConnected] = useState(false);
   const [notificationInput, setNotificationInput] = useState('');
   const [notificationSaving, setNotificationSaving] = useState(false);
+  const [failureInput, setFailureInput] = useState('');
+  const [failureCallbackUrl, setFailureCallbackUrl] = useState('');
+  const [failureSaving, setFailureSaving] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
   const [tabKey, setTabKey] = useState<CallbackTabKey>('message');
@@ -154,15 +157,18 @@ export default function RobotInfoPage() {
     setLoading(true);
     setEventsConnected(false);
     try {
-      const [detailRes, callbackRes, onlineRes, onlineInfosRes, versionRes, settings, eventState] = await Promise.all([
+      const [detailRes, callbackRes, onlineRes, onlineInfosRes, versionRes, settings, eventState, failureState] = await Promise.all([
         api.getRobotInfoDetail(robotId),
         api.getRobotInfoCallbacks(robotId),
         api.getRobotInfoOnline(robotId),
         api.getRobotInfoOnlineInfos(robotId),
         api.getRobotInfoVersion(robotId),
         api.getWorktoolSettings(),
-        api.eventConnection(robotId).catch(() => null)
+        api.eventConnection(robotId).catch(() => null),
+        api.getCommandFailureNotification(robotId)
       ]);
+      setFailureInput(failureState.webhook_url || '');
+      setFailureCallbackUrl(failureState.callback_url || '');
       setEventsConnected(eventState?.connected === true);
       setPlatformUrl(resolvePlatformCallback(String(settings?.callback_example_url || ''), window.location.origin, robotId));
       const detailData = detailRes?.data || null;
@@ -194,6 +200,8 @@ export default function RobotInfoPage() {
       setVersionLatest(null);
       setCallbackInput('');
       setNotificationInput('');
+      setFailureInput('');
+      setFailureCallbackUrl('');
       setPlatformUrl('');
     } finally {
       setLoading(false);
@@ -400,7 +408,7 @@ export default function RobotInfoPage() {
   const messagesConnected = platformBound && detail?.openCallback === 1;
   const platformConnected = messagesConnected && eventsConnected;
   const configMode = modeOverride || (callbackMap.get(11) && !platformBound ? 'custom' : 'beginner');
-  const busy = loading || saving || platformBinding || notificationSaving || deletingType !== null;
+  const busy = failureSaving || loading || saving || platformBinding || notificationSaving || deletingType !== null;
   const notificationConfigured = isWecomWebhook(callbackMap.get(5) || '') && isWecomWebhook(callbackMap.get(6) || '');
   const customNotifications = [5, 6].some((type) => Boolean(callbackMap.get(type)) && !isWecomWebhook(callbackMap.get(type) || ''));
   const splitNotifications = Boolean(callbackMap.get(5) || callbackMap.get(6))
@@ -428,6 +436,36 @@ export default function RobotInfoPage() {
       await loadInfo(selectedRobotId);
     } finally {
       setNotificationSaving(false);
+    }
+  };
+
+  const onSaveFailureNotification = async () => {
+    if (!selectedRobotId) return;
+    const robotId = selectedRobotId;
+    const url = failureInput.trim();
+    if (url && !isWecomWebhook(url)) {
+      message.warning('请填写有效的企微机器人 Webhook 地址，需包含 key。');
+      return;
+    }
+    setFailureSaving(true);
+    try {
+      try {
+        await api.saveCommandFailureNotification(robotId, url);
+      } catch (e: any) {
+        if (e?.response?.status !== 409) throw e;
+        const confirmed = await new Promise<boolean>(resolve => Modal.confirm({
+          title: '替换现有指令结果回调？', content: e.response.data.detail,
+          onOk: () => { resolve(true); }, onCancel: () => resolve(false)
+        }));
+        if (!confirmed) return;
+        await api.saveCommandFailureNotification(robotId, url, true);
+      }
+      message.success(url ? '已绑定平台指令结果回调，仅执行失败时通知企微群。' : '已关闭失败通知；其他第三方回调不会被删除。');
+    } catch (e: any) {
+      Modal.error({ title: '失败通知设置未完成', content: e?.response?.data?.detail || '请求结果未确认，请刷新核对后再操作。' });
+    } finally {
+      await loadInfo(robotId);
+      setFailureSaving(false);
     }
   };
 
@@ -589,6 +627,16 @@ export default function RobotInfoPage() {
               <Input id="notification-webhook" value={notificationInput} onChange={(e) => setNotificationInput(e.target.value)} disabled={busy}
                 placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…" />
               <div className="callback-action-row"><Button type="primary" loading={notificationSaving} disabled={busy || !selectedRobotId} onClick={onSaveNotification}>保存群通知</Button><Typography.Text type="secondary">不需要通知？这一步可以跳过。</Typography.Text></div>
+            </section>
+            <section className="callback-section">
+              <Typography.Title level={5}>3. 指令执行失败群通知 <Tag>可选</Tag>{failureInput && failureCallbackUrl && callbackMap.get(1) === failureCallbackUrl && <Tag color="green">已绑定平台回调</Tag>}</Typography.Title>
+              <Typography.Paragraph type="secondary">填写后由本平台接收指令执行结果，仅失败（含部分失败）时通知企微群，成功不提醒。不填写不绑定、不接收；清空并保存可关闭。</Typography.Paragraph>
+              {!failureInput && failureCallbackUrl && callbackMap.get(1) === failureCallbackUrl && <Alert type="warning" showIcon message="本地通知已关闭，但平台回调仍绑定；请保持地址为空并再次保存以解除绑定。" />}
+              {failureInput && callbackMap.get(1) !== failureCallbackUrl && <Alert type="warning" showIcon message="平台回调尚未绑定或已被替换，请保存以重新绑定。" />}
+              <label className="callback-field-label" htmlFor="failure-webhook">执行失败通知的企微 Webhook 地址</label>
+              <Input id="failure-webhook" value={failureInput} onChange={e => setFailureInput(e.target.value)} disabled={busy}
+                placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…" />
+              <div className="callback-action-row"><Button type="primary" loading={failureSaving} disabled={busy || !selectedRobotId} onClick={onSaveFailureNotification}>保存失败通知</Button><Typography.Text type="secondary">可与上下线通知共用群机器人；本配置不会修改消息及上下线回调。</Typography.Text></div>
             </section>
           </Space>
         ) : <>

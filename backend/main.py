@@ -44,6 +44,7 @@ from worktool_http import worktool_session
 from worktool_troubleshoot import TroubleshootSearchPayload, run_troubleshoot_search, build_robot_status
 from event_tasks import init_schema as init_event_schema, install as install_event_tasks, event_type as callback_event_type
 from command_tasks import CommandQueryBusy, list_command_tasks
+from command_failure_notify import SCHEMA as COMMAND_FAILURE_SCHEMA, install as install_command_failure
 from feedback import FeedbackPayload, send_wecom_text, submit_feedback, wecom_webhook_url
 from enterprise_tags import EnterpriseTagStore, TAG_TABLE_SQL, LINK_TABLE_SQL
 from enterprise_shares import SHARE_TABLE_SQL, EnterpriseShareStore, public_authorization_record, share_link_data
@@ -1183,6 +1184,7 @@ def init_db() -> None:
                 """
             )
             init_event_schema(cur)
+            cur.execute(COMMAND_FAILURE_SCHEMA)
             cur.execute("SHOW INDEX FROM scheduled_task_runs WHERE Key_name='idx_str_task_status_id'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE scheduled_task_runs ADD INDEX idx_str_task_status_id (task_id, status, id)")
@@ -11826,6 +11828,7 @@ async def admin_update_user_status(
 
 
 event_service = install_event_tasks(sys.modules[__name__])
+command_failure_service = install_command_failure(sys.modules[__name__])
 
 
 if __name__ == "__main__":

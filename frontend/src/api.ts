@@ -313,6 +313,10 @@ export const api = {
     http.post('/robot-info/callbacks/test', { callback_url: callbackUrl }).then((r) => r.data),
   bindRobotMessageCallback: (robotId: string, callbackUrl: string) =>
     http.post('/robot-info/message-callback/bind', { robot_id: robotId, callback_url: callbackUrl }).then((r) => r.data),
+  getCommandFailureNotification: (robotId: string) =>
+    http.get('/robot-info/command-failure-notification', { params: { robot_id: robotId } }).then(r => r.data),
+  saveCommandFailureNotification: (robotId: string, webhookUrl: string, replaceExisting = false) =>
+    http.post('/robot-info/command-failure-notification', { robot_id: robotId, webhook_url: webhookUrl, replace_existing: replaceExisting }).then(r => r.data),
   bindRobotCallbackType: (robotId: string, callbackUrl: string, type: number) =>
     http.post('/robot-info/callbacks/bind', { robot_id: robotId, callback_url: callbackUrl, type }).then((r) => r.data),
   deleteRobotCallbackByType: (robotId: string, type: number, robotKey = '') =>
