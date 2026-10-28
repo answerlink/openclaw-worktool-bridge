@@ -414,7 +414,7 @@ export default function AIHubPage() {
             </>
           ) : providerType === 'dify' ? (
             <>
-              <Form.Item name="base_url_dify" label="Dify 后端服务 API 地址" rules={[{ required: true }]} extra="支持服务器地址、/v1 或完整 /v1/chat-messages。适用于聊天助手/Chatflow，使用 blocking 模式；复用平台文本上下文，每次新建 Dify 会话，不共享 conversation_id。暂不支持 Workflow 和图片。">
+              <Form.Item name="base_url_dify" label="Dify 后端服务 API 地址" rules={[{ required: true }]} extra="支持服务器地址、/v1 或完整 /v1/chat-messages。适用于聊天助手/Chatflow，支持文本和图片；图片识别需在 Dify 应用中启用文件上传并配置视觉模型。此接口不适用于 Workflow。">
                 <Input placeholder="https://api.dify.ai/v1" />
               </Form.Item>
               <Form.Item name="dify_inputs" label="Dify inputs（可选）" extra="填写应用定义的输入变量 JSON；无必填变量时留空即可。" rules={[{ validator: async (_, value) => { const v = JSON.parse(value || '{}'); if (!v || Array.isArray(v) || typeof v !== 'object') throw new Error('必须是 JSON 对象'); } }]}>

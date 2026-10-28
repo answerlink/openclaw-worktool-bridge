@@ -80,6 +80,6 @@ AI 回复引擎选择 FastGPT 下方的「Dify 后端服务 API」。支持 Dify
 `/v1/chat-messages`，地址可填服务器、`/v1` 或完整端点；API Token 填应用 API Key。
 可选 inputs 为 JSON 对象，按应用定义填写必填变量。固定 Bearer + blocking，提取 answer。
 平台将已有隔离上下文及系统提示转换为 query 文本，并按机器人/场景/会话生成散列 user。
-每次请求 conversation_id 为空，由平台管理历史，不续用 Dify 原生会话，也不采用共享自定义 user。
-当前仅支持文本，不支持 Workflow 接口或图片；图片请求明确报错而非静默丢弃。
+每次请求不发送 conversation_id，由平台管理历史，不续用 Dify 原生会话，也不采用共享自定义 user。
+支持文本和图片：Base64 图片先通过 /files/upload 上传，再以 local_file 引用；HTTP(S) 图片使用 remote_url。应用需开启文件上传并配置视觉模型。不支持 Workflow 接口。
 新类型由启动时扩展 ai_providers.provider_type ENUM，不改写存量配置。

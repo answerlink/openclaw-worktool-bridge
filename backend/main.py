@@ -4935,6 +4935,9 @@ async def _call_provider(rule: Dict[str, Any], prompt: str, payload_extra: Optio
         _short_text(prompt, 160),
     )
     async with safe_outbound_session(timeout, deployment_mode=APP_DEPLOYMENT_MODE) as session:
+        if rule.get("provider_type") == "dify":
+            from dify_provider import prepare_dify_files
+            await prepare_dify_files(session, url, headers, payload, read_limited_text)
         async with session.post(url, json=payload, headers=headers, allow_redirects=False) as resp:
             raw = await read_limited_text(resp)
             if resp.status >= 400:
