@@ -503,7 +503,7 @@ def init_db() -> None:
                   base_url VARCHAR(512) NOT NULL,
                   api_token TEXT NOT NULL,
                   model VARCHAR(128) NULL,
-                  provider_type ENUM('openai','fastgpt','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
+                  provider_type ENUM('openai','fastgpt','dify','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
                   auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                   extra_json JSON NULL,
                   system_prompt_template TEXT NULL,
@@ -549,7 +549,7 @@ def init_db() -> None:
                       base_url VARCHAR(512) NOT NULL,
                       api_token TEXT NOT NULL,
                       model VARCHAR(128) NULL,
-                      provider_type ENUM('openai','fastgpt','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
+                      provider_type ENUM('openai','fastgpt','dify','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai',
                       auth_scheme ENUM('bearer','x-openclaw-token','none') NOT NULL DEFAULT 'bearer',
                       extra_json JSON NULL,
                       system_prompt_template TEXT NULL,
@@ -630,10 +630,10 @@ def init_db() -> None:
             # Existing deployments created this as an ENUM before callback providers existed.
             cur.execute("SHOW COLUMNS FROM ai_providers LIKE 'provider_type'")
             provider_type_column = cur.fetchone() or {}
-            if any(kind not in str(provider_type_column.get("Type") or "") for kind in ("simulated", "fastgpt")):
+            if any(kind not in str(provider_type_column.get("Type") or "") for kind in ("simulated", "fastgpt", "dify")):
                 cur.execute(
                     "ALTER TABLE ai_providers MODIFY COLUMN provider_type "
-                    "ENUM('openai','fastgpt','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai'"
+                    "ENUM('openai','fastgpt','dify','openclaw','worktool_callback','simulated') NOT NULL DEFAULT 'openai'"
                 )
             cur.execute("SHOW COLUMNS FROM routing_rules LIKE 'content_pattern'")
             if not cur.fetchone():
@@ -1776,7 +1776,7 @@ class ProviderCreate(BaseModel):
     base_url: str
     api_token: str
     model: Optional[str] = None
-    provider_type: Literal["openai", "fastgpt", "openclaw", "worktool_callback"] = "openai"
+    provider_type: Literal["openai", "fastgpt", "dify", "openclaw", "worktool_callback"] = "openai"
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
     system_prompt_template: Optional[str] = None
@@ -1790,7 +1790,7 @@ class ProviderUpdate(BaseModel):
     base_url: Optional[str] = None
     api_token: Optional[str] = None
     model: Optional[str] = None
-    provider_type: Optional[Literal["openai", "fastgpt", "openclaw", "worktool_callback"]] = None
+    provider_type: Optional[Literal["openai", "fastgpt", "dify", "openclaw", "worktool_callback"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
     system_prompt_template: Optional[str] = None
@@ -1804,7 +1804,7 @@ class ProviderTestRequest(BaseModel):
     base_url: Optional[str] = None
     api_token: Optional[str] = None
     model: Optional[str] = None
-    provider_type: Optional[Literal["openai", "fastgpt", "openclaw", "worktool_callback"]] = None
+    provider_type: Optional[Literal["openai", "fastgpt", "dify", "openclaw", "worktool_callback"]] = None
     auth_scheme: Optional[Literal["bearer", "x-openclaw-token", "none"]] = None
     extra_json: Optional[str] = None
 
@@ -4895,6 +4895,11 @@ def _build_provider_http_request(rule: Dict[str, Any], prompt: str, payload_extr
     if rule.get("provider_type") == "fastgpt":
         url = _normalize_fastgpt_url(url)
         payload["stream"] = False
+    if rule.get("provider_type") == "dify":
+        from dify_provider import build_dify_request
+        url, payload = build_dify_request(url, payload, prompt, api_token)
+        headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+        headers["Authorization"] = f"Bearer {api_token}"
     return {"url": url, "headers": headers, "payload": payload, "auth_scheme": auth_scheme}
 
 
@@ -7139,6 +7144,11 @@ async def _process_qa_callback_task(
                 messages.append({"role": "system", "content": base_system_prompt})
             messages.extend(provider_context_messages)
             provider_payload_extra = {"messages": messages}
+        if provider_type == "dify":
+            import hashlib
+            identity = json.dumps([robot_pk, scene, context_session_key], ensure_ascii=False)
+            provider_payload_extra = provider_payload_extra or {}
+            provider_payload_extra["_dify_user"] = "console-" + hashlib.sha256(identity.encode()).hexdigest()
         reply_text = await _call_provider(selected_rule, provider_prompt, provider_payload_extra)
         await _send_worktool_text(robot_id, scene, req, reply_text)
         _insert_message_log(robot_pk, "outbound", scene, reply_text, "success")

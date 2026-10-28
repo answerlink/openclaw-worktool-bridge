@@ -73,3 +73,13 @@ python main.py
 绑定令牌和 Webhook 属于敏感配置，不应贴到公开渠道。新增配置表在启动时幂等创建，不批量绑定存量机器人。
 WorkTool 文档说明结果只回调一次、不重试；企微发送失败返回 502 并记录脱敏告警，目前不提供持久化重试或去重保证。
 测试：`python -m unittest test_command_failure_notify`（模拟外部服务，无真实数据库/群消息）。
+
+### Dify 后端服务 API
+
+AI 回复引擎选择 FastGPT 下方的「Dify 后端服务 API」。支持 Dify 聊天助手/Chatflow 的
+`/v1/chat-messages`，地址可填服务器、`/v1` 或完整端点；API Token 填应用 API Key。
+可选 inputs 为 JSON 对象，按应用定义填写必填变量。固定 Bearer + blocking，提取 answer。
+平台将已有隔离上下文及系统提示转换为 query 文本，并按机器人/场景/会话生成散列 user。
+每次请求 conversation_id 为空，由平台管理历史，不续用 Dify 原生会话，也不采用共享自定义 user。
+当前仅支持文本，不支持 Workflow 接口或图片；图片请求明确报错而非静默丢弃。
+新类型由启动时扩展 ai_providers.provider_type ENUM，不改写存量配置。

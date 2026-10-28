@@ -30,7 +30,7 @@ export default function AIHubPage() {
   const [items, setItems] = useState<Provider[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
-  const [providerType, setProviderType] = useState<'openai' | 'fastgpt' | 'openclaw' | 'worktool_callback'>('openai');
+  const [providerType, setProviderType] = useState<'openai' | 'fastgpt' | 'dify' | 'openclaw' | 'worktool_callback'>('openai');
   const [useCustomOpenaiUrl, setUseCustomOpenaiUrl] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,6 +47,12 @@ export default function AIHubPage() {
       } else {
         values.base_url = normalizeOpenaiBaseUrl(values.base_url_openai);
       }
+    } else if (values.provider_type === 'dify') {
+      values.base_url = values.base_url_dify;
+      values.model = '';
+      const inputs = JSON.parse(values.dify_inputs || '{}');
+      if (!inputs || Array.isArray(inputs) || typeof inputs !== 'object') throw new Error('Dify inputs 必须是 JSON 对象');
+      values.extra_json = JSON.stringify({ request_body: { inputs } });
     } else if (values.provider_type === 'fastgpt') {
       values.base_url = values.base_url_fastgpt;
       values.model = '';
@@ -58,6 +64,8 @@ export default function AIHubPage() {
     delete values.base_url_openai;
     delete values.base_url_openclaw;
     delete values.base_url_fastgpt;
+    delete values.base_url_dify;
+    delete values.dify_inputs;
     delete values.include_asker_info;
     values.auth_scheme = values.provider_type === 'openclaw' ? 'x-openclaw-token' : 'bearer';
     values.asker_info_mode = values.asker_info_mode || 'off';
@@ -265,6 +273,8 @@ export default function AIHubPage() {
                         base_url_openai: row.base_url,
                         base_url_openclaw: row.base_url,
                         base_url_fastgpt: row.base_url,
+                        base_url_dify: row.base_url,
+                        dify_inputs: nextType !== 'dify' ? '{}' : JSON.stringify((typeof row.extra_json === 'string' ? JSON.parse(row.extra_json || '{}') : row.extra_json)?.request_body?.inputs || {}, null, 2),
                         base_url_preset: preset ? preset.value : '__custom__',
                         model: row.model,
                         provider_type: nextType,
@@ -322,7 +332,7 @@ export default function AIHubPage() {
           </Form.Item>
           <Form.Item name="provider_type" label="引擎类型" rules={[{ required: true }]}>
             <Select
-              onChange={(v: 'openai' | 'fastgpt' | 'openclaw' | 'worktool_callback') => {
+              onChange={(v: 'openai' | 'fastgpt' | 'dify' | 'openclaw' | 'worktool_callback') => {
                 setProviderType(v);
                 if (v === 'openai') {
                   const current = form.getFieldValue('base_url_openai') || '';
@@ -342,6 +352,7 @@ export default function AIHubPage() {
               options={[
                 { label: 'openai(大模型)', value: 'openai' },
                 { label: 'FastGPT 发布 API', value: 'fastgpt' },
+                { label: 'Dify 后端服务 API', value: 'dify' },
                 { label: 'openclaw(小龙虾)', value: 'openclaw' },
                 { label: 'WorkTool 消息回调格式', value: 'worktool_callback' }
               ]}
@@ -401,6 +412,15 @@ export default function AIHubPage() {
                 </Form.Item>
               ) : null}
             </>
+          ) : providerType === 'dify' ? (
+            <>
+              <Form.Item name="base_url_dify" label="Dify 后端服务 API 地址" rules={[{ required: true }]} extra="支持服务器地址、/v1 或完整 /v1/chat-messages。适用于聊天助手/Chatflow，使用 blocking 模式；复用平台文本上下文，每次新建 Dify 会话，不共享 conversation_id。暂不支持 Workflow 和图片。">
+                <Input placeholder="https://api.dify.ai/v1" />
+              </Form.Item>
+              <Form.Item name="dify_inputs" label="Dify inputs（可选）" extra="填写应用定义的输入变量 JSON；无必填变量时留空即可。" rules={[{ validator: async (_, value) => { const v = JSON.parse(value || '{}'); if (!v || Array.isArray(v) || typeof v !== 'object') throw new Error('必须是 JSON 对象'); } }]}>
+                <Input.TextArea rows={3} placeholder='{}' />
+              </Form.Item>
+            </>
           ) : providerType === 'fastgpt' ? (
             <Form.Item
               name="base_url_fastgpt"
@@ -448,9 +468,9 @@ export default function AIHubPage() {
               </Space>
             )}
           >
-            <Input.Password placeholder={providerType === 'fastgpt' ? (editing ? '留空保持原发布 API 密钥' : '填写 FastGPT 应用发布的 API 密钥') : editing ? '留空表示不变更（也可不填）' : '可选，不需要可留空'} />
+            <Input.Password placeholder={providerType === 'dify' ? (editing ? '留空保持原 Dify API Key' : '填写 Dify 应用 API Key（app-...）') : providerType === 'fastgpt' ? (editing ? '留空保持原发布 API 密钥' : '填写 FastGPT 应用发布的 API 密钥') : editing ? '留空表示不变更（也可不填）' : '可选，不需要可留空'} />
           </Form.Item>
-          {providerType === 'openai' || providerType === 'fastgpt' ? (
+          {providerType === 'openai' || providerType === 'fastgpt' || providerType === 'dify' ? (
             <>
               {providerType === 'openai' ? (
                 <>
