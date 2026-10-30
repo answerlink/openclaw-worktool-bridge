@@ -82,3 +82,13 @@ promo-worktool/**/*.m4a
 /七牛云上传/
 /website/media
 /website/.qa/
+
+/宣传片/
+
+/website/y-claw/.qa/
+
+/website/y-claw/media/
+
+/website/y-claw/downloads/*.pptx
+
+/output/
