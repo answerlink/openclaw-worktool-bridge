@@ -1,0 +1,6 @@
+{
+  "steps": [
+    {"action":"http","url":"${env.MOCK_COMMAND_URL}","body":{"socketType":2,"list":[{"type":203,"titleList":["模拟测试群"],"receivedContent":"CI回调测试"}]},"expect":{"code":200},"saveAs":"send"},
+    {"action":"assert","name":"后端执行结果回调到达","source":"callbacks","match":{"body.messageId":"${send.data}","body.type":203,"body.errorCode":0},"timeoutMs":15000}
+  ]
+}

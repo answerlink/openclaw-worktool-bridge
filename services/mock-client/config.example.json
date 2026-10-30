@@ -1,0 +1,14 @@
+{
+  "url": "ws://127.0.0.1:8081/webserver/wework/mock-test-robot?key=test-key",
+  "robotId": "mock-test-robot",
+  "clientInstanceId": "mock-installation-001",
+  "appVersion": "3.9.1.6",
+  "heartbeatMs": 5000,
+  "executionMs": 1200,
+  "eventCallbackUrl": "${callbackUrl}",
+  "rules": [
+    {"type":218,"delayMs":15000},
+    {"type":203,"target":"模拟失败群","delayMs":1000,"errorCode":201101,"errorReason":"发送前房间校验失败(输入前)","failList":["模拟失败群"]}
+  ],
+  "groups": {"模拟测试群":{"groupRemark":"测试备注","groupNumber":3,"nameList":["模拟群主","模拟用户","模拟机器人"]}}
+}

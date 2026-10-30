@@ -60,6 +60,7 @@ const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'));
 const ManualOrderPage = lazy(() => import('./pages/ManualOrderPage'));
 const TestCallbackPage = lazy(() => import('./pages/TestCallbackPage'));
 const BackendNodePage = lazy(() => import('./pages/BackendNodePage'));
+const MockClientPage = lazy(() => import('./pages/MockClientPage'));
 
 const { Header, Sider, Content } = Layout;
 
@@ -144,6 +145,7 @@ function ConsoleApp() {
   const location = useLocation();
   const navigate = useNavigate();
   const [enableTroubleshoot, setEnableTroubleshoot] = useState(false);
+  const [enableMockClient, setEnableMockClient] = useState(false);
   const [enableAdminIpBlacklist, setEnableAdminIpBlacklist] = useState(false);
   const [enableAdminEnterpriseAuth, setEnableAdminEnterpriseAuth] = useState(false);
   const [deploymentMode, setDeploymentMode] = useState<'private' | 'saas' | ''>('');
@@ -225,6 +227,7 @@ function ConsoleApp() {
           const mode = String(d?.deployment_mode || '').toLowerCase();
           setDeploymentMode(mode === 'private' || mode === 'saas' ? mode : '');
           setEnableTroubleshoot(Boolean(d?.enable_troubleshoot));
+          setEnableMockClient(Boolean(d?.enable_mock_client));
           setEnableAdminIpBlacklist(Boolean(d?.enable_admin_ip_blacklist));
           setEnableAdminEnterpriseAuth(Boolean(d?.enable_admin_enterprise_auth));
           setHealthReady(true);
@@ -234,6 +237,7 @@ function ConsoleApp() {
         if (mounted) {
           setDeploymentMode('');
           setEnableTroubleshoot(false);
+          setEnableMockClient(false);
           setEnableAdminIpBlacklist(false);
           setEnableAdminEnterpriseAuth(false);
           setHealthReady(true);
@@ -296,7 +300,8 @@ function ConsoleApp() {
   }, [authed, location.pathname, location.search]);
 
   useEffect(() => {
-    if (!authed || location.pathname === '/login' || robotInitChecked) {
+    // The optional simulator owns test sessions and needs no bound business robot.
+    if (!authed || location.pathname === '/login' || location.pathname === '/mock-client' || robotInitChecked) {
       return;
     }
     let mounted = true;
@@ -339,6 +344,7 @@ function ConsoleApp() {
       const adminItems: any[] = [
         { key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户管理</Link> }
       ];
+      if (enableMockClient) adminItems.push({ key: '/mock-client', icon: <ApiOutlined />, label: <Link to="/mock-client">模拟客户端</Link> });
       if (isSaasDeployment) {
         if (enableTroubleshoot) {
           adminItems.push({ key: '/troubleshoot', icon: <SearchOutlined />, label: <Link to="/troubleshoot">机器人排查</Link> });
@@ -364,7 +370,7 @@ function ConsoleApp() {
       baseItems.push(...adminItems);
     }
     return baseItems;
-  }, [enableTroubleshoot, isAdmin, isSaasDeployment, enableAdminIpBlacklist, enableAdminEnterpriseAuth]);
+  }, [enableTroubleshoot, enableMockClient, isAdmin, isSaasDeployment, enableAdminIpBlacklist, enableAdminEnterpriseAuth]);
 
   const handleLogout = async () => {
     try {
@@ -430,6 +436,7 @@ function ConsoleApp() {
     >
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {isAdmin && enableMockClient ? <Route path="/mock-client" element={<MockClientPage />} /> : <Route path="/mock-client" element={<Navigate to="/dashboard" replace />} />}
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/robot-info" element={<RobotInfoPage />} />
         <Route path="/robots" element={<RobotPage />} />

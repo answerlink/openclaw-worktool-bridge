@@ -1,0 +1,14 @@
+{
+  "name": "worktool-mock-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "scenario": "node src/cli.js",
+    "import-log": "node src/import-log.js"
+  },
+  "dependencies": { "ws": "8.18.3" }
+}

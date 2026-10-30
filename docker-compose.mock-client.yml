@@ -1,0 +1,30 @@
+# Optional plugin: docker compose -f docker-compose.yml -f docker-compose.mock-client.yml up -d --build
+services:
+  backend:
+    environment:
+      ENABLE_MOCK_CLIENT: "true"
+      MOCK_CLIENT_URL: http://mock-client:8787
+      MOCK_CLIENT_SERVICE_KEY: ${MOCK_CLIENT_SERVICE_KEY:?Set a random shared key of at least 16 characters}
+      MOCK_CLIENT_PUBLIC_BASE_URL: ${MOCK_CLIENT_PUBLIC_BASE_URL:-}
+  mock-client:
+    build:
+      context: ./services/mock-client
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      MOCK_CLIENT_SERVICE_KEY: ${MOCK_CLIENT_SERVICE_KEY:?Set a random shared key of at least 16 characters}
+      MAX_SESSIONS: ${MOCK_CLIENT_MAX_SESSIONS:-4}
+      SESSION_IDLE_MINUTES: ${MOCK_CLIENT_IDLE_MINUTES:-30}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - worktool-net

@@ -1,0 +1,7 @@
+{
+  "steps": [
+    {"action":"http","url":"${env.MOCK_COMMAND_URL}","body":{"socketType":2,"list":[{"type":203,"titleList":["模拟测试群"],"receivedContent":"CI模拟消息"}]},"expect":{"code":200},"saveAs":"send"},
+    {"action":"assert","name":"真实后端任务到达并收到确认","match":{"kind":"sent","packet.socketType":1,"packet.messageId":"${send.data}"}},
+    {"action":"assert","name":"真实后端任务已回传执行结果","match":{"kind":"sent","packet.socketType":3,"packet.messageId":"${send.data}","packet.list.0.errorCode":0}}
+  ]
+}

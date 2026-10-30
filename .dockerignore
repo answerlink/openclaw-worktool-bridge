@@ -12,3 +12,5 @@ frontend/performance-results
 __pycache__
 *.py[cod]
 *.log
+services/mock-client/node_modules
+services/mock-client/reports

@@ -1,4 +1,5 @@
 import asyncio
+from mock_client import install as install_mock_client
 import base64
 import hashlib
 import ipaddress
@@ -5560,6 +5561,7 @@ async def health() -> Dict[str, Any]:
         "outbound_private_url_allowed": APP_DEPLOYMENT_MODE == "private",
         "time": now_iso(),
         "enable_troubleshoot": ENABLE_TROUBLESHOOT,
+        "enable_mock_client": mock_client_service.settings.enabled,
         "enable_open_troubleshoot_api": ENABLE_OPEN_TROUBLESHOOT_API,
         "enable_admin_ip_blacklist": ENABLE_ADMIN_IP_BLACKLIST,
         "enable_admin_enterprise_auth": ENABLE_ADMIN_ENTERPRISE_AUTH,
@@ -11853,6 +11855,7 @@ async def admin_update_user_status(
 
 event_service = install_event_tasks(sys.modules[__name__])
 command_failure_service = install_command_failure(sys.modules[__name__])
+mock_client_service = install_mock_client(app, get_current_user, _require_admin)
 
 
 if __name__ == "__main__":

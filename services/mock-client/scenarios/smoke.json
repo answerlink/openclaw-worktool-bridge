@@ -1,0 +1,12 @@
+{
+  "steps": [
+    {"action":"assert","name":"上线503资料上报","match":{"kind":"sent","packet.socketType":2,"packet.list.0.type":503}},
+    {"action":"screen","data":{"titleList":["模拟测试群"],"messageList":[{"sender":0,"nameList":["模拟用户"],"textType":1,"itemMessageList":[{"feature":2,"text":"你好，模拟读屏"}]}]}},
+    {"action":"http","url":"${demoUrl}/send","body":{"command":{"type":203,"titleList":["模拟测试群"],"receivedContent":"模拟回复"}},"expect":{"code":200},"saveAs":"send"},
+    {"action":"assert","name":"接收确认关联原ID","match":{"kind":"sent","packet.socketType":1,"packet.messageId":"${send.data.messageId}"}},
+    {"action":"assert","name":"执行成功关联原ID","match":{"kind":"sent","packet.socketType":3,"packet.messageId":"${send.data.messageId}","packet.list.0.errorCode":0}},
+    {"action":"assert","name":"收到执行结果HTTP回调","source":"callbacks","match":{"body.messageId":"${send.data.messageId}","body.type":203}},
+    {"action":"event","data":{"type":102,"groupName":"模拟群改名","groupRemark":"","roomType":1}},
+    {"action":"assert","name":"客户端直发事件","source":"callbacks","match":{"body.type":102,"body.groupName":"模拟群改名"}}
+  ]
+}

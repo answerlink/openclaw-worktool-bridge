@@ -3,7 +3,7 @@ import { withLegacyMessageCallback } from './robotCallbackConfig';
 import { readListItems } from './listResponse';
 import { AUTH_TOKEN_STORAGE_KEY } from './constants';
 
-const http = axios.create({
+export const http = axios.create({
   baseURL: '/api/v1',
   timeout: 15000
 });

@@ -1,0 +1,61 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WorkTool 模拟客户端</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#203238;background:#f2f5f5}body{max-width:1440px;margin:30px auto;padding:0 24px}h1{font-size:25px;margin:0}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}small,p{color:#61767b}main{display:grid;grid-template-columns:440px 1fr;gap:20px}.card{background:white;border:1px solid #dce5e5;border-radius:12px;padding:20px;margin-bottom:18px}h2{font-size:17px;margin-top:0}label{display:block;margin:12px 0 6px;font-size:13px}input,textarea{box-sizing:border-box;width:100%;padding:10px;border:1px solid #c5d2d3;border-radius:6px;font:13px monospace}textarea{resize:vertical}button{border:0;border-radius:6px;padding:10px 13px;background:#e7eeee;color:#24484e;cursor:pointer;margin:6px 6px 0 0}button.primary{background:#326e76;color:white}button:disabled{opacity:.5;cursor:wait}.status{padding:8px 14px;background:#e2ecec;border-radius:20px}.stats{display:flex;gap:20px;flex-wrap:wrap}.stats b{display:block;font-size:24px;margin-top:8px}#error{color:#ab3737;white-space:pre-wrap}#events{height:520px;overflow:auto;font:12px monospace}.event{border-bottom:1px solid #e8eeee;padding:8px 0}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.row{display:flex;gap:10px}.row>div{flex:1}#callbacks{max-height:220px;overflow:auto;font-size:12px}@media(max-width:850px){main{grid-template-columns:1fr}body{padding:0 12px}.card{padding:14px}}
+</style>
+<header><div><h1>WorkTool 模拟客户端</h1><p>协议联调 · 故障模拟 · 场景回归</p></div><span id="status" class="status">未连接</span></header><div class="card"><span id="sessionLabel">正在建立会话…</span> <button id="newSession">新建会话</button><button id="anotherSession">另开独立会话</button><button id="deleteSession">关闭此会话</button><small id="sessionHint"></small></div><div id="error" role="alert"></div>
+<main><section>
+<div class="card"><h2>连接机器人</h2><label>WebSocket 地址（含机器人 ID，可带 key）</label><input id="url" value="ws://127.0.0.1:8081/webserver/wework/mock-test-robot"><div class="row"><div><label>机器人 ID</label><input id="robot" value="mock-test-robot"></div><div><label>客户端版本</label><input id="version" value="3.9.1.6"></div></div><label>安装实例 ID（相同值模拟同设备重连）</label><input id="instance" value="mock-installation-001"><label>账号登录 Token（可选）</label><input id="token" type="password" autocomplete="off"><label>事件回调地址（留空使用本会话接收器）</label><input id="callback" placeholder="http://..."><label>执行耗时 / 毫秒</label><input id="delay" type="number" min="0" value="1200"><button class="primary" id="connect">连接测试后端</button><button id="demo">启动本地演示</button><button id="stop">停止</button><p id="receiver"></p></div>
+<div class="card"><h2>行为控制</h2><button data-action="pause">暂停运行</button><button data-action="resume">恢复运行</button><button data-action="disconnect">断线后重连</button><button id="heartbeat">暂停心跳</button><label>读屏上报 / 事件 JSON</label><textarea id="payload" rows="9">{"titleList":["模拟测试群"],"messageList":[{"sender":0,"nameList":["模拟用户"],"textType":1,"itemMessageList":[{"feature":2,"text":"你好，模拟读屏"}]}]}</textarea><button id="screen">上报读屏</button><button id="event">发送事件 HTTP</button><p>事件示例：{"type":102,"groupName":"模拟群改名","groupRemark":"","roomType":1}</p></div>
+<div class="card"><h2>执行规则</h2><p>按顺序匹配 type、messageId、target；支持 delayMs、errorCode、errorReason、dropResult。</p><textarea id="rules" rows="5">[{"type":218,"delayMs":15000}]</textarea><button id="apply">应用规则</button></div>
+</section><section>
+<div class="card"><div class="stats" id="stats"></div><p id="active"></p></div>
+<div class="card"><h2>演示后端下发任务</h2><textarea id="command" rows="3">{"type":203,"titleList":["模拟测试群"],"receivedContent":"你好"}</textarea><button id="send">下发任务</button><p>连接真实后端时，请通过真实后端的 API 下发，回执将自动关联 messageId。</p></div>
+<div class="card"><h2>双向协议时间线</h2><button id="export">导出当前记录</button><div id="events"></div></div>
+<div class="card"><h2>收到的 HTTP 回调</h2><div id="callbacks"></div></div>
+<div class="card"><h2>场景回归</h2><textarea id="scenario" rows="6">{"steps":[{"action":"http","url":"${demoUrl}/send","body":{"command":{"type":203,"titleList":["模拟测试群"],"receivedContent":"场景消息"}},"saveAs":"task"},{"action":"assert","name":"确认执行成功","match":{"kind":"sent","packet.socketType":3,"packet.messageId":"${task.data.messageId}","packet.list.0.errorCode":0}}]}</textarea><button id="run">执行场景</button><pre id="report"></pre></div>
+</section></main>
+<script>
+const $=id=>document.getElementById(id);
+const storageKey='mock-session:'+location.pathname;
+const pageUrl=new URL(location.href);
+if(pageUrl.searchParams.has('new')){sessionStorage.removeItem(storageKey);pageUrl.searchParams.delete('new');history.replaceState(null,'',pageUrl)}
+let sessionId=sessionStorage.getItem(storageKey)||'',state={},epoch='',traceCursor=0,callbackCursor=0,traces=[],callbacks=[],pollTimer,refreshing=false;
+async function request(path,data){const r=await fetch(new URL('api/'+path,location.href),{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'content-type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});const body=await r.json();if(!r.ok){const e=Error(body.error||'请求失败');e.status=r.status;throw e}return body}
+function api(path,data){if(!sessionId)throw Error('请新建会话');return request('sessions/'+sessionId+'/'+path,data)}
+function resetView(){state={};epoch='';traceCursor=0;callbackCursor=0;traces=[];callbacks=[];$('events').replaceChildren();$('callbacks').textContent='';$('report').textContent=''}
+async function createSession(){const s=await request('sessions',{});sessionId=s.id;sessionStorage.setItem(storageKey,sessionId);resetView();$('sessionLabel').textContent='会话 '+sessionId.slice(0,8);$('sessionHint').textContent=s.idleMinutes?` 页面关闭或隐藏 ${s.idleMinutes} 分钟后自动清理；运行中的场景除外。`:' 会话保留至手动关闭或服务重启。';await refresh()}
+function bind(id,fn){$(id).onclick=async()=>{try{$('error').textContent='';$(id).disabled=true;await fn()}catch(e){$('error').textContent=e.message}finally{$(id).disabled=false}}}
+function config(){return{url:$('url').value,robotId:$('robot').value,appVersion:$('version').value,clientInstanceId:$('instance').value,token:$('token').value,eventCallbackUrl:$('callback').value,executionMs:Number($('delay').value),rules:JSON.parse($('rules').value)}}
+bind('newSession',async()=>{if(sessionId)try{await api('delete',{})}catch(e){if(e.status!==404)throw e}await createSession()});
+bind('anotherSession',()=>window.open(new URL('?new=1',location.href),'_blank','noopener'));
+bind('deleteSession',async()=>{if(sessionId)await api('delete',{});sessionId='';sessionStorage.removeItem(storageKey);resetView();$('status').textContent='未连接';$('sessionLabel').textContent='会话已关闭';$('stats').replaceChildren();$('active').textContent='';$('receiver').textContent='';$('sessionHint').textContent=''});
+bind('connect',async()=>{await api('connect',{config:config()});await refresh()});bind('demo',async()=>{await api('connect',{demo:true,config:config()});await refresh()});bind('stop',async()=>{await api('stop',{});await refresh()});
+document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>api('action',{action:b.dataset.action}).catch(e=>$('error').textContent=e.message));
+bind('heartbeat',()=>api('action',{action:'heartbeat',enabled:!state.heartbeatEnabled}));bind('screen',()=>api('action',{action:'screen',data:JSON.parse($('payload').value)}));bind('event',()=>api('action',{action:'event',data:JSON.parse($('payload').value)}));bind('apply',()=>api('rules',{rules:JSON.parse($('rules').value)}));bind('send',()=>api('demo-command',{command:JSON.parse($('command').value)}));bind('run',async()=>{$('report').textContent=JSON.stringify(await api('scenario',JSON.parse($('scenario').value)),null,2)});
+bind('export',async()=>{const data=await api('export');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='mock-trace.json';a.click();URL.revokeObjectURL(url)});
+function renderTrace(){ $('events').replaceChildren();for(const item of traces.slice().reverse()){const d=document.createElement('details');d.className='event';const s=document.createElement('summary');s.textContent=new Date(item.at).toLocaleTimeString()+' '+item.kind+' '+(item.messageId||item.packet?.messageId||'');const p=document.createElement('pre');p.textContent=JSON.stringify(item,null,2);d.append(s,p);$('events').append(d)}}
+async function refresh(){
+  clearTimeout(pollTimer);
+  if(refreshing||document.hidden||!sessionId)return;
+  refreshing=true;const selected=sessionId;
+  try{
+    const next=await api('state?'+new URLSearchParams({epoch,after:traceCursor,callbackAfter:callbackCursor}));
+    if(selected!==sessionId)return;
+    if(next.reset||next.epoch!==epoch){traces=[];callbacks=[]}
+    epoch=next.epoch;traceCursor=next.traceCursor;callbackCursor=next.callbackCursor;
+    traces=traces.concat(next.trace).slice(-150);callbacks=callbacks.concat(next.callbacks).slice(-100);state=next;
+    $('sessionLabel').textContent='会话 '+sessionId.slice(0,8);
+    $('sessionHint').textContent=state.idleMinutes?` 页面关闭或隐藏 ${state.idleMinutes} 分钟后自动清理；运行中的场景除外。`:' 会话保留至手动关闭或服务重启。';
+    $('status').textContent=state.connected?(state.paused?'已连接 · 暂停':'已连接 · 运行'):state.running?'等待重连':'未连接';
+    $('heartbeat').textContent=state.heartbeatEnabled?'暂停心跳':'恢复心跳';$('receiver').textContent='本会话回调接收地址：'+state.callbackUrl;
+    $('active').textContent='执行中：'+JSON.stringify(state.active||null);$('stats').replaceChildren();
+    for(const [label,value]of [['排队',state.queueLength||0],['接收确认',state.metrics?.acknowledgements||0],['执行结果',state.metrics?.results||0],['重复包',state.metrics?.duplicate||0]]){const d=document.createElement('div');d.textContent=label;const b=document.createElement('b');b.textContent=value;d.append(b);$('stats').append(d)}
+    if(next.reset||next.trace.length)renderTrace();
+    if(next.reset||next.callbacks.length)$('callbacks').textContent=JSON.stringify(callbacks,null,2);
+    if(next.traceGap||next.callbackGap)$('error').textContent='较早的日志已按容量清理，当前显示保留记录。';
+  }catch(e){if(selected!==sessionId)return;$('status').textContent='控制台服务未连接';$('error').textContent=e.message;if(e.status===404){sessionId='';sessionStorage.removeItem(storageKey);$('sessionLabel').textContent='会话已清理，请新建会话'}}
+  finally{refreshing=false;if(!document.hidden&&sessionId)pollTimer=setTimeout(refresh,1000)}
+}
+document.addEventListener('visibilitychange',()=>{clearTimeout(pollTimer);if(!document.hidden)void refresh()});
+if(sessionId)void refresh();else createSession().catch(e=>$('error').textContent=e.message);
+</script></html>
